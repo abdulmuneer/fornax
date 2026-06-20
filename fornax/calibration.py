@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
+import subprocess
 import sys
 import time
 from typing import Any
@@ -14,7 +16,9 @@ def _positive_int(name: str, value: int) -> None:
         raise ValueError(f"{name} must be a positive integer")
 
 
-def run_cpu_memory_copy_probe(*, size_bytes: int = 16 * 1024 * 1024, iterations: int = 8) -> dict[str, Any]:
+def run_cpu_memory_copy_probe(
+    *, size_bytes: int = 16 * 1024 * 1024, iterations: int = 8
+) -> dict[str, Any]:
     """Measure a simple CPU memory copy path with stdlib bytearrays."""
 
     _positive_int("size_bytes", size_bytes)
@@ -70,7 +74,7 @@ def run_cpu_scalar_compute_probe(*, iterations: int = 200_000) -> dict[str, Any]
 
 
 def _torch_cuda_probe(*, matrix_dim: int, iterations: int) -> dict[str, Any]:
-    """Optionally measure a tiny CUDA matmul if torch is already installed."""
+    """Optionally measure a tiny CUDA matmul if torch is installed here."""
 
     _positive_int("matrix_dim", matrix_dim)
     _positive_int("iterations", iterations)
@@ -80,6 +84,7 @@ def _torch_cuda_probe(*, matrix_dim: int, iterations: int) -> dict[str, Any]:
         return {
             "measured": False,
             "backend": "torch",
+            "backend_mode": "in_process",
             "available": False,
             "error": f"torch import failed: {type(exc).__name__}: {exc}",
         }
@@ -87,6 +92,7 @@ def _torch_cuda_probe(*, matrix_dim: int, iterations: int) -> dict[str, Any]:
         return {
             "measured": False,
             "backend": "torch",
+            "backend_mode": "in_process",
             "available": False,
             "error": "torch.cuda.is_available() is false",
             "torch_version": getattr(torch, "__version__", "unknown"),
@@ -97,7 +103,6 @@ def _torch_cuda_probe(*, matrix_dim: int, iterations: int) -> dict[str, Any]:
         torch.cuda.set_device(device)
         a = torch.ones((matrix_dim, matrix_dim), device=device, dtype=torch.float16)
         b = torch.eye(matrix_dim, device=device, dtype=torch.float16)
-        # Warmup and synchronization are explicit so elapsed timing is meaningful.
         for _ in range(2):
             _ = a @ b
         torch.cuda.synchronize(device)
@@ -111,9 +116,7 @@ def _torch_cuda_probe(*, matrix_dim: int, iterations: int) -> dict[str, Any]:
         torch.cuda.synchronize(device)
         elapsed_ms = float(start.elapsed_time(end))
         elapsed_s = elapsed_ms / 1000.0
-        # Dense matmul convention: 2 * n^3 ops per multiply.
-        flops = 2 * (matrix_dim ** 3) * iterations
-        checksum = float(out[0, 0].item()) if out is not None else None
+        flops = 2 * (matrix_dim**3) * iterations
         devices.append(
             {
                 "index": index,
@@ -123,16 +126,147 @@ def _torch_cuda_probe(*, matrix_dim: int, iterations: int) -> dict[str, Any]:
                 "elapsed_s": elapsed_s,
                 "flops": flops,
                 "flops_s": flops / elapsed_s if elapsed_s > 0 else None,
-                "checksum": checksum,
+                "checksum": float(out[0, 0].item()) if out is not None else None,
             }
         )
     return {
         "measured": bool(devices),
         "backend": "torch",
+        "backend_mode": "in_process",
         "available": True,
         "torch_version": getattr(torch, "__version__", "unknown"),
         "devices": devices,
-        "note": "Optional torch CUDA microprobe; useful calibration evidence only for the named installed torch build.",
+        "note": "In-process torch CUDA microprobe; useful calibration evidence only for the named installed torch build.",
+    }
+
+
+def _external_torch_cuda_probe(
+    *, torch_python: str, matrix_dim: int, iterations: int
+) -> dict[str, Any]:
+    """Measure CUDA matmul by running a torch-capable external Python."""
+
+    _positive_int("matrix_dim", matrix_dim)
+    _positive_int("iterations", iterations)
+    script = """
+import json
+import sys
+
+matrix_dim = int(sys.argv[1])
+iterations = int(sys.argv[2])
+try:
+    import torch
+except Exception as exc:
+    print(json.dumps({
+        "measured": False,
+        "backend": "torch",
+        "available": False,
+        "error": f"torch import failed: {type(exc).__name__}: {exc}",
+    }))
+    raise SystemExit(0)
+if not torch.cuda.is_available():
+    print(json.dumps({
+        "measured": False,
+        "backend": "torch",
+        "available": False,
+        "error": "torch.cuda.is_available() is false",
+        "torch_version": getattr(torch, "__version__", "unknown"),
+    }))
+    raise SystemExit(0)
+devices = []
+for index in range(torch.cuda.device_count()):
+    device = torch.device(f"cuda:{index}")
+    torch.cuda.set_device(device)
+    a = torch.ones((matrix_dim, matrix_dim), device=device, dtype=torch.float16)
+    b = torch.eye(matrix_dim, device=device, dtype=torch.float16)
+    for _ in range(2):
+        _ = a @ b
+    torch.cuda.synchronize(device)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    out = None
+    for _ in range(iterations):
+        out = a @ b
+    end.record()
+    torch.cuda.synchronize(device)
+    elapsed_ms = float(start.elapsed_time(end))
+    elapsed_s = elapsed_ms / 1000.0
+    flops = 2 * (matrix_dim ** 3) * iterations
+    devices.append({
+        "index": index,
+        "name": torch.cuda.get_device_name(index),
+        "matrix_dim": matrix_dim,
+        "iterations": iterations,
+        "elapsed_s": elapsed_s,
+        "flops": flops,
+        "flops_s": flops / elapsed_s if elapsed_s > 0 else None,
+        "checksum": float(out[0, 0].item()) if out is not None else None,
+    })
+print(json.dumps({
+    "measured": bool(devices),
+    "backend": "torch",
+    "backend_mode": "external_python",
+    "available": True,
+    "torch_version": getattr(torch, "__version__", "unknown"),
+    "python_executable": sys.executable,
+    "devices": devices,
+    "note": "External torch CUDA microprobe; useful calibration evidence only for the named venv/build.",
+}))
+"""
+    try:
+        result = subprocess.run(
+            [torch_python, "-c", script, str(matrix_dim), str(iterations)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "measured": False,
+            "backend": "torch",
+            "backend_mode": "external_python",
+            "available": False,
+            "python_executable": torch_python,
+            "error": f"external torch probe failed to launch: {type(exc).__name__}: {exc}",
+        }
+    stdout = result.stdout.strip()
+    if result.returncode != 0:
+        return {
+            "measured": False,
+            "backend": "torch",
+            "backend_mode": "external_python",
+            "available": False,
+            "python_executable": torch_python,
+            "returncode": result.returncode,
+            "stdout": stdout[-2000:],
+            "stderr": result.stderr.strip()[-2000:],
+            "error": "external torch probe exited nonzero",
+        }
+    try:
+        data = json.loads(stdout.splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        return {
+            "measured": False,
+            "backend": "torch",
+            "backend_mode": "external_python",
+            "available": False,
+            "python_executable": torch_python,
+            "stdout": stdout[-2000:],
+            "stderr": result.stderr.strip()[-2000:],
+            "error": f"external torch probe did not emit JSON: {exc}",
+        }
+    if isinstance(data, dict):
+        data.setdefault("python_executable", torch_python)
+        data.setdefault("backend_mode", "external_python")
+        return data
+    return {
+        "measured": False,
+        "backend": "torch",
+        "backend_mode": "external_python",
+        "available": False,
+        "python_executable": torch_python,
+        "error": "external torch probe JSON was not an object",
     }
 
 
@@ -142,6 +276,7 @@ def run_local_calibration(
     cpu_memory_iterations: int = 8,
     cpu_compute_iterations: int = 200_000,
     try_torch_cuda: bool = True,
+    torch_python: str | None = None,
     cuda_matrix_dim: int = 512,
     cuda_iterations: int = 10,
 ) -> dict[str, Any]:
@@ -152,13 +287,24 @@ def run_local_calibration(
         size_bytes=cpu_memory_bytes, iterations=cpu_memory_iterations
     )
     cpu_compute = run_cpu_scalar_compute_probe(iterations=cpu_compute_iterations)
-    cuda = (
-        _torch_cuda_probe(matrix_dim=cuda_matrix_dim, iterations=cuda_iterations)
-        if try_torch_cuda
-        else {"measured": False, "backend": "torch", "available": False, "error": "disabled by caller"}
-    )
+    if not try_torch_cuda:
+        cuda = {
+            "measured": False,
+            "backend": "torch",
+            "available": False,
+            "error": "disabled by caller",
+        }
+    elif torch_python:
+        cuda = _external_torch_cuda_probe(
+            torch_python=torch_python,
+            matrix_dim=cuda_matrix_dim,
+            iterations=cuda_iterations,
+        )
+    else:
+        cuda = _torch_cuda_probe(matrix_dim=cuda_matrix_dim, iterations=cuda_iterations)
     nvidia_nodes = [
-        node for node in inventory.get("nodes", [])
+        node
+        for node in inventory.get("nodes", [])
         if isinstance(node, dict) and node.get("vendor") == "nvidia"
     ]
     warnings: list[str] = []
@@ -176,7 +322,9 @@ def run_local_calibration(
             "cpu_count": os.cpu_count(),
         },
         "inventory_summary": {
-            "node_count": len(inventory.get("nodes", [])) if isinstance(inventory.get("nodes"), list) else None,
+            "node_count": len(inventory.get("nodes", []))
+            if isinstance(inventory.get("nodes"), list)
+            else None,
             "nvidia_gpu_count": len(nvidia_nodes),
             "nvidia_gpus": [
                 {
@@ -194,6 +342,12 @@ def run_local_calibration(
         "cpu_memory_copy": cpu_memory,
         "cpu_scalar_compute": cpu_compute,
         "cuda_microprobe": cuda,
+        "calibration_inputs": {
+            "try_torch_cuda": try_torch_cuda,
+            "torch_python": torch_python,
+            "cuda_matrix_dim": cuda_matrix_dim,
+            "cuda_iterations": cuda_iterations,
+        },
         "warnings": warnings,
         "note": (
             "Calibration artifact for planner evidence plumbing. G1 throughput claims still require "

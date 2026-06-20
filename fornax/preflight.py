@@ -114,6 +114,7 @@ def run_phase0_preflight(
     ker_status: str = "unassigned",
     scope: str = "pending",
     include_calibration: bool = False,
+    calibration_torch_python: str | None = None,
 ) -> dict[str, Any]:
     """Run the minimal Phase-0 evidence workflow and write a doctorable bundle."""
 
@@ -183,7 +184,7 @@ def run_phase0_preflight(
         )
 
     if include_calibration:
-        calibration = run_local_calibration()
+        calibration = run_local_calibration(torch_python=calibration_torch_python)
         write_json(calibration_path, calibration)
 
     doctor = inspect_phase0_bundle(bundle)

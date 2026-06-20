@@ -159,6 +159,42 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertTrue(artifact["cpu_memory_copy"]["measured"])
         self.assertFalse(artifact["cuda_microprobe"]["measured"])
         self.assertIn("inventory_summary", artifact)
+        self.assertEqual(
+            {
+                "try_torch_cuda": False,
+                "torch_python": None,
+                "cuda_matrix_dim": 512,
+                "cuda_iterations": 10,
+            },
+            artifact["calibration_inputs"],
+        )
+
+    def test_local_calibration_records_external_torch_python_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            fake_python = Path(d) / "fake-torch-python"
+            fake_python.write_text(
+                "#!/bin/sh\n"
+                "cat <<'JSON'\n"
+                '{"measured": false, "backend": "torch", '
+                '"available": false, "error": "fake torch unavailable"}\n'
+                "JSON\n",
+                encoding="utf-8",
+            )
+            fake_python.chmod(0o755)
+            artifact = run_local_calibration(
+                cpu_memory_bytes=1024,
+                cpu_memory_iterations=1,
+                cpu_compute_iterations=10,
+                torch_python=str(fake_python),
+                cuda_matrix_dim=8,
+                cuda_iterations=1,
+            )
+        cuda = artifact["cuda_microprobe"]
+        self.assertEqual("external_python", cuda["backend_mode"])
+        self.assertEqual(str(fake_python), cuda["python_executable"])
+        self.assertFalse(cuda["measured"])
+        self.assertIn("torch", cuda["error"])
+        self.assertEqual(str(fake_python), artifact["calibration_inputs"]["torch_python"])
 
     def test_program_rebaseline_unavailable_ker_warns_and_dates_schedule(self) -> None:
         result = render_program_rebaseline_draft(
@@ -753,12 +789,23 @@ class FornaxPlannerTest(unittest.TestCase):
     def test_phase0_preflight_can_include_g1_drafts(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             bundle = Path(d) / "bundle"
+            fake_python = Path(d) / "fake-torch-python"
+            fake_python.write_text(
+                "#!/bin/sh\n"
+                "cat <<'JSON'\n"
+                '{"measured": false, "backend": "torch", '
+                '"available": false, "error": "fake torch unavailable"}\n'
+                "JSON\n",
+                encoding="utf-8",
+            )
+            fake_python.chmod(0o755)
             result = run_phase0_preflight(
                 target_path="fornax/golden_plans/v0_target_contract_fixture.md",
                 out_dir=bundle,
                 benchmark_iterations=1,
                 include_g1_drafts=True,
                 include_calibration=True,
+                calibration_torch_python=str(fake_python),
                 substrate_pinned_build="max-26.4.0",
                 kickoff_date="2026-06-20",
                 ker_status="unavailable",

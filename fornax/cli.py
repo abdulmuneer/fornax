@@ -89,6 +89,7 @@ def _cmd_calibrate_local(args: argparse.Namespace) -> int:
             cpu_memory_iterations=args.cpu_memory_iterations,
             cpu_compute_iterations=args.cpu_compute_iterations,
             try_torch_cuda=not args.no_torch_cuda,
+            torch_python=args.torch_python,
             cuda_matrix_dim=args.cuda_matrix_dim,
             cuda_iterations=args.cuda_iterations,
         )
@@ -262,6 +263,7 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
             ker_status=args.ker_status,
             scope=args.scope,
             include_calibration=args.include_calibration,
+            calibration_torch_python=args.calibration_torch_python,
         )
     except (OSError, ValueError) as exc:
         print(f"preflight: {exc}")
@@ -377,6 +379,7 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate_local.add_argument("--cpu-memory-iterations", type=int, default=8)
     calibrate_local.add_argument("--cpu-compute-iterations", type=int, default=200000)
     calibrate_local.add_argument("--no-torch-cuda", action="store_true")
+    calibrate_local.add_argument("--torch-python")
     calibrate_local.add_argument("--cuda-matrix-dim", type=int, default=512)
     calibrate_local.add_argument("--cuda-iterations", type=int, default=10)
     calibrate_local.set_defaults(func=_cmd_calibrate_local)
@@ -474,6 +477,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--benchmark-iterations", type=int, default=25)
     preflight.add_argument("--include-g1-drafts", action="store_true")
     preflight.add_argument("--include-calibration", action="store_true")
+    preflight.add_argument("--calibration-torch-python")
     preflight.add_argument("--substrate-pinned-build", default="unset")
     preflight.add_argument("--kickoff-date")
     preflight.add_argument("--ker-status", choices=KER_STATUS_VALUES, default="unassigned")

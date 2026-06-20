@@ -595,3 +595,48 @@
   /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
   `make fornax-golden` all passed.
 
+### External torch H100 calibration probe milestone
+
+- Added external torch backend support to local calibration via `fornax calibrate
+  local --torch-python` and `fornax preflight --calibration-torch-python`, so
+  Phase-0 evidence can use an existing torch-capable venv without adding PyTorch
+  as a dependency of the repo Python environment.
+- Ran the H100 smoke through `/mnt/dataprocessing/venvs/asr-data-prep/bin/python`.
+  The artifact records `backend_mode=external_python`, PyTorch `2.12.0+cu130`,
+  and two measured `NVIDIA H100 80GB HBM3` CUDA devices. The only calibration
+  warning left in that artifact is the intended CPU-plumbing caveat.
+- Added deterministic unit coverage for external-Python JSON/fallback handling
+  and wired preflight tests through the new `calibration_torch_python` path.
+- Review-lens pass:
+  - Hardware: approve with comments. H100 CUDA measurement is now real for the
+    named ASR venv/build, but it remains a tiny matmul microprobe rather than
+    target-model or interconnect throughput evidence.
+  - Analytical: approve with comments. The artifact records provenance and
+    inputs, but G1 claims still need target-model, MAX/Mojo, and active fabric
+    calibration thresholds.
+  - Software Engineering: approve. The implementation keeps the default path
+    dependency-light while allowing explicit, auditable use of a known torch
+    environment.
+- Verification: focused calibration/preflight unit tests, `python3 -m unittest
+  discover -s tests -p 'test_fornax*.py'`, `python3 -m compileall -q fornax
+  tests`, `python3 -m fornax calibrate local --out
+  /tmp/fornax_local_calibration_h100.json --cpu-memory-bytes 1048576
+  --cpu-memory-iterations 2 --cpu-compute-iterations 10000 --torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --cuda-matrix-dim 512
+  --cuda-iterations 3`, `python3 -m fornax preflight --target
+  fornax/golden_plans/v0_target_contract_fixture.md --out-dir
+  /tmp/fornax_preflight_with_external_calibration --benchmark-iterations 1
+  --include-g1-drafts --include-calibration --calibration-torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --substrate-pinned-build
+  max-26.4.0 --kickoff-date 2026-06-20 --ker-status unavailable --scope
+  pending`, `python3 -m fornax doctor --bundle
+  /tmp/fornax_preflight_with_external_calibration --out
+  /tmp/fornax_preflight_with_external_calibration/doctor_rerun.json`, `python3
+  -m fornax test golden-plans`, `python3 -m fornax test runtime-format --golden
+  fornax/golden_vectors/runtime_format`, `python3 -m fornax test
+  network-contract --mode simulated --fixture fornax/golden_vectors/network_contract`,
+  `python3 -m fornax spec runtime-format --golden fornax/golden_vectors/runtime_format
+  --out /tmp/fornax_runtime_format_and_invariants.md`, `python3 -m fornax spec
+  network-security --fixture fornax/golden_vectors/network_contract --out
+  /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
+  `make fornax-golden` all passed.
