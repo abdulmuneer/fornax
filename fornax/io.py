@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .contracts import load_target_contract
 from .planner import Inventory, ModelSpec, Target
 
 
@@ -19,10 +20,8 @@ def write_json(path: str | Path, data: Any) -> None:
 
 
 def load_model_target(path: str | Path) -> tuple[ModelSpec, Target]:
-    data = read_json(path)
-    if "model" not in data or "target" not in data:
-        raise ValueError("target JSON must contain top-level 'model' and 'target'")
-    return ModelSpec.from_dict(data["model"]), Target.from_dict(data["target"])
+    model, target, _ = load_target_contract(path)
+    return model, target
 
 
 def load_inventory(path: str | Path, links_path: str | Path | None = None) -> Inventory:

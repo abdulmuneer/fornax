@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
+from fornax.contracts import TargetContractError, load_target_contract
 from fornax.golden import run_golden_plans
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 
@@ -67,6 +70,23 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 
 class FornaxPlannerTest(unittest.TestCase):
+
+    def test_markdown_target_contract_fixture_loads(self) -> None:
+        model, target, bundle = load_target_contract(
+            "fornax/golden_plans/v0_target_contract_fixture.md"
+        )
+        self.assertEqual(2, model.num_layers)
+        self.assertEqual(4, target.concurrency)
+        self.assertIn("model", bundle)
+        self.assertIn("target", bundle)
+
+    def test_markdown_target_contract_requires_machine_readable_block(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "bad-contract.md"
+            path.write_text("# Missing machine block\n", encoding="utf-8")
+            with self.assertRaisesRegex(TargetContractError, "fornax-target"):
+                load_target_contract(path)
+
     def test_golden_plan_fixtures(self) -> None:
         results = run_golden_plans()
         self.assertTrue(results)

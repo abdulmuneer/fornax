@@ -46,3 +46,17 @@
   not force a spanning plan, so the optimizer legally selected one stage. Added
   fixture `plan_options` support and pinned that case to exactly two stages.
 
+### Contract parser follow-up
+
+- Addressed the high-level review gap from the first milestone: `fornax target
+  validate` now accepts a markdown target contract containing a fenced
+  `json fornax-target` machine-readable block, in addition to bare JSON bundles.
+- Added `fornax.contracts.TargetContractError` with actionable parse errors when
+  the machine-readable block is missing or malformed.
+- Added a packaged markdown fixture and tests so S0-2 can evolve toward the real
+  `docs/fornax/v0-target-contract.md` artifact without making the CLI depend on
+  oral context.
+- Verification: `python3 -m unittest discover -s tests -p 'test_fornax*.py'`,
+  `python3 -m fornax test golden-plans`, `python3 -m compileall -q fornax tests`,
+  and direct markdown `fornax target validate` all passed.
+
