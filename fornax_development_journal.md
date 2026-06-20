@@ -328,3 +328,34 @@
   `python3 -m fornax test network-contract --mode simulated --fixture
   fornax/golden_vectors/network_contract`, `make fornax-test`, and `make
   fornax-golden` all passed.
+
+### Networking-security spec draft milestone
+
+- Added `fornax.network_security_spec.render_network_security_spec_draft` and
+  the `fornax spec network-security` command to generate a reviewable
+  `networking-security-and-backpressure.md` draft from the simulated
+  network-contract fixture.
+- The draft covers the Phase-0/Phase-1a trust boundary, node identity, endpoint
+  auth posture, plan-integrity rejection, bounded queue/backpressure behavior,
+  timeout/retry/cancel/partition semantics, simulated event trace, phased
+  implementation requirements, transport posture, and lab/product security
+  separation.
+- Review-lens pass:
+  - Networking/System: approve with comments. The spec makes T1 semantics and
+    later phase requirements explicit, but it is still simulated evidence rather
+    than transport or product-security implementation.
+  - Software Engineering: approve. The draft is generated from the same fixture
+    used by `fornax test network-contract`, keeping spec text tied to executable
+    checks.
+  - Security/Product: approve with comments. Default-deny, endpoint auth,
+    encryption posture, and audit logs are called out for product deployment;
+    Phase 0 still uses lab/simulation boundaries only.
+- Verification: `python3 -m fornax spec network-security --fixture
+  fornax/golden_vectors/network_contract --out
+  /tmp/fornax_networking_security_and_backpressure.md`, `python3 -m
+  unittest discover -s tests -p 'test_fornax*.py'`, `python3 -m compileall
+  -q fornax tests`, `python3 -m fornax test golden-plans`, `python3 -m
+  fornax test runtime-format --golden fornax/golden_vectors/runtime_format`,
+  `python3 -m fornax test network-contract --mode simulated --fixture
+  fornax/golden_vectors/network_contract`, `make fornax-test`, and `make
+  fornax-golden` all passed.

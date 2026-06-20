@@ -14,6 +14,7 @@ from .io import load_inventory, load_model_target, read_json, write_json
 from .planner import plan_placement
 from .preflight import run_phase0_preflight
 from .network_contract import validate_network_contract
+from .network_security_spec import render_network_security_spec_draft
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
 from .simulate import simulation_result, summarize_request_trace
@@ -168,6 +169,18 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
     return 2
 
 
+def _cmd_spec_network_security(args: argparse.Namespace) -> int:
+    try:
+        result = render_network_security_spec_draft(args.fixture)
+    except (OSError, ValueError) as exc:
+        print(f"spec network-security: {exc}")
+        return 2
+    Path(args.out).write_text(result["markdown"], encoding="utf-8")
+    status = "valid" if result["ok"] else "invalid"
+    print(f"wrote network-security spec draft: {args.out} ({status})")
+    return 0 if result["ok"] else 2
+
+
 def _cmd_spec_runtime_format(args: argparse.Namespace) -> int:
     try:
         result = render_runtime_format_spec_draft(args.golden)
@@ -298,6 +311,11 @@ def build_parser() -> argparse.ArgumentParser:
     spec_runtime.add_argument("--golden", default="fornax/golden_vectors/runtime_format")
     spec_runtime.add_argument("--out", required=True)
     spec_runtime.set_defaults(func=_cmd_spec_runtime_format)
+
+    spec_network = spec_sub.add_parser("network-security")
+    spec_network.add_argument("--fixture", default="fornax/golden_vectors/network_contract")
+    spec_network.add_argument("--out", required=True)
+    spec_network.set_defaults(func=_cmd_spec_network_security)
 
     tests = sub.add_parser("test")
     tests.add_argument("test_name", choices=["golden-plans", "runtime-format", "network-contract"])

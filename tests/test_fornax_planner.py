@@ -14,6 +14,7 @@ from fornax.inventory.local import (
     parse_nvidia_smi_csv,
     probe_declared_links,
 )
+from fornax.network_security_spec import render_network_security_spec_draft
 from fornax.network_contract import (
     validate_network_contract,
     validate_network_contract_fixture,
@@ -178,6 +179,18 @@ class FornaxPlannerTest(unittest.TestCase):
         )
         self.assertFalse(result["ok"])
         self.assertIn("dequeues unknown request_id", "; ".join(result["errors"]))
+
+    def test_network_security_spec_draft_includes_review_sections(self) -> None:
+        result = render_network_security_spec_draft("fornax/golden_vectors/network_contract")
+        self.assertTrue(result["ok"], result["validation"])
+        markdown = result["markdown"]
+        self.assertIn("Status: DRAFT", markdown)
+        self.assertIn("## V0 Trust Boundary", markdown)
+        self.assertIn("## Node Identity And Endpoint Auth", markdown)
+        self.assertIn("## Backpressure And Queue Contract", markdown)
+        self.assertIn("## Timeout, Retry, Cancel, And Partition Semantics", markdown)
+        self.assertIn("plan_integrity_reject", markdown)
+        self.assertIn("Phase 1b T3 lab hardware", markdown)
 
     def test_runtime_format_golden_fixture_passes(self) -> None:
         result = validate_runtime_format_golden("fornax/golden_vectors/runtime_format")
