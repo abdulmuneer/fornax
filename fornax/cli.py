@@ -7,9 +7,11 @@ from typing import Any
 
 from .golden import run_golden_plans
 from .inventory import collect_local_inventory, probe_declared_links
+from .contracts import load_target_contract
 from .io import load_inventory, load_model_target, read_json, write_json
 from .planner import plan_placement
 from .simulate import simulation_result, summarize_request_trace
+from .validation import validate_target_contract
 
 
 def _cmd_inventory_collect(args: argparse.Namespace) -> int:
@@ -28,18 +30,18 @@ def _cmd_fabric_probe(args: argparse.Namespace) -> int:
 
 
 def _cmd_target_validate(args: argparse.Namespace) -> int:
-    model, target = load_model_target(args.target)
+    model, target, bundle = load_target_contract(args.target)
     inventory = load_inventory(args.inventory, args.links)
     plan = plan_placement(model, inventory, target)
-    result: dict[str, Any] = {
-        "valid": plan.feasible,
-        "infeasible_reason": plan.infeasible_reason,
-        "predicted": plan.predicted.to_dict() if plan.predicted else None,
-    }
+    result = validate_target_contract(model, target, bundle, inventory, plan=plan)
     if args.out:
         write_json(args.out, result)
-    print("valid" if plan.feasible else f"invalid: {plan.infeasible_reason}")
-    return 0 if plan.feasible else 2
+    if result["valid"]:
+        print("valid")
+        return 0
+    failed = [check["name"] for check in result["checks"] if not check["passed"]]
+    print("invalid: " + ", ".join(failed))
+    return 2
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:

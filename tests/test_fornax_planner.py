@@ -9,6 +9,7 @@ from fornax.golden import run_golden_plans
 from fornax.inventory.local import collect_local_inventory, parse_nvidia_smi_csv
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 from fornax.simulate import simulation_result, summarize_request_trace
+from fornax.validation import validate_target_contract
 
 
 def dense_model(num_layers: int = 4) -> ModelSpec:
@@ -73,6 +74,37 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 class FornaxPlannerTest(unittest.TestCase):
 
+    def test_target_contract_validation_passes_fixture(self) -> None:
+        model, target, bundle = load_target_contract(
+            "fornax/golden_plans/v0_target_contract_fixture.md"
+        )
+        inventory = inventory_with_link()
+        result = validate_target_contract(model, target, bundle, inventory)
+        self.assertTrue(result["valid"], result["checks"])
+        self.assertGreater(result["memory"]["minimum_headroom_fraction"], 0.05)
+
+    def test_target_contract_validation_rejects_missing_gate_metadata(self) -> None:
+        model = dense_model(2)
+        target = Target(4, 16, 8)
+        bundle = {"model": model.to_dict(), "target": target.to_dict()}
+        result = validate_target_contract(model, target, bundle, inventory_with_link())
+        self.assertFalse(result["valid"])
+        failed = {check["name"] for check in result["checks"] if not check["passed"]}
+        self.assertIn("contract.metadata_present", failed)
+        self.assertIn("contract.kill_metric", failed)
+        self.assertIn("contract.concurrency_sweep", failed)
+
+    def test_target_contract_validation_rejects_unmet_throughput_threshold(self) -> None:
+        model, target, bundle = load_target_contract(
+            "fornax/golden_plans/v0_target_contract_fixture.md"
+        )
+        bundle = dict(bundle)
+        bundle["contract"] = dict(bundle["contract"])
+        bundle["contract"]["throughput_threshold_tok_s"] = 1e12
+        result = validate_target_contract(model, target, bundle, inventory_with_link())
+        self.assertFalse(result["valid"])
+        failed = {check["name"] for check in result["checks"] if not check["passed"]}
+        self.assertIn("planner.throughput_threshold_met", failed)
 
     def test_request_trace_summary_supports_phase0_simulate_contract(self) -> None:
         with tempfile.TemporaryDirectory() as d:

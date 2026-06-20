@@ -98,3 +98,32 @@
   --requests /tmp/fornax_requests.json --out /tmp/fornax_preflight/simulate_requests.json`
   smoke check all passed.
 
+### Target-contract validation milestone
+
+- Added executable S0-2/S0-3 checks in `fornax.validation`: target contracts now
+  validate required G1-facing metadata (`seed_target_rationale`, named baselines,
+  kill metric, throughput threshold, memory-headroom threshold, concurrency sweep,
+  and persona concurrency) in addition to planner feasibility.
+- `fornax target validate` now runs the planner and emits named pass/fail checks,
+  predicted throughput, and per-stage memory headroom instead of only reporting
+  whether a placement exists.
+- Updated the packaged markdown target-contract fixture with a `contract` block
+  so it exercises the validation path expected for `docs/fornax/v0-target-contract.md`.
+- Added tests for successful fixture validation, missing gate metadata, and unmet
+  throughput threshold.
+- Review-lens pass:
+  - Analytical: approve with comments. This makes the contract falsifiable against
+    the current planner, but the throughput threshold is still a planner prediction;
+    real G1 evidence still needs measured probe inputs and benchmark baselines.
+  - Hardware: approve with comments. Memory headroom is now computed from the
+    inventory and placement, but measured links and calibrated device throughput
+    remain open.
+  - High-level Software: approve. CLI output names the failing checks, which is
+    actionable for contract authors.
+  - Software Engineering: approve after cleanup. Readability issues in the new
+    validator were fixed before commit.
+- Verification: `python3 -m unittest discover -s tests -p 'test_fornax*.py'`,
+  `python3 -m fornax test golden-plans`, `python3 -m compileall -q fornax tests`,
+  `make fornax-test`, `make fornax-golden`, and direct markdown `fornax target
+  validate` all passed.
+

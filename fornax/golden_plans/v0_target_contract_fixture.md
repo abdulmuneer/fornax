@@ -29,6 +29,30 @@ not a real target contract.
     "prompt_len": 16,
     "gen_len": 8,
     "objective": "max_throughput"
+  },
+  "contract": {
+    "seed_target_rationale": "Accepts the project-plan seed for parser and validator testing only.",
+    "throughput_threshold_tok_s": 1000.0,
+    "memory_headroom_fraction_min": 0.05,
+    "concurrency_sweep": [
+      4,
+      8,
+      16,
+      32
+    ],
+    "persona_min_concurrency": 4,
+    "persona_can_supply_concurrency": true,
+    "baselines": [
+      {
+        "name": "single-node-fit",
+        "status": "fixture-only"
+      },
+      {
+        "name": "naive-sequential-pipeline",
+        "status": "fixture-only"
+      }
+    ],
+    "kill_metric": "Fixture is invalid if the planner cannot produce a feasible plan above threshold."
   }
 }
 ```
