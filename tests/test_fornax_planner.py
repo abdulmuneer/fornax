@@ -8,12 +8,17 @@ from fornax.benchmark import benchmark_from_plan, run_tiny_expert_mlp_benchmark
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
 from fornax.golden import run_golden_plans
-from fornax.inventory.local import collect_local_inventory, parse_nvidia_smi_csv
+from fornax.inventory.local import (
+    collect_local_inventory,
+    parse_nvidia_smi_csv,
+    probe_declared_links,
+)
 from fornax.network_contract import (
     validate_network_contract,
     validate_network_contract_fixture,
 )
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
+from fornax.preflight import run_phase0_preflight
 from fornax.runtime_format import (
     validate_runtime_format_golden,
     validate_runtime_format_manifest,
@@ -399,6 +404,70 @@ class FornaxPlannerTest(unittest.TestCase):
     def test_nvidia_smi_parser_rejects_unexpected_columns(self) -> None:
         with self.assertRaisesRegex(ValueError, "expected 5"):
             parse_nvidia_smi_csv("0, NVIDIA H100\n")
+
+    def test_fabric_probe_synthesizes_same_host_local_links(self) -> None:
+        inventory = {
+            "host_id": "host-a",
+            "nodes": [
+                {"id": "cpu0", "vendor": "cpu", "host_id": "host-a"},
+                {"id": "gpu0", "vendor": "nvidia", "host_id": "host-a"},
+                {"id": "gpu1", "vendor": "nvidia", "host_id": "host-a"},
+            ],
+            "links": [],
+        }
+        result = probe_declared_links(inventory)
+        link_pairs = {tuple(sorted((link["a"], link["b"]))) for link in result["links"]}
+        self.assertEqual({("cpu0", "gpu0"), ("cpu0", "gpu1"), ("gpu0", "gpu1")}, link_pairs)
+        self.assertFalse(result["measured"])
+        self.assertEqual(3, result["estimated_link_count"])
+        self.assertIn("no active fabric measurements recorded", result["warnings"])
+        gpu_link = next(
+            link
+            for link in result["links"]
+            if tuple(sorted((link["a"], link["b"]))) == ("gpu0", "gpu1")
+        )
+        self.assertIn("gpu_peer", gpu_link["measurement"]["source"])
+
+    def test_phase0_preflight_writes_doctorable_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trace = root / "requests.json"
+            trace.write_text('{"requests":[{"prompt_len":8,"gen_len":4}]}\n', encoding="utf-8")
+            bundle = root / "bundle"
+            result = run_phase0_preflight(
+                target_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                out_dir=bundle,
+                requests_path=trace,
+                benchmark_iterations=1,
+                inventory_data={
+                    "nodes": [
+                        {
+                            "id": "fast",
+                            "vendor": "nvidia",
+                            "runtime": "max",
+                            "mem_free_bytes": 16_000_000,
+                            "compute_class": 4_000_000_000_000.0,
+                            "mem_bandwidth_bytes_s": 400_000_000_000.0,
+                            "supports_stage": True,
+                            "supports_expert_worker": True,
+                            "supports_kv": True,
+                            "supported_dtypes": ["fp16"],
+                        }
+                    ],
+                    "links": [],
+                    "source": "test",
+                },
+            )
+            self.assertTrue(result["ok"], result["doctor"])
+            self.assertTrue((bundle / "v0-target-contract.md").exists())
+            self.assertTrue((bundle / "doctor.json").exists())
+            doctor = inspect_phase0_bundle(bundle)
+            self.assertTrue(doctor["ok"])
+            self.assertEqual([], doctor["warnings"])
+            benchmark = (bundle / "benchmark.json").read_text(encoding="utf-8")
+            simulate = (bundle / "simulate.json").read_text(encoding="utf-8")
+            self.assertIn('"measured": true', benchmark)
+            self.assertIn('"request_count": 1', simulate)
 
     def test_markdown_target_contract_fixture_loads(self) -> None:
         model, target, bundle = load_target_contract(

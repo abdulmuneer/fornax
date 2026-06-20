@@ -12,6 +12,7 @@ from .inventory import collect_local_inventory, probe_declared_links
 from .contracts import load_target_contract
 from .io import load_inventory, load_model_target, read_json, write_json
 from .planner import plan_placement
+from .preflight import run_phase0_preflight
 from .network_contract import validate_network_contract
 from .runtime_format import validate_runtime_format_golden
 from .simulate import simulation_result, summarize_request_trace
@@ -122,6 +123,33 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_preflight(args: argparse.Namespace) -> int:
+    if args.requests and args.trace and args.requests != args.trace:
+        print("preflight: pass only one of --requests or --trace")
+        return 2
+    trace_path = args.requests or args.trace
+    try:
+        result = run_phase0_preflight(
+            target_path=args.target,
+            out_dir=args.out_dir,
+            requests_path=trace_path,
+            benchmark_mode=args.benchmark_mode,
+            benchmark_iterations=args.benchmark_iterations,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"preflight: {exc}")
+        return 2
+    doctor = result["doctor"]
+    warnings = list(doctor.get("warnings", []))
+    if result["ok"]:
+        suffix = f"; warnings: {'; '.join(warnings)}" if warnings else ""
+        print(f"preflight: wrote Phase-0 evidence bundle: {result['bundle']}{suffix}")
+        return 0
+    problems = list(doctor.get("errors", [])) + warnings
+    print(f"preflight: bundle incomplete: {'; '.join(problems)}")
+    return 2
+
+
 def _cmd_test_golden(args: argparse.Namespace) -> int:
     results = run_golden_plans()
     for result in results:
@@ -217,6 +245,15 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--bundle", required=True)
     doctor.add_argument("--out")
     doctor.set_defaults(func=_cmd_doctor)
+
+    preflight = sub.add_parser("preflight")
+    preflight.add_argument("--target", required=True)
+    preflight.add_argument("--out-dir", required=True)
+    preflight.add_argument("--requests")
+    preflight.add_argument("--trace", help="deprecated alias for --requests")
+    preflight.add_argument("--benchmark-mode", default="tiny-moe-or-expert-mlp")
+    preflight.add_argument("--benchmark-iterations", type=int, default=25)
+    preflight.set_defaults(func=_cmd_preflight)
 
     tests = sub.add_parser("test")
     tests.add_argument("test_name", choices=["golden-plans", "runtime-format", "network-contract"])

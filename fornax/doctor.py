@@ -52,9 +52,19 @@ def inspect_phase0_bundle(bundle_path: str | Path) -> dict[str, Any]:
                 errors.append("inventory.json must contain at least one node")
         if name == "links.json":
             links = data.get("links")
-            artifacts[name]["link_count"] = len(links) if isinstance(links, list) else None
+            link_count = len(links) if isinstance(links, list) else None
+            artifacts[name]["link_count"] = link_count
+            artifacts[name]["measured"] = bool(data.get("measured"))
+            artifacts[name]["active_measurement_count"] = data.get(
+                "active_measurement_count"
+            )
             if not isinstance(links, list):
                 errors.append("links.json must contain a links list")
+            artifact_warnings = data.get("warnings")
+            if isinstance(artifact_warnings, list):
+                warnings.extend(f"links.json: {warning}" for warning in artifact_warnings)
+            elif link_count and data.get("measured") is False:
+                warnings.append("links.json has links but no active fabric measurements")
         if name == "placement.json":
             feasible = bool(data.get("feasible"))
             artifacts[name]["feasible"] = feasible

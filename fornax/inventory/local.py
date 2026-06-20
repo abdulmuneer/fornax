@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import itertools
 import os
 import platform
 import subprocess
@@ -17,6 +18,10 @@ NVIDIA_QUERY_ARGS = [
 ]
 
 
+def _host_id() -> str:
+    return platform.node() or "localhost"
+
+
 def _memory_bytes() -> int:
     try:
         pages = os.sysconf("SC_PHYS_PAGES")
@@ -26,10 +31,11 @@ def _memory_bytes() -> int:
         return 8 * 1024**3
 
 
-def _cpu_node() -> dict[str, Any]:
+def _cpu_node(host_id: str) -> dict[str, Any]:
     mem = int(_memory_bytes() * 0.70)
     return {
-        "id": platform.node() or "localhost",
+        "id": host_id,
+        "host_id": host_id,
         "vendor": "cpu",
         "runtime": "custom",
         "mem_free_bytes": mem,
@@ -85,8 +91,11 @@ def _nvidia_perf_estimate(name: str) -> tuple[float, float, str]:
     return 5.0e13, 5.0e11, "static_estimate:unknown_nvidia_conservative"
 
 
-def nvidia_nodes_from_smi_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def nvidia_nodes_from_smi_rows(
+    rows: list[dict[str, Any]], host_id: str | None = None
+) -> list[dict[str, Any]]:
     nodes: list[dict[str, Any]] = []
+    host = host_id or _host_id()
     for row in rows:
         compute_class, mem_bandwidth, estimate_source = _nvidia_perf_estimate(row["name"])
         mem_free_bytes_measured = row["memory_free_mib"] * _MIB
@@ -94,6 +103,7 @@ def nvidia_nodes_from_smi_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
         nodes.append(
             {
                 "id": f"gpu{row['index']}",
+                "host_id": host,
                 "vendor": "nvidia",
                 "runtime": "max",
                 "device": f"cuda:{row['index']}",
@@ -143,7 +153,8 @@ def collect_local_inventory(nvidia_smi_csv: str | None = None) -> dict[str, Any]
     calibrate them, so they are explicitly labeled as estimates in the output.
     """
 
-    nodes = [_cpu_node()]
+    host = _host_id()
+    nodes = [_cpu_node(host)]
     errors: list[str] = []
     if nvidia_smi_csv is None:
         nvidia_smi_csv, error = _query_nvidia_smi()
@@ -153,7 +164,7 @@ def collect_local_inventory(nvidia_smi_csv: str | None = None) -> dict[str, Any]
     if nvidia_smi_csv:
         try:
             nvidia_rows = parse_nvidia_smi_csv(nvidia_smi_csv)
-            nodes.extend(nvidia_nodes_from_smi_rows(nvidia_rows))
+            nodes.extend(nvidia_nodes_from_smi_rows(nvidia_rows, host_id=host))
         except ValueError as exc:
             errors.append(f"nvidia-smi parse error: {exc}")
 
@@ -170,6 +181,7 @@ def collect_local_inventory(nvidia_smi_csv: str | None = None) -> dict[str, Any]
     return {
         "nodes": nodes,
         "links": [],
+        "host_id": host,
         "source": "fornax.inventory.collect_local_inventory",
         "measured_fields": measured_fields,
         "estimated_fields": ["compute_class", "mem_bandwidth_bytes_s"],
@@ -178,16 +190,110 @@ def collect_local_inventory(nvidia_smi_csv: str | None = None) -> dict[str, Any]
     }
 
 
+def _node_host(inventory: dict[str, Any], node: dict[str, Any]) -> str | None:
+    value = node.get("host_id", inventory.get("host_id"))
+    return str(value) if value else None
+
+
+def _link_key(link: dict[str, Any]) -> tuple[str, str]:
+    a = str(link["a"])
+    b = str(link["b"])
+    return tuple(sorted((a, b)))
+
+
+def _local_link_estimate(a: dict[str, Any], b: dict[str, Any]) -> tuple[float, float, str]:
+    vendors = {str(a.get("vendor")), str(b.get("vendor"))}
+    if vendors == {"nvidia"}:
+        return 50.0e9, 0.000005, "same_host_gpu_peer_conservative_estimate"
+    if "nvidia" in vendors:
+        return 24.0e9, 0.000020, "same_host_cpu_gpu_pcie_conservative_estimate"
+    return 40.0e9, 0.000010, "same_host_memory_conservative_estimate"
+
+
+def _estimated_local_links(
+    inventory: dict[str, Any], existing: set[tuple[str, str]]
+) -> list[dict[str, Any]]:
+    nodes = [node for node in inventory.get("nodes", []) if isinstance(node, dict)]
+    links: list[dict[str, Any]] = []
+    for a, b in itertools.combinations(nodes, 2):
+        host_a = _node_host(inventory, a)
+        host_b = _node_host(inventory, b)
+        if host_a is None or host_a != host_b:
+            continue
+        node_a = str(a.get("id", ""))
+        node_b = str(b.get("id", ""))
+        if not node_a or not node_b:
+            continue
+        key = tuple(sorted((node_a, node_b)))
+        if key in existing:
+            continue
+        bandwidth, latency, source = _local_link_estimate(a, b)
+        links.append(
+            {
+                "a": key[0],
+                "b": key[1],
+                "bandwidth_bytes_s": bandwidth,
+                "latency_s": latency,
+                "measurement": {
+                    "measured": False,
+                    "source": source,
+                    "host_id": host_a,
+                    "note": (
+                        "Topology-derived local estimate for Phase-0 preflight "
+                        "runnability; replace with active fabric probe evidence "
+                        "before making G1 throughput claims."
+                    ),
+                },
+            }
+        )
+    return links
+
+
 def probe_declared_links(inventory: dict[str, Any]) -> dict[str, Any]:
-    """Echo declared links with a provenance marker.
+    """Return declared links plus same-host local estimates with provenance.
 
     Phase 0 may run without a multi-node lab. This helper keeps the workflow
-    runnable while making it explicit that declared links are not measurements.
+    runnable while making it explicit which links are not active measurements.
     """
 
+    links: list[dict[str, Any]] = []
+    for link in inventory.get("links", []):
+        if not isinstance(link, dict):
+            continue
+        copied = dict(link)
+        copied.setdefault(
+            "measurement",
+            {
+                "measured": False,
+                "source": "declared_inventory_link",
+                "note": "Copied from inventory; not actively probed by Fornax.",
+            },
+        )
+        links.append(copied)
+    existing = {_link_key(link) for link in links}
+    local_links = _estimated_local_links(inventory, existing)
+    links.extend(local_links)
+    active_measurements = [
+        link
+        for link in links
+        if isinstance(link.get("measurement"), dict)
+        and bool(link["measurement"].get("measured"))
+    ]
+    warnings = []
+    if local_links:
+        warnings.append("same-host local links are topology-derived estimates")
+    if links and not active_measurements:
+        warnings.append("no active fabric measurements recorded")
     return {
-        "links": list(inventory.get("links", [])),
+        "links": links,
         "source": "fornax.inventory.probe_declared_links",
-        "measured": False,
-        "note": "No active network probe yet; links are copied from inventory.",
+        "measured": bool(active_measurements) and len(active_measurements) == len(links),
+        "active_measurement_count": len(active_measurements),
+        "estimated_link_count": len(links) - len(active_measurements),
+        "warnings": warnings,
+        "note": (
+            "Declared links are preserved and same-host local links are synthesized "
+            "as conservative estimates. Use active fabric measurements before G1 "
+            "throughput sign-off."
+        ),
     }

@@ -235,3 +235,35 @@
   network-contract --mode simulated --fixture fornax/golden_vectors/network_contract`,
   `make fornax-test`, and `make fornax-golden` all passed.
 
+### Phase-0 preflight bundle milestone
+
+- Added `fornax.preflight.run_phase0_preflight` and the `fornax preflight`
+  command to produce the standard Phase-0 evidence bundle without oral context:
+  target contract copy, `inventory.json`, `links.json`, `placement.json`,
+  `validate.json`, `simulate.json`, `benchmark.json`, and `doctor.json`.
+- Improved `fornax fabric probe` for local development inventories: declared
+  links are preserved and same-host CPU/GPU/GPU links are synthesized as
+  conservative topology-derived estimates so the two-H100 workstation produces a
+  usable planner topology. The artifact and `fornax doctor` warnings still
+  record that these are not active fabric measurements and must be replaced
+  before G1 throughput sign-off.
+- Review-lens pass:
+  - High-level Software: approve. A single command now captures the documented
+    Phase-0 workflow and writes predictable artifact names for review and
+    handoff.
+  - Hardware: approve with comments. The local link records are honest estimates,
+    not fabric measurements. Active bandwidth/latency probing remains required
+    for G1 target throughput claims.
+  - SRE/Operations: approve with comments. The bundle is doctorable and
+    reproducible, but richer operator documentation and remote-node probing are
+    still open.
+- Verification: `python3 -m fornax preflight --target fornax/golden_plans/v0_target_contract_fixture.md --out-dir /tmp/fornax_preflight_cmd --requests /tmp/fornax_preflight_cmd_requests.json --benchmark-iterations 1`,
+  idempotent rerun against `/tmp/fornax_preflight_cmd/v0-target-contract.md`,
+  `python3 -m fornax doctor --bundle /tmp/fornax_preflight_cmd` (ok with
+  estimated-link warnings), `python3 -m unittest discover -s tests -p
+  'test_fornax*.py'`, `python3 -m compileall -q fornax tests`, `python3 -m
+  fornax test golden-plans`, `python3 -m fornax test runtime-format --golden
+  fornax/golden_vectors/runtime_format`, `python3 -m fornax test
+  network-contract --mode simulated --fixture
+  fornax/golden_vectors/network_contract`, `make fornax-test`, and `make
+  fornax-golden` all passed.
