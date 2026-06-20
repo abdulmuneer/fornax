@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .benchmark import benchmark_from_plan
 from .doctor import inspect_phase0_bundle
 from .golden import run_golden_plans
 from .inventory import collect_local_inventory, probe_declared_links
@@ -92,22 +93,18 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
 
 def _cmd_benchmark(args: argparse.Namespace) -> int:
     plan = read_json(args.plan)
-    predicted = plan.get("predicted")
-    if predicted is None:
-        print(f"infeasible plan: {plan.get('infeasible_reason')}")
+    try:
+        result = benchmark_from_plan(plan, mode=args.mode, iterations=args.iterations)
+    except ValueError as exc:
+        print(f"benchmark: {exc}")
         return 2
-    result = {
-        "mode": args.mode,
-        "measured": False,
-        "source": "planner_prediction",
-        "throughput_tok_s": predicted["throughput_tok_s"],
-        "ttft_s": predicted["ttft_s"],
-        "per_request_latency_s": predicted["per_request_latency_s"],
-        "note": "Phase-0 dry benchmark; replace with measured tiny-MoE/expert-MLP result for G1.",
-    }
     if args.out:
         write_json(args.out, result)
-    print(f"benchmark({args.mode}): dry-run throughput={result['throughput_tok_s']:.3f} tok/s")
+    tokens_s = result["result"]["tokens_s"]
+    print(
+        f"benchmark({args.mode}): measured tiny expert-MLP "
+        f"tokens_s={tokens_s:.3f} checksum={result['result']['checksum']:.6f}"
+    )
     return 0
 
 
@@ -212,6 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark = sub.add_parser("benchmark")
     benchmark.add_argument("--plan", required=True)
     benchmark.add_argument("--mode", default="tiny-moe-or-expert-mlp")
+    benchmark.add_argument("--iterations", type=int, default=25)
     benchmark.add_argument("--out")
     benchmark.set_defaults(func=_cmd_benchmark)
 

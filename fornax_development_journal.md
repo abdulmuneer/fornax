@@ -206,3 +206,32 @@
   runtime-format --golden fornax/golden_vectors/runtime_format`, `make
   fornax-test`, and `make fornax-golden` all passed.
 
+### Measured benchmark plumbing milestone
+
+- Replaced the dry-run `fornax benchmark` artifact with a measured deterministic
+  CPU tiny expert-MLP microbenchmark in `fornax.benchmark` while preserving the
+  planner prediction under a separate `plan_predicted` field.
+- The benchmark artifact now records `measured=true`, elapsed time, tokens/sec,
+  expert-calls/sec, checksum, benchmark config, Python/platform environment, and
+  a note that this is Phase-0 benchmark plumbing rather than target-model, MAX,
+  or accelerator throughput evidence.
+- `fornax doctor` now accepts the temporary evidence bundle without the previous
+  dry-run benchmark warning when `benchmark.json` comes from the measured path.
+- Review-lens pass:
+  - Analytical: approve with comments. The number is traceable to an actual
+    measurement and checksum, but it is not a G1 throughput claim for the target
+    model or fleet.
+  - Hardware: approve with comments. This is CPU stdlib measurement only; H100/MAX
+    and fabric-calibrated probes remain open evidence work.
+  - Software Engineering: approve after fix. Initial measured loop regenerated
+    deterministic expert weights inside the timed section; fixed before commit by
+    precomputing weights before timing and recording that in the config.
+- Verification: `python3 -m fornax benchmark --plan /tmp/fornax_preflight/placement.json
+  --mode tiny-moe-or-expert-mlp --iterations 2 --out /tmp/fornax_preflight/benchmark_measured.json`,
+  `python3 -m fornax doctor --bundle /tmp/fornax_preflight`, `python3 -m unittest
+  discover -s tests -p 'test_fornax*.py'`, `python3 -m compileall -q fornax tests`,
+  `python3 -m fornax test golden-plans`, `python3 -m fornax test runtime-format
+  --golden fornax/golden_vectors/runtime_format`, `python3 -m fornax test
+  network-contract --mode simulated --fixture fornax/golden_vectors/network_contract`,
+  `make fornax-test`, and `make fornax-golden` all passed.
+

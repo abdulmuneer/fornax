@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fornax.benchmark import benchmark_from_plan, run_tiny_expert_mlp_benchmark
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
 from fornax.golden import run_golden_plans
@@ -83,6 +84,21 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 class FornaxPlannerTest(unittest.TestCase):
 
+    def test_tiny_expert_mlp_benchmark_records_measurement(self) -> None:
+        result = run_tiny_expert_mlp_benchmark(
+            iterations=1, batch_tokens=2, hidden_dim=4, intermediate_dim=6
+        )
+        self.assertTrue(result["measured"])
+        self.assertEqual("fornax.benchmark.tiny_expert_mlp.cpu_stdlib", result["source"])
+        self.assertTrue(result["config"]["weights_precomputed_before_timing"])
+        self.assertGreater(result["result"]["elapsed_ns"], 0)
+        self.assertEqual(2, result["result"]["tokens_processed"])
+        self.assertEqual(4, result["result"]["expert_calls"])
+        self.assertIsInstance(result["result"]["checksum"], float)
+
+    def test_benchmark_from_plan_rejects_infeasible_plan(self) -> None:
+        with self.assertRaisesRegex(ValueError, "infeasible plan"):
+            benchmark_from_plan({"feasible": False, "infeasible_reason": "no fit"})
 
     def test_network_contract_fixture_passes(self) -> None:
         result = validate_network_contract(
