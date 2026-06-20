@@ -8,7 +8,7 @@ from .io import read_json
 
 REQUIRED_JSON = ["inventory.json", "links.json", "placement.json"]
 RECOMMENDED_ANY = ["target.json", "v0-target-contract.md"]
-RECOMMENDED_JSON = ["validate.json", "simulate.json", "benchmark.json"]
+RECOMMENDED_JSON = ["validate.json", "simulate.json", "benchmark.json", "calibration.json"]
 G1_GATE_ARTIFACT_GROUPS = [
     ("runtime_format_spec", ["runtime-format-and-invariants.md"]),
     ("network_security_spec", ["networking-security-and-backpressure.md"]),
@@ -126,6 +126,19 @@ def inspect_phase0_bundle(bundle_path: str | Path) -> dict[str, Any]:
             artifacts[name]["has_predicted"] = isinstance(data.get("predicted"), dict)
             if not artifacts[name]["has_predicted"]:
                 errors.append("simulate.json missing predicted block")
+        if name == "calibration.json":
+            measured = bool(data.get("measured"))
+            artifacts[name]["measured"] = measured
+            cuda = data.get("cuda_microprobe")
+            if isinstance(cuda, dict):
+                artifacts[name]["cuda_measured"] = bool(cuda.get("measured"))
+            if not measured:
+                warnings.append("calibration.json does not report measured calibration")
+            calibration_warnings = data.get("warnings")
+            if isinstance(calibration_warnings, list):
+                warnings.extend(
+                    f"calibration.json: {warning}" for warning in calibration_warnings
+                )
 
     for key, names in G1_GATE_ARTIFACT_GROUPS:
         present = _present_files(bundle, names)

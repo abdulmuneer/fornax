@@ -11,6 +11,7 @@ from .apple_probe import (
     validate_apple_probe_file,
 )
 from .benchmark import benchmark_from_plan
+from .calibration import run_local_calibration
 from .doctor import inspect_phase0_bundle
 from .golden import run_golden_plans
 from .inventory import collect_local_inventory, probe_declared_links
@@ -79,6 +80,28 @@ def _cmd_apple_role_decision(args: argparse.Namespace) -> int:
         return 0
     print(f"wrote incomplete Apple role decision draft: {args.out} (role={role})")
     return 2
+
+
+def _cmd_calibrate_local(args: argparse.Namespace) -> int:
+    try:
+        result = run_local_calibration(
+            cpu_memory_bytes=args.cpu_memory_bytes,
+            cpu_memory_iterations=args.cpu_memory_iterations,
+            cpu_compute_iterations=args.cpu_compute_iterations,
+            try_torch_cuda=not args.no_torch_cuda,
+            cuda_matrix_dim=args.cuda_matrix_dim,
+            cuda_iterations=args.cuda_iterations,
+        )
+    except ValueError as exc:
+        print(f"calibrate local: {exc}")
+        return 2
+    write_json(args.out, result)
+    warnings = result.get("warnings", [])
+    suffix = ""
+    if warnings:
+        suffix = "; warnings: " + "; ".join(str(warning) for warning in warnings)
+    print(f"wrote local calibration artifact: {args.out}{suffix}")
+    return 0
 
 
 def _cmd_inventory_collect(args: argparse.Namespace) -> int:
@@ -238,6 +261,7 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
             kickoff_date=args.kickoff_date,
             ker_status=args.ker_status,
             scope=args.scope,
+            include_calibration=args.include_calibration,
         )
     except (OSError, ValueError) as exc:
         print(f"preflight: {exc}")
@@ -345,6 +369,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="fornax")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    calibrate = sub.add_parser("calibrate")
+    calibrate_sub = calibrate.add_subparsers(dest="calibrate_command", required=True)
+    calibrate_local = calibrate_sub.add_parser("local")
+    calibrate_local.add_argument("--out", required=True)
+    calibrate_local.add_argument("--cpu-memory-bytes", type=int, default=16 * 1024 * 1024)
+    calibrate_local.add_argument("--cpu-memory-iterations", type=int, default=8)
+    calibrate_local.add_argument("--cpu-compute-iterations", type=int, default=200000)
+    calibrate_local.add_argument("--no-torch-cuda", action="store_true")
+    calibrate_local.add_argument("--cuda-matrix-dim", type=int, default=512)
+    calibrate_local.add_argument("--cuda-iterations", type=int, default=10)
+    calibrate_local.set_defaults(func=_cmd_calibrate_local)
+
     apple = sub.add_parser("apple")
     apple_sub = apple.add_subparsers(dest="apple_command", required=True)
     apple_template = apple_sub.add_parser("probe-template")
@@ -437,6 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--benchmark-mode", default="tiny-moe-or-expert-mlp")
     preflight.add_argument("--benchmark-iterations", type=int, default=25)
     preflight.add_argument("--include-g1-drafts", action="store_true")
+    preflight.add_argument("--include-calibration", action="store_true")
     preflight.add_argument("--substrate-pinned-build", default="unset")
     preflight.add_argument("--kickoff-date")
     preflight.add_argument("--ker-status", choices=KER_STATUS_VALUES, default="unassigned")

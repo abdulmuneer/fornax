@@ -6,6 +6,7 @@ from typing import Any
 
 from .apple_probe import apple_probe_template
 from .benchmark import DEFAULT_MODE, benchmark_from_plan
+from .calibration import run_local_calibration
 from .contracts import load_target_contract
 from .doctor import inspect_phase0_bundle
 from .inventory import collect_local_inventory, probe_declared_links
@@ -112,6 +113,7 @@ def run_phase0_preflight(
     kickoff_date: str | None = None,
     ker_status: str = "unassigned",
     scope: str = "pending",
+    include_calibration: bool = False,
 ) -> dict[str, Any]:
     """Run the minimal Phase-0 evidence workflow and write a doctorable bundle."""
 
@@ -128,6 +130,7 @@ def run_phase0_preflight(
     simulate_path = bundle / "simulate.json"
     benchmark_path = bundle / "benchmark.json"
     doctor_path = bundle / "doctor.json"
+    calibration_path = bundle / "calibration.json"
     generated_g1_artifacts: dict[str, str] = {}
 
     write_json(inventory_path, inventory_data)
@@ -179,6 +182,10 @@ def run_phase0_preflight(
             scope=scope,
         )
 
+    if include_calibration:
+        calibration = run_local_calibration()
+        write_json(calibration_path, calibration)
+
     doctor = inspect_phase0_bundle(bundle)
     write_json(doctor_path, doctor)
     return {
@@ -193,6 +200,7 @@ def run_phase0_preflight(
             "simulate": str(simulate_path),
             "benchmark": str(benchmark_path),
             "doctor": str(doctor_path),
+            **({"calibration": str(calibration_path)} if include_calibration else {}),
             **generated_g1_artifacts,
         },
         "doctor": doctor,

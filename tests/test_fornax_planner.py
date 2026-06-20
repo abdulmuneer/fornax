@@ -10,6 +10,7 @@ from fornax.apple_probe import (
     validate_apple_probe_artifact,
 )
 from fornax.benchmark import benchmark_from_plan, run_tiny_expert_mlp_benchmark
+from fornax.calibration import run_cpu_memory_copy_probe, run_local_calibration
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
 from fornax.golden import run_golden_plans
@@ -143,6 +144,21 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 
 class FornaxPlannerTest(unittest.TestCase):
+
+    def test_local_calibration_records_measured_cpu_probe(self) -> None:
+        memory = run_cpu_memory_copy_probe(size_bytes=1024, iterations=2)
+        self.assertTrue(memory["measured"])
+        self.assertEqual(2048, memory["copied_bytes"])
+        artifact = run_local_calibration(
+            cpu_memory_bytes=1024,
+            cpu_memory_iterations=2,
+            cpu_compute_iterations=10,
+            try_torch_cuda=False,
+        )
+        self.assertTrue(artifact["measured"])
+        self.assertTrue(artifact["cpu_memory_copy"]["measured"])
+        self.assertFalse(artifact["cuda_microprobe"]["measured"])
+        self.assertIn("inventory_summary", artifact)
 
     def test_program_rebaseline_unavailable_ker_warns_and_dates_schedule(self) -> None:
         result = render_program_rebaseline_draft(
@@ -514,6 +530,15 @@ class FornaxPlannerTest(unittest.TestCase):
             (bundle / "validate.json").write_text('{"valid": true}\n', encoding="utf-8")
             (bundle / "simulate.json").write_text('{"predicted": {}}\n', encoding="utf-8")
             (bundle / "benchmark.json").write_text('{"measured": true}\n', encoding="utf-8")
+            write_json(
+                bundle / "calibration.json",
+                run_local_calibration(
+                    cpu_memory_bytes=1024,
+                    cpu_memory_iterations=1,
+                    cpu_compute_iterations=10,
+                    try_torch_cuda=False,
+                ),
+            )
             (bundle / "runtime-format-and-invariants.md").write_text("draft\n", encoding="utf-8")
             (bundle / "networking-security-and-backpressure.md").write_text("draft\n", encoding="utf-8")
             (bundle / "adr" / "0001-max-mojo-substrate.md").write_text("draft\n", encoding="utf-8")
@@ -526,7 +551,9 @@ class FornaxPlannerTest(unittest.TestCase):
             (bundle / "roadmap-staffing-rebaseline.md").write_text("draft\n", encoding="utf-8")
             result = inspect_phase0_bundle(bundle)
         self.assertTrue(result["ok"], result["errors"])
-        self.assertEqual([], result["warnings"])
+        warning_text = "; ".join(result["warnings"])
+        self.assertNotIn("missing G1 gate artifact", warning_text)
+        self.assertNotIn("missing recommended calibration.json", warning_text)
         self.assertEqual(
             "capacity-only",
             result["artifacts"]["apple_probe_validation"]["recommended_role"],
@@ -731,6 +758,7 @@ class FornaxPlannerTest(unittest.TestCase):
                 out_dir=bundle,
                 benchmark_iterations=1,
                 include_g1_drafts=True,
+                include_calibration=True,
                 substrate_pinned_build="max-26.4.0",
                 kickoff_date="2026-06-20",
                 ker_status="unavailable",
@@ -761,6 +789,8 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertTrue((bundle / "adr" / "0001-max-mojo-substrate.md").exists())
             self.assertTrue((bundle / "apple-expert-mlp-probe.json").exists())
             self.assertTrue((bundle / "roadmap-staffing-rebaseline.md").exists())
+            self.assertTrue((bundle / "calibration.json").exists())
+            self.assertTrue(doctor["artifacts"]["calibration.json"]["measured"])
             warnings = doctor["warnings"]
             self.assertNotIn("missing G1 gate artifact: runtime_format_spec", warnings)
             self.assertNotIn("missing G1 gate artifact: network_security_spec", warnings)

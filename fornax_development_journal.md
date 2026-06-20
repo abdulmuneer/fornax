@@ -552,3 +552,46 @@
   /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
   `make fornax-golden` all passed.
 
+### Local calibration artifact milestone
+
+- Added `fornax.calibration.run_local_calibration` and the `fornax calibrate
+  local` command to produce a Phase-0 calibration artifact with measured CPU
+  memory-copy and scalar-compute probes plus local inventory/H100 provenance.
+- The calibration artifact optionally attempts a torch CUDA microprobe when torch
+  is already installed. On this workstation, PyTorch/NumPy/CuPy/Numba are not
+  installed, so the artifact correctly records two discovered H100 GPUs but no
+  measured CUDA microprobe rather than fabricating GPU throughput.
+- `fornax preflight --include-calibration` now writes `calibration.json`, and
+  `fornax doctor` parses it, records measured status/CUDA measured status, and
+  surfaces calibration warnings without making CPU plumbing evidence look like a
+  target-model throughput claim.
+- Review-lens pass:
+  - Analytical: approve with comments. CPU probes are measured and checksummed,
+    but remain calibration plumbing; target-model and active fabric calibration
+    remain G1 evidence gaps.
+  - Hardware: approve with comments. H100 discovery is recorded from `nvidia-smi`,
+    but no CUDA microprobe was measured because no CUDA Python backend is
+    installed in the current environment.
+  - Software Engineering: approve. The calibration path is dependency-light by
+    default and optional-GPU by capability detection rather than a hard torch
+    dependency.
+- Verification: `python3 -m fornax calibrate local --out
+  /tmp/fornax_local_calibration.json --cpu-memory-bytes 1048576
+  --cpu-memory-iterations 2 --cpu-compute-iterations 10000`, `python3 -m fornax
+  preflight --target fornax/golden_plans/v0_target_contract_fixture.md --out-dir
+  /tmp/fornax_preflight_with_calibration --benchmark-iterations 1
+  --include-g1-drafts --include-calibration --substrate-pinned-build max-26.4.0
+  --kickoff-date 2026-06-20 --ker-status unavailable --scope pending`, `python3
+  -m fornax doctor --bundle /tmp/fornax_preflight_with_calibration --out
+  /tmp/fornax_preflight_with_calibration/doctor_rerun.json`, `python3 -m
+  unittest discover -s tests -p 'test_fornax*.py'`, `python3 -m compileall -q
+  fornax tests`, `python3 -m fornax test golden-plans`, `python3 -m fornax test
+  runtime-format --golden fornax/golden_vectors/runtime_format`, `python3 -m
+  fornax test network-contract --mode simulated --fixture
+  fornax/golden_vectors/network_contract`, `python3 -m fornax spec
+  runtime-format --golden fornax/golden_vectors/runtime_format --out
+  /tmp/fornax_runtime_format_and_invariants.md`, `python3 -m fornax spec
+  network-security --fixture fornax/golden_vectors/network_contract --out
+  /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
+  `make fornax-golden` all passed.
+
