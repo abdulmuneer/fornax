@@ -832,6 +832,92 @@ class FornaxPlannerTest(unittest.TestCase):
         )
         self.assertIn("gpu_peer", gpu_link["measurement"]["source"])
 
+    def test_fabric_probe_can_replace_same_host_estimates_with_active_measurements(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            fake_python = Path(d) / "fake-torch-python"
+            fake_python.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, sys\n"
+                "req = json.load(sys.stdin)\n"
+                "links = []\n"
+                "for item in req['links']:\n"
+                "    links.append({\n"
+                "        'a': item['a'], 'b': item['b'],\n"
+                "        'bandwidth_bytes_s': 123456789.0,\n"
+                "        'latency_s': 0.000123,\n"
+                "        'measurement': {\n"
+                "            'measured': True,\n"
+                "            'source': 'fornax.inventory.active_local_torch_copy',\n"
+                "            'backend': 'torch',\n"
+                "            'backend_mode': 'external_python',\n"
+                "            'python_executable': sys.executable,\n"
+                "            'size_bytes': req['size_bytes'],\n"
+                "            'iterations': req['iterations'],\n"
+                "        },\n"
+                "    })\n"
+                "print(json.dumps({'ok': True, 'links': links}))\n",
+                encoding="utf-8",
+            )
+            fake_python.chmod(0o755)
+            inventory = {
+                "host_id": "host-a",
+                "nodes": [
+                    {"id": "cpu0", "vendor": "cpu", "host_id": "host-a"},
+                    {"id": "gpu0", "vendor": "nvidia", "host_id": "host-a", "device": "cuda:0"},
+                    {"id": "gpu1", "vendor": "nvidia", "host_id": "host-a", "device": "cuda:1"},
+                ],
+                "links": [
+                    {
+                        "a": "cpu0",
+                        "b": "gpu0",
+                        "bandwidth_bytes_s": 1.0,
+                        "latency_s": 1.0,
+                    }
+                ],
+            }
+            result = probe_declared_links(
+                inventory,
+                active_local=True,
+                torch_python=str(fake_python),
+                active_local_bytes=1024,
+                active_local_iterations=2,
+            )
+        self.assertTrue(result["measured"])
+        self.assertEqual(3, result["active_measurement_count"])
+        self.assertEqual(0, result["estimated_link_count"])
+        self.assertEqual(3, len(result["links"]))
+        self.assertNotIn("no active fabric measurements recorded", result["warnings"])
+        self.assertTrue(result["active_probe"]["requested"])
+        for link in result["links"]:
+            self.assertTrue(link["measurement"]["measured"])
+            self.assertEqual(
+                "fornax.inventory.active_local_torch_copy",
+                link["measurement"]["source"],
+            )
+            self.assertEqual(123456789.0, link["bandwidth_bytes_s"])
+
+    def test_fabric_probe_warns_when_declared_link_remains_unmeasured(self) -> None:
+        inventory = {
+            "host_id": "host-a",
+            "nodes": [
+                {"id": "gpu0", "vendor": "nvidia", "host_id": "host-a", "device": "cuda:0"},
+                {"id": "remote", "vendor": "nvidia", "host_id": "host-b", "device": "cuda:1"},
+            ],
+            "links": [
+                {
+                    "a": "gpu0",
+                    "b": "remote",
+                    "bandwidth_bytes_s": 1.0,
+                    "latency_s": 1.0,
+                }
+            ],
+        }
+        result = probe_declared_links(inventory, active_local=True, torch_python="/missing/python")
+        self.assertFalse(result["measured"])
+        self.assertEqual(0, result["active_measurement_count"])
+        self.assertEqual(1, result["estimated_link_count"])
+        self.assertIn("links include unmeasured declarations", result["warnings"])
+
     def test_phase0_preflight_writes_doctorable_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

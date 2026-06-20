@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import itertools
+import json
 import os
 import platform
 import subprocess
@@ -249,13 +250,240 @@ def _estimated_local_links(
     return links
 
 
-def probe_declared_links(inventory: dict[str, Any]) -> dict[str, Any]:
+def _positive_int(name: str, value: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+
+
+def _external_torch_active_local_links(
+    *,
+    inventory: dict[str, Any],
+    links: list[dict[str, Any]],
+    torch_python: str,
+    size_bytes: int,
+    iterations: int,
+) -> tuple[dict[tuple[str, str], dict[str, Any]], list[str]]:
+    request_links: list[dict[str, Any]] = []
+    nodes = {
+        str(node.get("id")): node
+        for node in inventory.get("nodes", [])
+        if isinstance(node, dict) and node.get("id")
+    }
+    for link in links:
+        a_id = str(link.get("a", ""))
+        b_id = str(link.get("b", ""))
+        a = nodes.get(a_id)
+        b = nodes.get(b_id)
+        if not a or not b:
+            continue
+        if _node_host(inventory, a) != _node_host(inventory, b):
+            continue
+        vendors = {str(a.get("vendor")), str(b.get("vendor"))}
+        if "nvidia" not in vendors:
+            continue
+        request_links.append(
+            {
+                "a": a_id,
+                "b": b_id,
+                "a_vendor": a.get("vendor"),
+                "b_vendor": b.get("vendor"),
+                "a_device": a.get("device"),
+                "b_device": b.get("device"),
+            }
+        )
+    if not request_links:
+        return {}, ["active local probe had no torch-measurable same-host links"]
+
+    script = """
+import json
+import sys
+import time
+
+request = json.load(sys.stdin)
+size_bytes = int(request["size_bytes"])
+iterations = int(request["iterations"])
+links = request["links"]
+try:
+    import torch
+except Exception as exc:
+    print(json.dumps({
+        "ok": False,
+        "error": f"torch import failed: {type(exc).__name__}: {exc}",
+    }))
+    raise SystemExit(0)
+if not torch.cuda.is_available():
+    print(json.dumps({
+        "ok": False,
+        "error": "torch.cuda.is_available() is false",
+        "torch_version": getattr(torch, "__version__", "unknown"),
+    }))
+    raise SystemExit(0)
+
+def _sync(*devices):
+    seen = set()
+    for device in devices:
+        if device and device not in seen:
+            torch.cuda.synchronize(torch.device(device))
+            seen.add(device)
+
+def _elapsed(copy_fn, *devices, loops=None):
+    count = loops or iterations
+    for _ in range(2):
+        copy_fn()
+    _sync(*devices)
+    started = time.perf_counter_ns()
+    for _ in range(count):
+        copy_fn()
+    _sync(*devices)
+    return (time.perf_counter_ns() - started) / 1_000_000_000.0, count
+
+elements = max(size_bytes // 2, 1)
+out = []
+for link in links:
+    try:
+        a_vendor = str(link.get("a_vendor"))
+        b_vendor = str(link.get("b_vendor"))
+        a_device = link.get("a_device")
+        b_device = link.get("b_device")
+        vendors = {a_vendor, b_vendor}
+        if vendors == {"nvidia"}:
+            if not a_device or not b_device:
+                raise RuntimeError("missing cuda device for GPU-GPU link")
+            src = torch.empty((elements,), device=torch.device(str(a_device)), dtype=torch.float16)
+            dst = torch.empty((elements,), device=torch.device(str(b_device)), dtype=torch.float16)
+            elapsed_s, count = _elapsed(lambda: dst.copy_(src, non_blocking=False), str(a_device), str(b_device))
+            tiny_src = torch.empty((1,), device=torch.device(str(a_device)), dtype=torch.float16)
+            tiny_dst = torch.empty((1,), device=torch.device(str(b_device)), dtype=torch.float16)
+            latency_elapsed, latency_count = _elapsed(lambda: tiny_dst.copy_(tiny_src, non_blocking=False), str(a_device), str(b_device), loops=max(iterations, 20))
+            latency_s = latency_elapsed / latency_count
+            details = {"direction": f"{a_device}->{b_device}"}
+        elif "nvidia" in vendors:
+            gpu_device = a_device if a_vendor == "nvidia" else b_device
+            if not gpu_device:
+                raise RuntimeError("missing cuda device for CPU-GPU link")
+            cpu = torch.empty((elements,), device="cpu", dtype=torch.float16)
+            gpu = torch.empty((elements,), device=torch.device(str(gpu_device)), dtype=torch.float16)
+            h2d_elapsed, h2d_count = _elapsed(lambda: gpu.copy_(cpu, non_blocking=False), str(gpu_device))
+            d2h_elapsed, d2h_count = _elapsed(lambda: cpu.copy_(gpu, non_blocking=False), str(gpu_device))
+            tiny_cpu = torch.empty((1,), device="cpu", dtype=torch.float16)
+            tiny_gpu = torch.empty((1,), device=torch.device(str(gpu_device)), dtype=torch.float16)
+            h2d_latency_elapsed, h2d_latency_count = _elapsed(lambda: tiny_gpu.copy_(tiny_cpu, non_blocking=False), str(gpu_device), loops=max(iterations, 20))
+            d2h_latency_elapsed, d2h_latency_count = _elapsed(lambda: tiny_cpu.copy_(tiny_gpu, non_blocking=False), str(gpu_device), loops=max(iterations, 20))
+            h2d_bw = size_bytes * h2d_count / h2d_elapsed if h2d_elapsed > 0 else None
+            d2h_bw = size_bytes * d2h_count / d2h_elapsed if d2h_elapsed > 0 else None
+            bandwidths = [v for v in (h2d_bw, d2h_bw) if v is not None]
+            if not bandwidths:
+                raise RuntimeError("CPU-GPU bandwidth timing was zero")
+            elapsed_s = size_bytes * iterations / min(bandwidths)
+            count = iterations
+            latency_s = max(h2d_latency_elapsed / h2d_latency_count, d2h_latency_elapsed / d2h_latency_count)
+            details = {
+                "h2d_bandwidth_bytes_s": h2d_bw,
+                "d2h_bandwidth_bytes_s": d2h_bw,
+                "gpu_device": gpu_device,
+            }
+        else:
+            raise RuntimeError("link is not torch-measurable")
+        bandwidth = size_bytes * count / elapsed_s if elapsed_s > 0 else None
+        if bandwidth is None:
+            raise RuntimeError("bandwidth timing was zero")
+        out.append({
+            "a": link["a"],
+            "b": link["b"],
+            "bandwidth_bytes_s": bandwidth,
+            "latency_s": latency_s,
+            "measurement": {
+                "measured": True,
+                "source": "fornax.inventory.active_local_torch_copy",
+                "backend": "torch",
+                "backend_mode": "external_python",
+                "python_executable": sys.executable,
+                "torch_version": getattr(torch, "__version__", "unknown"),
+                "size_bytes": size_bytes,
+                "iterations": iterations,
+                "details": details,
+                "note": "Same-host torch copy microprobe for Phase-0 fabric evidence; not a distributed network benchmark.",
+            },
+        })
+    except Exception as exc:
+        out.append({
+            "a": link.get("a"),
+            "b": link.get("b"),
+            "measurement": {
+                "measured": False,
+                "source": "fornax.inventory.active_local_torch_copy",
+                "error": f"{type(exc).__name__}: {exc}",
+            },
+        })
+print(json.dumps({"ok": True, "links": out}))
+"""
+    request = {
+        "links": request_links,
+        "size_bytes": size_bytes,
+        "iterations": iterations,
+    }
+    try:
+        result = subprocess.run(
+            [torch_python, "-c", script],
+            input=json.dumps(request),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {}, [f"active local probe failed to launch: {type(exc).__name__}: {exc}"]
+    stdout = result.stdout.strip()
+    if result.returncode != 0:
+        return {}, [
+            "active local probe exited nonzero: "
+            f"returncode={result.returncode} stderr={result.stderr.strip()[-500:]}"
+        ]
+    try:
+        payload = json.loads(stdout.splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        return {}, [f"active local probe did not emit JSON: {exc}"]
+    if not isinstance(payload, dict):
+        return {}, ["active local probe JSON was not an object"]
+    if not payload.get("ok"):
+        return {}, [f"active local probe unavailable: {payload.get('error', 'unknown error')}"]
+
+    measured: dict[tuple[str, str], dict[str, Any]] = {}
+    warnings: list[str] = []
+    for item in payload.get("links", []):
+        if not isinstance(item, dict):
+            continue
+        a = str(item.get("a", ""))
+        b = str(item.get("b", ""))
+        if not a or not b:
+            continue
+        key = tuple(sorted((a, b)))
+        measurement = item.get("measurement")
+        if isinstance(measurement, dict) and measurement.get("measured"):
+            measured[key] = item
+        elif isinstance(measurement, dict) and measurement.get("error"):
+            warnings.append(f"active local probe failed for {key[0]}-{key[1]}: {measurement['error']}")
+    return measured, warnings
+
+
+def probe_declared_links(
+    inventory: dict[str, Any],
+    *,
+    active_local: bool = False,
+    torch_python: str | None = None,
+    active_local_bytes: int = 16 * 1024 * 1024,
+    active_local_iterations: int = 4,
+) -> dict[str, Any]:
     """Return declared links plus same-host local estimates with provenance.
 
     Phase 0 may run without a multi-node lab. This helper keeps the workflow
     runnable while making it explicit which links are not active measurements.
+    When requested, same-host CPU/GPU and GPU/GPU links can be replaced by
+    external-torch copy microprobe measurements.
     """
 
+    _positive_int("active_local_bytes", active_local_bytes)
+    _positive_int("active_local_iterations", active_local_iterations)
     links: list[dict[str, Any]] = []
     for link in inventory.get("links", []):
         if not isinstance(link, dict):
@@ -272,6 +500,28 @@ def probe_declared_links(inventory: dict[str, Any]) -> dict[str, Any]:
         links.append(copied)
     existing = {_link_key(link) for link in links}
     local_links = _estimated_local_links(inventory, existing)
+    active_warnings: list[str] = []
+    if active_local:
+        if torch_python:
+            measured_links, active_warnings = _external_torch_active_local_links(
+                inventory=inventory,
+                links=[*links, *local_links],
+                torch_python=torch_python,
+                size_bytes=active_local_bytes,
+                iterations=active_local_iterations,
+            )
+            for link in [*links, *local_links]:
+                measured = measured_links.get(_link_key(link))
+                if measured:
+                    link.update(
+                        {
+                            "bandwidth_bytes_s": measured["bandwidth_bytes_s"],
+                            "latency_s": measured["latency_s"],
+                            "measurement": measured["measurement"],
+                        }
+                    )
+        else:
+            active_warnings.append("active local probe requested without --torch-python")
     links.extend(local_links)
     active_measurements = [
         link
@@ -279,21 +529,37 @@ def probe_declared_links(inventory: dict[str, Any]) -> dict[str, Any]:
         if isinstance(link.get("measurement"), dict)
         and bool(link["measurement"].get("measured"))
     ]
+    estimated_links = len(links) - len(active_measurements)
     warnings = []
-    if local_links:
-        warnings.append("same-host local links are topology-derived estimates")
+    if local_links and estimated_links:
+        if active_local and active_measurements:
+            warnings.append("links include unmeasured same-host estimates or declarations")
+        else:
+            warnings.append("same-host local links are topology-derived estimates")
+    elif estimated_links:
+        warnings.append("links include unmeasured declarations")
     if links and not active_measurements:
         warnings.append("no active fabric measurements recorded")
+    warnings.extend(active_warnings)
     return {
         "links": links,
         "source": "fornax.inventory.probe_declared_links",
         "measured": bool(active_measurements) and len(active_measurements) == len(links),
         "active_measurement_count": len(active_measurements),
-        "estimated_link_count": len(links) - len(active_measurements),
+        "estimated_link_count": estimated_links,
         "warnings": warnings,
+        "active_probe": {
+            "requested": active_local,
+            "backend": "torch" if active_local and torch_python else None,
+            "backend_mode": "external_python" if active_local and torch_python else None,
+            "torch_python": torch_python,
+            "size_bytes": active_local_bytes,
+            "iterations": active_local_iterations,
+        },
         "note": (
             "Declared links are preserved and same-host local links are synthesized "
-            "as conservative estimates. Use active fabric measurements before G1 "
-            "throughput sign-off."
+            "as conservative estimates unless active local measurement is requested. "
+            "Same-host torch copy probes are Phase-0 fabric evidence, not a "
+            "distributed network benchmark."
         ),
     }

@@ -115,9 +115,23 @@ def _cmd_inventory_collect(args: argparse.Namespace) -> int:
 
 def _cmd_fabric_probe(args: argparse.Namespace) -> int:
     inventory = read_json(args.inventory)
-    data = probe_declared_links(inventory)
+    try:
+        data = probe_declared_links(
+            inventory,
+            active_local=args.active_local,
+            torch_python=args.torch_python,
+            active_local_bytes=args.active_local_bytes,
+            active_local_iterations=args.active_local_iterations,
+        )
+    except ValueError as exc:
+        print(f"fabric probe: {exc}")
+        return 2
     write_json(args.out, data)
-    print(f"wrote link probe: {args.out}")
+    suffix = ""
+    warnings = data.get("warnings", [])
+    if warnings:
+        suffix = "; warnings: " + "; ".join(str(warning) for warning in warnings)
+    print(f"wrote link probe: {args.out}{suffix}")
     return 0
 
 
@@ -281,6 +295,10 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
             scope=args.scope,
             include_calibration=args.include_calibration,
             calibration_torch_python=args.calibration_torch_python,
+            active_local_links=args.active_local_links,
+            fabric_torch_python=args.fabric_torch_python,
+            active_local_link_bytes=args.active_local_link_bytes,
+            active_local_link_iterations=args.active_local_link_iterations,
         )
     except (OSError, ValueError) as exc:
         print(f"preflight: {exc}")
@@ -444,6 +462,10 @@ def build_parser() -> argparse.ArgumentParser:
     fabric_probe = fabric_sub.add_parser("probe")
     fabric_probe.add_argument("--inventory", required=True)
     fabric_probe.add_argument("--out", required=True)
+    fabric_probe.add_argument("--active-local", action="store_true")
+    fabric_probe.add_argument("--torch-python")
+    fabric_probe.add_argument("--active-local-bytes", type=int, default=16 * 1024 * 1024)
+    fabric_probe.add_argument("--active-local-iterations", type=int, default=4)
     fabric_probe.set_defaults(func=_cmd_fabric_probe)
 
     target = sub.add_parser("target")
@@ -515,6 +537,10 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--include-g1-drafts", action="store_true")
     preflight.add_argument("--include-calibration", action="store_true")
     preflight.add_argument("--calibration-torch-python")
+    preflight.add_argument("--active-local-links", action="store_true")
+    preflight.add_argument("--fabric-torch-python")
+    preflight.add_argument("--active-local-link-bytes", type=int, default=16 * 1024 * 1024)
+    preflight.add_argument("--active-local-link-iterations", type=int, default=4)
     preflight.add_argument("--substrate-pinned-build", default="unset")
     preflight.add_argument("--kickoff-date")
     preflight.add_argument("--ker-status", choices=KER_STATUS_VALUES, default="unassigned")

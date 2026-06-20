@@ -680,3 +680,58 @@
   fornax/golden_vectors/runtime_format`, `python3 -m fornax test
   network-contract --mode simulated --fixture fornax/golden_vectors/network_contract`,
   `make fornax-test`, and `make fornax-golden` all passed.
+
+
+### Active local fabric measurement milestone
+
+- Added optional active same-host fabric measurement to `fornax fabric probe` via
+  `--active-local --torch-python`, using an explicit external torch Python so the
+  repo Python remains dependency-light.
+- Wired the same active local link probe into `fornax preflight` through
+  `--active-local-links --fabric-torch-python`, allowing Phase-0 bundles to carry
+  measured CPU/GPU and GPU/GPU same-host link provenance instead of only topology
+  estimates.
+- Ran the active probe through `/mnt/dataprocessing/venvs/asr-data-prep/bin/python`
+  on this workstation. The H100 smoke recorded three active measurements
+  (CPU-to-GPU0, CPU-to-GPU1, and GPU0-to-GPU1), zero estimated links, and no link
+  warnings. A preflight bundle using active links removed the previous
+  `no active fabric measurements recorded` warning; remaining warnings are the
+  expected calibration caveat and open Apple probe artifacts.
+- Review-lens pass:
+  - Hardware: approve with comments. Same-host H100/CPU copy paths are now
+    measured with device/runtime provenance, but this remains a local copy
+    microprobe and not a distributed network benchmark.
+  - SRE/Operations: approve. The active probe is opt-in, preserves the estimate
+    fallback, and produces doctor-visible warnings when any link remains
+    unmeasured.
+  - Low-level Software: approve with comments after fix. Review found that
+    unmeasured declared links could be hidden when other links were measured;
+    warnings now surface unmeasured declarations explicitly.
+- Verification: focused fabric probe tests, `python3 -m unittest discover -s
+  tests -p 'test_fornax*.py'`, `python3 -m compileall -q fornax tests`, `python3
+  -m fornax inventory collect --out /tmp/fornax_inventory_active_links.json`,
+  `python3 -m fornax fabric probe --inventory /tmp/fornax_inventory_active_links.json
+  --out /tmp/fornax_links_active_h100.json --active-local --torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --active-local-bytes
+  1048576 --active-local-iterations 2`, `python3 -m fornax preflight --target
+  fornax/golden_plans/v0_target_contract_fixture.md --out-dir
+  /tmp/fornax_preflight_active_links --benchmark-iterations 1 --include-g1-drafts
+  --include-calibration --calibration-torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --active-local-links
+  --fabric-torch-python /mnt/dataprocessing/venvs/asr-data-prep/bin/python
+  --active-local-link-bytes 1048576 --active-local-link-iterations 2
+  --substrate-pinned-build max-26.4.0 --kickoff-date 2026-06-20 --ker-status
+  unavailable --scope pending`, `python3 -m fornax doctor --bundle
+  /tmp/fornax_preflight_active_links --out
+  /tmp/fornax_preflight_active_links/doctor_rerun.json`, `python3 -m fornax
+  test golden-plans --out /tmp/fornax_preflight_active_links/golden-plans.json`,
+  `python3 -m fornax program g1-review --bundle /tmp/fornax_preflight_active_links
+  --out /tmp/fornax_preflight_active_links/g1-gate-review.md --date 2026-06-20
+  --plan-version v3`, `python3 -m fornax test runtime-format --golden
+  fornax/golden_vectors/runtime_format`, `python3 -m fornax test network-contract
+  --mode simulated --fixture fornax/golden_vectors/network_contract`, `python3 -m
+  fornax spec runtime-format --golden fornax/golden_vectors/runtime_format --out
+  /tmp/fornax_runtime_format_and_invariants.md`, `python3 -m fornax spec
+  network-security --fixture fornax/golden_vectors/network_contract --out
+  /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
+  `make fornax-golden` all passed.

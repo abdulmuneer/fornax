@@ -115,6 +115,10 @@ def run_phase0_preflight(
     scope: str = "pending",
     include_calibration: bool = False,
     calibration_torch_python: str | None = None,
+    active_local_links: bool = False,
+    fabric_torch_python: str | None = None,
+    active_local_link_bytes: int = 16 * 1024 * 1024,
+    active_local_link_iterations: int = 4,
 ) -> dict[str, Any]:
     """Run the minimal Phase-0 evidence workflow and write a doctorable bundle."""
 
@@ -135,7 +139,13 @@ def run_phase0_preflight(
     generated_g1_artifacts: dict[str, str] = {}
 
     write_json(inventory_path, inventory_data)
-    link_data = probe_declared_links(inventory_data)
+    link_data = probe_declared_links(
+        inventory_data,
+        active_local=active_local_links,
+        torch_python=fabric_torch_python,
+        active_local_bytes=active_local_link_bytes,
+        active_local_iterations=active_local_link_iterations,
+    )
     write_json(links_path, link_data)
 
     model, target, contract_bundle = load_target_contract(target_artifact)
