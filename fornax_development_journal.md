@@ -81,3 +81,20 @@
   `make fornax-test`, `make fornax-golden`, and live `fornax inventory collect`
   all passed.
 
+### Simulate command-contract alignment
+
+- Aligned the implemented CLI with the Phase-0/T0 command contract by adding
+  `fornax simulate --plan placement.json --requests synthetic_trace.json` while
+  preserving `--trace` as a deprecated alias.
+- Added `fornax.simulate` request-trace parsing for simple JSON traces shaped as
+  either a list of request objects or `{ "requests": [...] }`. The summary now
+  records request count, total prompt tokens, total generation tokens, and a
+  planner-predicted decode wall time from the plan throughput.
+- Added tests for request trace parsing, bad trace shape rejection, and simulation
+  result calculation.
+- Verification: `python3 -m unittest discover -s tests -p 'test_fornax*.py'`,
+  `python3 -m fornax test golden-plans`, `python3 -m compileall -q fornax tests`,
+  and a direct `python3 -m fornax simulate --plan /tmp/fornax_preflight/placement.json
+  --requests /tmp/fornax_requests.json --out /tmp/fornax_preflight/simulate_requests.json`
+  smoke check all passed.
+

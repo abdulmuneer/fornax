@@ -9,6 +9,7 @@ from .golden import run_golden_plans
 from .inventory import collect_local_inventory, probe_declared_links
 from .io import load_inventory, load_model_target, read_json, write_json
 from .planner import plan_placement
+from .simulate import simulation_result, summarize_request_trace
 
 
 def _cmd_inventory_collect(args: argparse.Namespace) -> int:
@@ -56,13 +57,30 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
     if predicted is None:
         print(f"infeasible plan: {plan.get('infeasible_reason')}")
         return 2
+    if args.requests and args.trace and args.requests != args.trace:
+        print("simulate: pass only one of --requests or --trace")
+        return 2
+    trace_path = args.requests or args.trace
+    try:
+        request_trace = summarize_request_trace(trace_path) if trace_path else None
+    except ValueError as exc:
+        print(f"simulate: invalid request trace: {exc}")
+        return 2
+    result = simulation_result(predicted, request_trace)
     if args.out:
-        write_json(args.out, {"predicted": predicted, "trace": args.trace})
+        write_json(args.out, result)
+    suffix = ""
+    if request_trace is not None:
+        suffix = (
+            f" requests={request_trace['request_count']}"
+            f" gen_tokens={request_trace['total_generation_tokens']}"
+        )
     print(
         "simulate: "
         f"throughput={predicted['throughput_tok_s']:.3f} tok/s "
         f"latency={predicted['per_request_latency_s']:.6f}s "
         f"bubble={predicted['bubble_fraction']:.3f}"
+        f"{suffix}"
     )
     return 0
 
@@ -153,7 +171,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     simulate = sub.add_parser("simulate")
     simulate.add_argument("--plan", required=True)
-    simulate.add_argument("--trace")
+    simulate.add_argument("--requests")
+    simulate.add_argument("--trace", help="deprecated alias for --requests")
     simulate.add_argument("--out")
     simulate.set_defaults(func=_cmd_simulate)
 

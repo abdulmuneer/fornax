@@ -8,6 +8,7 @@ from fornax.contracts import TargetContractError, load_target_contract
 from fornax.golden import run_golden_plans
 from fornax.inventory.local import collect_local_inventory, parse_nvidia_smi_csv
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
+from fornax.simulate import simulation_result, summarize_request_trace
 
 
 def dense_model(num_layers: int = 4) -> ModelSpec:
@@ -71,6 +72,28 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 
 class FornaxPlannerTest(unittest.TestCase):
+
+
+    def test_request_trace_summary_supports_phase0_simulate_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "requests.json"
+            path.write_text(
+                '{"requests":[{"prompt_len":10,"gen_len":5},{"prompt_tokens":7,"max_new_tokens":3}]}\n',
+                encoding="utf-8",
+            )
+            summary = summarize_request_trace(path)
+        self.assertEqual(2, summary["request_count"])
+        self.assertEqual(17, summary["total_prompt_tokens"])
+        self.assertEqual(8, summary["total_generation_tokens"])
+        result = simulation_result({"throughput_tok_s": 4.0}, summary)
+        self.assertEqual(2.0, result["requests"]["predicted_decode_wall_time_s"])
+
+    def test_request_trace_summary_rejects_bad_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "bad.json"
+            path.write_text('{"requests":{"not":"a list"}}\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "requests"):
+                summarize_request_trace(path)
 
     def test_nvidia_smi_inventory_parser_discovers_gpu_nodes(self) -> None:
         csv_text = "0, NVIDIA H100 80GB HBM3, 80000, 81559, 575.57.08\n1, NVIDIA H100 80GB HBM3, 79000, 81559, 575.57.08\n"
