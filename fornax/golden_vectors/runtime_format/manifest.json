@@ -1,0 +1,65 @@
+{
+  "activation": {
+    "dtype": "fp16",
+    "layout": "contiguous_row_major",
+    "shape": [
+      2,
+      4
+    ],
+    "values": [
+      0.0,
+      0.1,
+      0.2,
+      0.3,
+      1.0,
+      1.1,
+      1.2,
+      1.3
+    ]
+  },
+  "expert_batch": {
+    "expert_ids": [
+      3,
+      7
+    ],
+    "gather_order": [
+      0,
+      1
+    ],
+    "hidden_shape": [
+      2,
+      4
+    ],
+    "layer_id": 1,
+    "token_indices": [
+      0,
+      1
+    ],
+    "topk_weights": [
+      0.75,
+      0.25
+    ]
+  },
+  "kv_page": {
+    "dtype": "fp16",
+    "owner_stage": 0,
+    "page_size": 4,
+    "shape": [
+      4,
+      2,
+      4
+    ],
+    "token_count": 2
+  },
+  "tolerances": {
+    "fp16": {
+      "atol": 0.001,
+      "rtol": 0.001
+    },
+    "fp8": {
+      "atol": 0.02,
+      "rtol": 0.02
+    }
+  },
+  "version": 1
+}

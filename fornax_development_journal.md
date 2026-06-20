@@ -150,3 +150,32 @@
   `make fornax-test`, `make fornax-golden`, and structured `fornax doctor` smoke
   against `/tmp/fornax_preflight` all passed.
 
+### Runtime-format command-contract milestone
+
+- Implemented the missing T0/T1 command `fornax test runtime-format --golden
+  golden_vectors/` using `fornax.runtime_format` and a packaged golden-vector
+  manifest under `fornax/golden_vectors/runtime_format/manifest.json`.
+- The validator now checks the Phase-0 runtime-format invariants that can be
+  enforced before runtime implementation: activation dtype/shape/layout/payload
+  length, KV page dtype/page size/token ownership bounds, expert-batch routing
+  and gather permutation consistency, and presence of per-dtype tolerances.
+- Added tests for the passing fixture plus negative controls for activation
+  payload length, invalid expert gather order, weight-only activation dtype, and
+  KV page shape/page-size mismatch.
+- Review-lens pass:
+  - Low-level Software: approve after fixes. Initial implementation accepted
+    `q4/q8` as runtime payload dtypes and only required KV shape to cover tokens;
+    fixed before commit by restricting payload dtypes to float runtime dtypes and
+    requiring KV shape[0] to equal `page_size`.
+  - LLM/correctness: approve with comments. This is a schema/golden-vector
+    validator, not numerical logit parity or a slow reference path. The full
+    `runtime-format-and-invariants.md` B3 artifact and optimized-vs-reference
+    parity still remain open.
+  - Software Engineering: approve. The command is pure model-free CI and keeps
+    dispatch compatible with existing `fornax test golden-plans`.
+- Verification: `python3 -m fornax test runtime-format --golden
+  fornax/golden_vectors/runtime_format`, `python3 -m unittest discover -s tests
+  -p 'test_fornax*.py'`, `python3 -m fornax test golden-plans`, `python3 -m
+  compileall -q fornax tests`, `make fornax-test`, and `make fornax-golden` all
+  passed.
+

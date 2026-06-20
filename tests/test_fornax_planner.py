@@ -9,6 +9,10 @@ from fornax.doctor import inspect_phase0_bundle
 from fornax.golden import run_golden_plans
 from fornax.inventory.local import collect_local_inventory, parse_nvidia_smi_csv
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
+from fornax.runtime_format import (
+    validate_runtime_format_golden,
+    validate_runtime_format_manifest,
+)
 from fornax.simulate import simulation_result, summarize_request_trace
 from fornax.validation import validate_target_contract
 
@@ -75,6 +79,131 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 class FornaxPlannerTest(unittest.TestCase):
 
+    def test_runtime_format_golden_fixture_passes(self) -> None:
+        result = validate_runtime_format_golden("fornax/golden_vectors/runtime_format")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual([], result["warnings"])
+
+    def test_runtime_format_validator_rejects_bad_activation_length(self) -> None:
+        manifest = {
+            "version": 1,
+            "activation": {
+                "dtype": "fp16",
+                "shape": [2, 2],
+                "layout": "contiguous_row_major",
+                "values": [0.0, 1.0],
+            },
+            "kv_page": {
+                "dtype": "fp16",
+                "shape": [4, 2, 4],
+                "page_size": 4,
+                "token_count": 2,
+                "owner_stage": 0,
+            },
+            "expert_batch": {
+                "layer_id": 0,
+                "expert_ids": [1],
+                "token_indices": [0],
+                "topk_weights": [1.0],
+                "hidden_shape": [1, 4],
+                "gather_order": [0],
+            },
+            "tolerances": {"fp16": {"rtol": 0.001, "atol": 0.001}},
+        }
+        result = validate_runtime_format_manifest(manifest)
+        self.assertFalse(result["ok"])
+        self.assertIn("activation.values length", "; ".join(result["errors"]))
+
+    def test_runtime_format_validator_rejects_bad_expert_gather(self) -> None:
+        manifest = {
+            "version": 1,
+            "activation": {
+                "dtype": "fp16",
+                "shape": [1, 2],
+                "layout": "contiguous_row_major",
+                "values": [0.0, 1.0],
+            },
+            "kv_page": {
+                "dtype": "fp16",
+                "shape": [2, 1, 2],
+                "page_size": 2,
+                "token_count": 1,
+                "owner_stage": 0,
+            },
+            "expert_batch": {
+                "layer_id": 0,
+                "expert_ids": [1, 2],
+                "token_indices": [0, 1],
+                "topk_weights": [0.5, 0.5],
+                "hidden_shape": [2, 2],
+                "gather_order": [0, 0],
+            },
+            "tolerances": {"fp16": {"rtol": 0.001, "atol": 0.001}},
+        }
+        result = validate_runtime_format_manifest(manifest)
+        self.assertFalse(result["ok"])
+        self.assertIn("gather_order", "; ".join(result["errors"]))
+
+
+    def test_runtime_format_validator_rejects_weight_only_payload_dtype(self) -> None:
+        manifest = {
+            "version": 1,
+            "activation": {
+                "dtype": "q4",
+                "shape": [1, 2],
+                "layout": "contiguous_row_major",
+                "values": [0.0, 1.0],
+            },
+            "kv_page": {
+                "dtype": "fp16",
+                "shape": [2, 1, 2],
+                "page_size": 2,
+                "token_count": 1,
+                "owner_stage": 0,
+            },
+            "expert_batch": {
+                "layer_id": 0,
+                "expert_ids": [1],
+                "token_indices": [0],
+                "topk_weights": [1.0],
+                "hidden_shape": [1, 2],
+                "gather_order": [0],
+            },
+            "tolerances": {"fp16": {"rtol": 0.001, "atol": 0.001}},
+        }
+        result = validate_runtime_format_manifest(manifest)
+        self.assertFalse(result["ok"])
+        self.assertIn("activation.dtype", "; ".join(result["errors"]))
+
+    def test_runtime_format_validator_rejects_kv_shape_page_mismatch(self) -> None:
+        manifest = {
+            "version": 1,
+            "activation": {
+                "dtype": "fp16",
+                "shape": [1, 2],
+                "layout": "contiguous_row_major",
+                "values": [0.0, 1.0],
+            },
+            "kv_page": {
+                "dtype": "fp16",
+                "shape": [3, 1, 2],
+                "page_size": 2,
+                "token_count": 1,
+                "owner_stage": 0,
+            },
+            "expert_batch": {
+                "layer_id": 0,
+                "expert_ids": [1],
+                "token_indices": [0],
+                "topk_weights": [1.0],
+                "hidden_shape": [1, 2],
+                "gather_order": [0],
+            },
+            "tolerances": {"fp16": {"rtol": 0.001, "atol": 0.001}},
+        }
+        result = validate_runtime_format_manifest(manifest)
+        self.assertFalse(result["ok"])
+        self.assertIn("first dimension must equal page_size", "; ".join(result["errors"]))
 
     def test_phase0_doctor_reports_missing_required_files(self) -> None:
         with tempfile.TemporaryDirectory() as d:
