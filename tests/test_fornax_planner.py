@@ -26,6 +26,7 @@ from fornax.network_contract import (
 )
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 from fornax.preflight import run_phase0_preflight
+from fornax.program_rebaseline import render_program_rebaseline_draft
 from fornax.runtime_format_spec import render_runtime_format_spec_draft
 from fornax.runtime_format import (
     validate_runtime_format_golden,
@@ -142,6 +143,20 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 
 class FornaxPlannerTest(unittest.TestCase):
+
+    def test_program_rebaseline_unavailable_ker_warns_and_dates_schedule(self) -> None:
+        result = render_program_rebaseline_draft(
+            kickoff_date="2026-06-20", ker_status="unavailable", scope="pending"
+        )
+        markdown = result["markdown"]
+        self.assertIn("2026-06-27 to 2026-07-18", markdown)
+        self.assertIn("KER unavailable; G1 must choose NARROW", markdown)
+        self.assertIn("Sponsor should narrow Apple role", "; ".join(result["warnings"]))
+        self.assertEqual("unavailable", result["ker_status"])
+
+    def test_program_rebaseline_rejects_unknown_ker_status(self) -> None:
+        with self.assertRaisesRegex(ValueError, "ker_status must be"):
+            render_program_rebaseline_draft(ker_status="maybe-later")
 
     def test_apple_probe_valid_pass_recommends_expert_worker(self) -> None:
         result = validate_apple_probe_artifact(measured_apple_probe())

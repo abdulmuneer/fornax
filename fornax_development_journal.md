@@ -444,3 +444,39 @@
   `make fornax-golden` all passed, except the unmeasured template validation
   intentionally exited 2.
 
+### Roadmap rebaseline and staffing-answer tooling milestone
+
+- Added `fornax.program_rebaseline.render_program_rebaseline_draft` and the
+  `fornax program rebaseline` command to generate the S0-8 roadmap/staffing
+  review artifact.
+- The draft records kickoff date, Phase-0 sprint length, KER staffing status,
+  Sponsor scope status, milestone date ranges, Phase-0 role matrix, staffing
+  answer, G1 decision-input table, critical-path interpretation, procurement
+  actions, and review checklist.
+- Generator semantics preserve the gate posture: Phase 1+ dates remain
+  placeholders, `DEC-005` is not claimed, and KER-unavailable status warns that
+  G1 must choose NARROW, ITERATE-to-staff, or KILL rather than silently proceed.
+- Review-lens pass:
+  - Program Management: approve with comments. The artifact makes S0-8
+    reproducible, but named human assignees and Sponsor scope choice remain
+    external decisions.
+  - Organizational/TL: approve. The draft restates that unstaffed KER blocks
+    silent PROCEED and forces an explicit gate outcome.
+  - Budget/Procurement: approve with comments. It calls out `desktop-minimal`
+    confirmation and keeps larger spend behind G1 unless Sponsor records a DEC.
+- Verification: `python3 -m fornax program rebaseline --kickoff-date 2026-06-20
+  --ker-status unavailable --scope pending --out
+  /tmp/fornax_roadmap_staffing_rebaseline.md`, `python3 -m unittest discover -s
+  tests -p 'test_fornax*.py'`, `python3 -m compileall -q fornax tests`,
+  `python3 -m fornax test golden-plans`, `python3 -m fornax test runtime-format
+  --golden fornax/golden_vectors/runtime_format`, `python3 -m fornax test
+  network-contract --mode simulated --fixture fornax/golden_vectors/network_contract`,
+  `python3 -m fornax apple validate-probe
+  /tmp/fornax_apple_probe_measured_demote.json --out
+  /tmp/fornax_apple_probe_measured_demote_validation.json`, `python3 -m fornax
+  spec runtime-format --golden fornax/golden_vectors/runtime_format --out
+  /tmp/fornax_runtime_format_and_invariants.md`, `python3 -m fornax spec
+  network-security --fixture fornax/golden_vectors/network_contract --out
+  /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
+  `make fornax-golden` all passed.
+

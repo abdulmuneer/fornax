@@ -18,6 +18,11 @@ from .contracts import load_target_contract
 from .io import load_inventory, load_model_target, read_json, write_json
 from .planner import plan_placement
 from .preflight import run_phase0_preflight
+from .program_rebaseline import (
+    KER_STATUS_VALUES,
+    SCOPE_VALUES,
+    render_program_rebaseline_draft,
+)
 from .network_contract import validate_network_contract
 from .network_security_spec import render_network_security_spec_draft
 from .runtime_format import validate_runtime_format_golden
@@ -196,6 +201,26 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_program_rebaseline(args: argparse.Namespace) -> int:
+    try:
+        result = render_program_rebaseline_draft(
+            kickoff_date=args.kickoff_date,
+            phase0_weeks=args.phase0_weeks,
+            ker_status=args.ker_status,
+            scope=args.scope,
+        )
+    except ValueError as exc:
+        print(f"program rebaseline: {exc}")
+        return 2
+    Path(args.out).write_text(result["markdown"], encoding="utf-8")
+    warnings = result.get("warnings", [])
+    suffix = ""
+    if warnings:
+        suffix = "; warnings: " + "; ".join(str(warning) for warning in warnings)
+    print(f"wrote program rebaseline draft: {args.out}{suffix}")
+    return 0
+
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     if args.requests and args.trace and args.requests != args.trace:
         print("preflight: pass only one of --requests or --trace")
@@ -362,6 +387,16 @@ def build_parser() -> argparse.ArgumentParser:
     target_draft.add_argument("--links")
     target_draft.add_argument("--out", required=True)
     target_draft.set_defaults(func=_cmd_target_draft)
+
+    program = sub.add_parser("program")
+    program_sub = program.add_subparsers(dest="program_command", required=True)
+    rebaseline = program_sub.add_parser("rebaseline")
+    rebaseline.add_argument("--out", required=True)
+    rebaseline.add_argument("--kickoff-date")
+    rebaseline.add_argument("--phase0-weeks", type=int, default=4)
+    rebaseline.add_argument("--ker-status", choices=KER_STATUS_VALUES, default="unassigned")
+    rebaseline.add_argument("--scope", choices=SCOPE_VALUES, default="pending")
+    rebaseline.set_defaults(func=_cmd_program_rebaseline)
 
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)
