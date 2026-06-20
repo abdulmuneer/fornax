@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from fornax.contracts import TargetContractError, load_target_contract
+from fornax.doctor import inspect_phase0_bundle
 from fornax.golden import run_golden_plans
 from fornax.inventory.local import collect_local_inventory, parse_nvidia_smi_csv
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
@@ -73,6 +74,40 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 
 class FornaxPlannerTest(unittest.TestCase):
+
+
+    def test_phase0_doctor_reports_missing_required_files(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            result = inspect_phase0_bundle(d)
+        self.assertFalse(result["ok"])
+        self.assertIn("missing inventory.json", result["errors"])
+        self.assertIn("missing placement.json", result["errors"])
+
+    def test_phase0_doctor_accepts_bundle_with_dry_run_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d)
+            (bundle / "inventory.json").write_text('{"nodes": [{"id": "n0"}], "links": []}\n', encoding="utf-8")
+            (bundle / "links.json").write_text('{"links": []}\n', encoding="utf-8")
+            (bundle / "target.json").write_text('{"model": {}, "target": {}}\n', encoding="utf-8")
+            (bundle / "placement.json").write_text('{"feasible": true, "predicted": {}}\n', encoding="utf-8")
+            (bundle / "validate.json").write_text('{"valid": true}\n', encoding="utf-8")
+            (bundle / "simulate.json").write_text('{"predicted": {}}\n', encoding="utf-8")
+            (bundle / "benchmark.json").write_text('{"measured": false}\n', encoding="utf-8")
+            result = inspect_phase0_bundle(bundle)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertIn("benchmark.json is a dry-run prediction, not measured evidence", result["warnings"])
+        self.assertTrue(result["artifacts"]["validate.json"]["valid"])
+
+
+    def test_phase0_doctor_rejects_empty_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d)
+            (bundle / "inventory.json").write_text('{"nodes": [], "links": []}\n', encoding="utf-8")
+            (bundle / "links.json").write_text('{"links": []}\n', encoding="utf-8")
+            (bundle / "placement.json").write_text('{"feasible": true}\n', encoding="utf-8")
+            result = inspect_phase0_bundle(bundle)
+        self.assertFalse(result["ok"])
+        self.assertIn("inventory.json must contain at least one node", result["errors"])
 
     def test_target_contract_validation_passes_fixture(self) -> None:
         model, target, bundle = load_target_contract(

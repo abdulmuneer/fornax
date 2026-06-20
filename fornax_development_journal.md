@@ -127,3 +127,26 @@
   `make fornax-test`, `make fornax-golden`, and direct markdown `fornax target
   validate` all passed.
 
+### Structured doctor milestone
+
+- Replaced the placeholder `fornax doctor` check with structured Phase-0 evidence
+  bundle diagnostics in `fornax.doctor`.
+- Doctor now checks required JSON artifacts (`inventory.json`, `links.json`,
+  `placement.json`), recommended artifacts (`target.json` or
+  `v0-target-contract.md`, `validate.json`, `simulate.json`, `benchmark.json`),
+  placement feasibility, validation status, simulation predicted block, and dry-run
+  benchmark status.
+- Review-lens pass:
+  - High-level Software: approve. The command now reports actionable errors and
+    warnings for the operator instead of only listing missing filenames.
+  - Software Engineering: approve after fix. Initial implementation accepted an
+    empty `inventory.json`; fixed before commit by requiring at least one node and
+    validating that `links.json` contains a links list.
+  - Analytical: approve with comments. Doctor distinguishes errors from warnings
+    and explicitly warns when benchmark evidence is only a dry-run prediction;
+    measured benchmark-of-record evidence remains open for G1.
+- Verification: `python3 -m unittest discover -s tests -p 'test_fornax*.py'`,
+  `python3 -m fornax test golden-plans`, `python3 -m compileall -q fornax tests`,
+  `make fornax-test`, `make fornax-golden`, and structured `fornax doctor` smoke
+  against `/tmp/fornax_preflight` all passed.
+

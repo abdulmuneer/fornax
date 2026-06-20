@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .doctor import inspect_phase0_bundle
 from .golden import run_golden_plans
 from .inventory import collect_local_inventory, probe_declared_links
 from .contracts import load_target_contract
@@ -109,16 +110,16 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    bundle = Path(args.bundle)
-    required = ["inventory.json", "links.json", "placement.json"]
-    missing = [name for name in required if not (bundle / name).exists()]
-    result = {"bundle": str(bundle), "ok": not missing, "missing": missing}
+    result = inspect_phase0_bundle(args.bundle)
     if args.out:
         write_json(args.out, result)
-    if missing:
-        print("doctor: missing " + ", ".join(missing))
+    if not result["ok"]:
+        print("doctor: errors: " + "; ".join(result["errors"]))
         return 2
-    print("doctor: bundle has required Phase-0 files")
+    if result["warnings"]:
+        print("doctor: ok with warnings: " + "; ".join(result["warnings"]))
+        return 0
+    print("doctor: bundle has required Phase-0 evidence files")
     return 0
 
 
