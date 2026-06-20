@@ -18,6 +18,11 @@ from .network_security_spec import render_network_security_spec_draft
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
 from .simulate import simulation_result, summarize_request_trace
+from .substrate_adr import (
+    APPLE_ROLE_VALUES,
+    STATUS_VALUES,
+    render_substrate_adr_draft,
+)
 from .target_contract import render_target_contract_draft
 from .validation import validate_target_contract
 
@@ -193,6 +198,26 @@ def _cmd_spec_runtime_format(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 2
 
 
+def _cmd_spec_substrate_adr(args: argparse.Namespace) -> int:
+    try:
+        result = render_substrate_adr_draft(
+            pinned_build=args.pinned_build,
+            last_checked=args.last_checked,
+            status=args.status,
+            apple_role=args.apple_role,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"spec substrate-adr: {exc}")
+        return 2
+    Path(args.out).write_text(result["markdown"], encoding="utf-8")
+    warnings = result.get("warnings", [])
+    suffix = ""
+    if warnings:
+        suffix = "; warnings: " + "; ".join(str(warning) for warning in warnings)
+    print(f"wrote substrate ADR draft: {args.out}{suffix}")
+    return 0
+
+
 def _cmd_test_golden(args: argparse.Namespace) -> int:
     results = run_golden_plans()
     for result in results:
@@ -316,6 +341,16 @@ def build_parser() -> argparse.ArgumentParser:
     spec_network.add_argument("--fixture", default="fornax/golden_vectors/network_contract")
     spec_network.add_argument("--out", required=True)
     spec_network.set_defaults(func=_cmd_spec_network_security)
+
+    spec_substrate = spec_sub.add_parser("substrate-adr")
+    spec_substrate.add_argument("--out", required=True)
+    spec_substrate.add_argument("--pinned-build", default="unset")
+    spec_substrate.add_argument("--last-checked")
+    spec_substrate.add_argument("--status", choices=STATUS_VALUES, default="probing")
+    spec_substrate.add_argument(
+        "--apple-role", choices=APPLE_ROLE_VALUES, default="undecided"
+    )
+    spec_substrate.set_defaults(func=_cmd_spec_substrate_adr)
 
     tests = sub.add_parser("test")
     tests.add_argument("test_name", choices=["golden-plans", "runtime-format", "network-contract"])

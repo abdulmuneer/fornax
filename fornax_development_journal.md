@@ -359,3 +359,42 @@
   `python3 -m fornax test network-contract --mode simulated --fixture
   fornax/golden_vectors/network_contract`, `make fornax-test`, and `make
   fornax-golden` all passed.
+
+### Substrate ADR draft milestone
+
+- Added `fornax.substrate_adr.render_substrate_adr_draft` and the `fornax spec
+  substrate-adr` command to generate a reviewable
+  `adr/0001-max-mojo-substrate.md` draft.
+- The draft records MAX/Mojo as the preferred substrate bet while keeping the
+  decision auditable: source precedence ladder, pinned build policy, local
+  rank-1 probe as gate of record, rejected alternatives, Apple Plan B, reversal
+  trigger, watch-register fields, and review checklist.
+- The command also records local `max`/`mojo`/`modular` tool discovery as
+  provenance only. On this Linux H100 workstation, no local MAX/Mojo tools were
+  discovered, so the generated draft correctly warns that Apple expert-MLP
+  capability remains unproven.
+- Review-lens pass:
+  - Organizational/TL: approve with comments. The ADR shape now exists and names
+    the gate rules, but final TL/SP review and dated decision recording remain
+    required before G1 closure.
+  - Hardware Acceleration: approve with comments. The draft does not infer Apple
+    support from upstream claims; target-Mac expert-MLP measurement on a pinned
+    build remains the rank-1 gate.
+  - Low-level Software: approve. Rejected alternatives and the MAX/Mojo surgery
+    boundary are explicit, while unsupported operations remain backend gaps
+    rather than assumptions.
+- Verification: `python3 -m fornax spec substrate-adr --out
+  /tmp/fornax_adr_0001_default.md`, `python3 -m fornax spec substrate-adr
+  --pinned-build max-26.4.0 --last-checked 2026-06-20 --status probing
+  --apple-role capacity-only --out /tmp/fornax_adr_0001_max_mojo_substrate.md`,
+  `python3 -m unittest discover -s tests -p 'test_fornax*.py'`, `python3 -m
+  compileall -q fornax tests`, `python3 -m fornax test golden-plans`, `python3
+  -m fornax test runtime-format --golden fornax/golden_vectors/runtime_format`,
+  `python3 -m fornax test network-contract --mode simulated --fixture
+  fornax/golden_vectors/network_contract`, `python3 -m fornax spec
+  runtime-format --golden fornax/golden_vectors/runtime_format --out
+  /tmp/fornax_runtime_format_and_invariants.md`, `python3 -m fornax spec
+  network-security --fixture fornax/golden_vectors/network_contract --out
+  /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
+  `make fornax-golden` all passed.
+

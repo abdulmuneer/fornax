@@ -27,6 +27,7 @@ from fornax.runtime_format import (
     validate_runtime_format_manifest,
 )
 from fornax.simulate import simulation_result, summarize_request_trace
+from fornax.substrate_adr import render_substrate_adr_draft
 from fornax.target_contract import render_target_contract_draft
 from fornax.validation import validate_target_contract
 
@@ -191,6 +192,48 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("## Timeout, Retry, Cancel, And Partition Semantics", markdown)
         self.assertIn("plan_integrity_reject", markdown)
         self.assertIn("Phase 1b T3 lab hardware", markdown)
+
+    def test_substrate_adr_draft_includes_source_precedence(self) -> None:
+        result = render_substrate_adr_draft(
+            pinned_build="max-26.4.0",
+            last_checked="2026-06-20",
+            status="probing",
+            apple_role="capacity-only",
+            local_probe={
+                "platform": "macOS-arm64-lab-placeholder",
+                "machine": "arm64",
+                "python": "3.12",
+                "tools": [
+                    {
+                        "tool": "max",
+                        "available": True,
+                        "path": "/opt/modular/bin/max",
+                        "version": "MAX 26.4.0",
+                    },
+                    {
+                        "tool": "mojo",
+                        "available": True,
+                        "path": "/opt/modular/bin/mojo",
+                        "version": "Mojo 1.0",
+                    },
+                ],
+                "note": "synthetic unit-test probe",
+            },
+        )
+        self.assertTrue(result["ok"])
+        markdown = result["markdown"]
+        self.assertIn("Status: DRAFT", markdown)
+        self.assertIn("## Source Precedence", markdown)
+        self.assertIn("Local probe on the pinned build", markdown)
+        self.assertIn("## Apple Plan B And Reversal Trigger", markdown)
+        self.assertIn("target-model expert MLP", markdown)
+        self.assertIn("capacity-only", markdown)
+        self.assertIn("## Rejected Alternatives", markdown)
+        self.assertIn("TL/SP review", markdown)
+
+    def test_substrate_adr_rejects_unknown_status(self) -> None:
+        with self.assertRaisesRegex(ValueError, "status must be"):
+            render_substrate_adr_draft(status="future-promise")
 
     def test_runtime_format_golden_fixture_passes(self) -> None:
         result = validate_runtime_format_golden("fornax/golden_vectors/runtime_format")
