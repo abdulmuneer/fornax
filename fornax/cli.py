@@ -233,6 +233,11 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
             requests_path=trace_path,
             benchmark_mode=args.benchmark_mode,
             benchmark_iterations=args.benchmark_iterations,
+            include_g1_drafts=args.include_g1_drafts,
+            substrate_pinned_build=args.substrate_pinned_build,
+            kickoff_date=args.kickoff_date,
+            ker_status=args.ker_status,
+            scope=args.scope,
         )
     except (OSError, ValueError) as exc:
         print(f"preflight: {exc}")
@@ -431,6 +436,11 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--trace", help="deprecated alias for --requests")
     preflight.add_argument("--benchmark-mode", default="tiny-moe-or-expert-mlp")
     preflight.add_argument("--benchmark-iterations", type=int, default=25)
+    preflight.add_argument("--include-g1-drafts", action="store_true")
+    preflight.add_argument("--substrate-pinned-build", default="unset")
+    preflight.add_argument("--kickoff-date")
+    preflight.add_argument("--ker-status", choices=KER_STATUS_VALUES, default="unassigned")
+    preflight.add_argument("--scope", choices=SCOPE_VALUES, default="pending")
     preflight.set_defaults(func=_cmd_preflight)
 
     spec = sub.add_parser("spec")

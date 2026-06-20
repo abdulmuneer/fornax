@@ -723,6 +723,52 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertIn('"measured": true', benchmark)
             self.assertIn('"request_count": 1', simulate)
 
+    def test_phase0_preflight_can_include_g1_drafts(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d) / "bundle"
+            result = run_phase0_preflight(
+                target_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                out_dir=bundle,
+                benchmark_iterations=1,
+                include_g1_drafts=True,
+                substrate_pinned_build="max-26.4.0",
+                kickoff_date="2026-06-20",
+                ker_status="unavailable",
+                scope="pending",
+                inventory_data={
+                    "nodes": [
+                        {
+                            "id": "fast",
+                            "vendor": "nvidia",
+                            "runtime": "max",
+                            "mem_free_bytes": 16_000_000,
+                            "compute_class": 4_000_000_000_000.0,
+                            "mem_bandwidth_bytes_s": 400_000_000_000.0,
+                            "supports_stage": True,
+                            "supports_expert_worker": True,
+                            "supports_kv": True,
+                            "supported_dtypes": ["fp16"],
+                        }
+                    ],
+                    "links": [],
+                    "source": "test",
+                },
+            )
+            doctor = inspect_phase0_bundle(bundle)
+            self.assertTrue(result["ok"], result["doctor"])
+            self.assertTrue((bundle / "runtime-format-and-invariants.md").exists())
+            self.assertTrue((bundle / "networking-security-and-backpressure.md").exists())
+            self.assertTrue((bundle / "adr" / "0001-max-mojo-substrate.md").exists())
+            self.assertTrue((bundle / "apple-expert-mlp-probe.json").exists())
+            self.assertTrue((bundle / "roadmap-staffing-rebaseline.md").exists())
+            warnings = doctor["warnings"]
+            self.assertNotIn("missing G1 gate artifact: runtime_format_spec", warnings)
+            self.assertNotIn("missing G1 gate artifact: network_security_spec", warnings)
+            self.assertNotIn("missing G1 gate artifact: substrate_adr", warnings)
+            self.assertNotIn("missing G1 gate artifact: apple_probe", warnings)
+            self.assertNotIn("missing G1 gate artifact: program_rebaseline", warnings)
+            self.assertIn("missing G1 gate artifact: apple_probe_validation", warnings)
+
     def test_markdown_target_contract_fixture_loads(self) -> None:
         model, target, bundle = load_target_contract(
             "fornax/golden_plans/v0_target_contract_fixture.md"

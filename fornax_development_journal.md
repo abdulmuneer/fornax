@@ -514,3 +514,41 @@
   /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
   `make fornax-golden` all passed.
 
+### Preflight G1 draft bundle milestone
+
+- Added optional `fornax preflight --include-g1-drafts` support so a single
+  preflight run can materialize the generated G1 review drafts into the evidence
+  bundle before `fornax doctor` runs.
+- When enabled, preflight now writes `runtime-format-and-invariants.md`,
+  `networking-security-and-backpressure.md`, `adr/0001-max-mojo-substrate.md`,
+  `apple-expert-mlp-probe.json`, and `roadmap-staffing-rebaseline.md`, alongside
+  the existing target/inventory/links/placement/validate/simulate/benchmark/
+  doctor artifacts.
+- Doctor warnings on the generated bundle shrink to the honest remaining gaps:
+  active link estimates on this workstation plus missing measured
+  `apple-probe-validation.json` and `apple-role-decision.md` artifacts.
+- Review-lens pass:
+  - SRE/Operations: approve. The richer bundle is reproducible with one command
+    and no manual copying of draft artifacts.
+  - Program Management: approve. The bundle keeps written draft artifacts next to
+    executable evidence, reducing handoff ambiguity while preserving warnings for
+    unmeasured Apple evidence.
+  - Software Engineering: approve with comments. Draft generation is opt-in, so
+    the minimal preflight path remains available for fast T0/T1 checks.
+- Verification: focused preflight tests, `python3 -m unittest discover -s tests
+  -p 'test_fornax*.py'`, `python3 -m compileall -q fornax tests`, `python3 -m
+  fornax preflight --target fornax/golden_plans/v0_target_contract_fixture.md
+  --out-dir /tmp/fornax_preflight_with_g1 --benchmark-iterations 1
+  --include-g1-drafts --substrate-pinned-build max-26.4.0 --kickoff-date
+  2026-06-20 --ker-status unavailable --scope pending`, `python3 -m fornax
+  doctor --bundle /tmp/fornax_preflight_with_g1 --out
+  /tmp/fornax_preflight_with_g1/doctor_rerun.json`, `python3 -m fornax test
+  golden-plans`, `python3 -m fornax test runtime-format --golden
+  fornax/golden_vectors/runtime_format`, `python3 -m fornax test
+  network-contract --mode simulated --fixture fornax/golden_vectors/network_contract`,
+  `python3 -m fornax spec runtime-format --golden fornax/golden_vectors/runtime_format
+  --out /tmp/fornax_runtime_format_and_invariants.md`, `python3 -m fornax spec
+  network-security --fixture fornax/golden_vectors/network_contract --out
+  /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
+  `make fornax-golden` all passed.
+

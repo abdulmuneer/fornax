@@ -4,12 +4,17 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .apple_probe import apple_probe_template
 from .benchmark import DEFAULT_MODE, benchmark_from_plan
 from .contracts import load_target_contract
 from .doctor import inspect_phase0_bundle
 from .inventory import collect_local_inventory, probe_declared_links
 from .io import load_inventory, write_json
+from .network_security_spec import render_network_security_spec_draft
 from .planner import plan_placement
+from .program_rebaseline import render_program_rebaseline_draft
+from .runtime_format_spec import render_runtime_format_spec_draft
+from .substrate_adr import render_substrate_adr_draft
 from .simulate import simulation_result, summarize_request_trace
 from .validation import validate_target_contract
 
@@ -23,6 +28,77 @@ def _copy_target_contract(target_path: Path, out_dir: Path) -> Path:
     return copied
 
 
+def _target_model_name(contract_bundle: dict[str, Any]) -> str:
+    model = contract_bundle.get("model") if isinstance(contract_bundle, dict) else None
+    if isinstance(model, dict):
+        for key in ("name", "family", "model_id"):
+            value = model.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return "target-model"
+
+
+def _throughput_threshold(contract_bundle: dict[str, Any]) -> float:
+    contract = (
+        contract_bundle.get("contract") if isinstance(contract_bundle, dict) else None
+    )
+    if isinstance(contract, dict):
+        value = contract.get("throughput_threshold_tok_s")
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+    return 1.0
+
+
+def _write_g1_drafts(
+    *,
+    bundle: Path,
+    contract_bundle: dict[str, Any],
+    substrate_pinned_build: str,
+    kickoff_date: str | None,
+    ker_status: str,
+    scope: str,
+) -> dict[str, str]:
+    artifacts: dict[str, str] = {}
+
+    runtime = render_runtime_format_spec_draft("fornax/golden_vectors/runtime_format")
+    runtime_path = bundle / "runtime-format-and-invariants.md"
+    runtime_path.write_text(runtime["markdown"], encoding="utf-8")
+    artifacts["runtime_format_spec"] = str(runtime_path)
+
+    network = render_network_security_spec_draft("fornax/golden_vectors/network_contract")
+    network_path = bundle / "networking-security-and-backpressure.md"
+    network_path.write_text(network["markdown"], encoding="utf-8")
+    artifacts["network_security_spec"] = str(network_path)
+
+    adr_dir = bundle / "adr"
+    adr_dir.mkdir(exist_ok=True)
+    substrate = render_substrate_adr_draft(pinned_build=substrate_pinned_build)
+    substrate_path = adr_dir / "0001-max-mojo-substrate.md"
+    substrate_path.write_text(substrate["markdown"], encoding="utf-8")
+    artifacts["substrate_adr"] = str(substrate_path)
+
+    apple_probe_path = bundle / "apple-expert-mlp-probe.json"
+    write_json(
+        apple_probe_path,
+        apple_probe_template(
+            target_model=_target_model_name(contract_bundle),
+            pinned_build=substrate_pinned_build,
+            threshold_tokens_s=_throughput_threshold(contract_bundle),
+        ),
+    )
+    artifacts["apple_probe"] = str(apple_probe_path)
+
+    rebaseline = render_program_rebaseline_draft(
+        kickoff_date=kickoff_date,
+        ker_status=ker_status,
+        scope=scope,
+    )
+    rebaseline_path = bundle / "roadmap-staffing-rebaseline.md"
+    rebaseline_path.write_text(rebaseline["markdown"], encoding="utf-8")
+    artifacts["program_rebaseline"] = str(rebaseline_path)
+    return artifacts
+
+
 def run_phase0_preflight(
     *,
     target_path: str | Path,
@@ -31,6 +107,11 @@ def run_phase0_preflight(
     benchmark_mode: str = DEFAULT_MODE,
     benchmark_iterations: int = 25,
     inventory_data: dict[str, Any] | None = None,
+    include_g1_drafts: bool = False,
+    substrate_pinned_build: str = "unset",
+    kickoff_date: str | None = None,
+    ker_status: str = "unassigned",
+    scope: str = "pending",
 ) -> dict[str, Any]:
     """Run the minimal Phase-0 evidence workflow and write a doctorable bundle."""
 
@@ -47,6 +128,7 @@ def run_phase0_preflight(
     simulate_path = bundle / "simulate.json"
     benchmark_path = bundle / "benchmark.json"
     doctor_path = bundle / "doctor.json"
+    generated_g1_artifacts: dict[str, str] = {}
 
     write_json(inventory_path, inventory_data)
     link_data = probe_declared_links(inventory_data)
@@ -87,6 +169,16 @@ def run_phase0_preflight(
         }
     write_json(benchmark_path, benchmark)
 
+    if include_g1_drafts:
+        generated_g1_artifacts = _write_g1_drafts(
+            bundle=bundle,
+            contract_bundle=contract_bundle,
+            substrate_pinned_build=substrate_pinned_build,
+            kickoff_date=kickoff_date,
+            ker_status=ker_status,
+            scope=scope,
+        )
+
     doctor = inspect_phase0_bundle(bundle)
     write_json(doctor_path, doctor)
     return {
@@ -101,6 +193,7 @@ def run_phase0_preflight(
             "simulate": str(simulate_path),
             "benchmark": str(benchmark_path),
             "doctor": str(doctor_path),
+            **generated_g1_artifacts,
         },
         "doctor": doctor,
     }
