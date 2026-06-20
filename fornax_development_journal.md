@@ -298,3 +298,33 @@
   fornax test network-contract --mode simulated --fixture
   fornax/golden_vectors/network_contract`, `make fornax-test`, and `make
   fornax-golden` all passed.
+
+### Runtime-format spec draft milestone
+
+- Added `fornax.runtime_format_spec.render_runtime_format_spec_draft` and the
+  `fornax spec runtime-format` command to generate a reviewable
+  `runtime-format-and-invariants.md` draft from the packaged golden-vector
+  manifest.
+- The draft covers activation tensor layout/ownership/lifetime, KV page
+  ownership/eviction/transfer/replay rules, expert batch routing/gather
+  semantics, in-flight dtype restrictions, quantization boundary, failure modes,
+  reference path, golden-vector method, per-dtype tolerances, and build/toolchain
+  assumptions.
+- Review-lens pass:
+  - Low-level Software: approve with comments. The spec makes ownership and
+    failure semantics explicit, but optimized backend parity and binary layout
+    checks remain future hardware/runtime work.
+  - LLM/correctness: approve. The draft reinforces the slow reference path,
+    golden vectors, and per-dtype tolerance discipline required before optimized
+    cross-vendor trust.
+  - High-level Software: approve. The review artifact can now be regenerated from
+    the same golden fixture used by `fornax test runtime-format`.
+- Verification: `python3 -m fornax spec runtime-format --golden
+  fornax/golden_vectors/runtime_format --out
+  /tmp/fornax_runtime_format_and_invariants.md`, `python3 -m unittest
+  discover -s tests -p 'test_fornax*.py'`, `python3 -m compileall -q
+  fornax tests`, `python3 -m fornax test golden-plans`, `python3 -m
+  fornax test runtime-format --golden fornax/golden_vectors/runtime_format`,
+  `python3 -m fornax test network-contract --mode simulated --fixture
+  fornax/golden_vectors/network_contract`, `make fornax-test`, and `make
+  fornax-golden` all passed.

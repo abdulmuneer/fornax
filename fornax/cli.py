@@ -15,6 +15,7 @@ from .planner import plan_placement
 from .preflight import run_phase0_preflight
 from .network_contract import validate_network_contract
 from .runtime_format import validate_runtime_format_golden
+from .runtime_format_spec import render_runtime_format_spec_draft
 from .simulate import simulation_result, summarize_request_trace
 from .target_contract import render_target_contract_draft
 from .validation import validate_target_contract
@@ -167,6 +168,18 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
     return 2
 
 
+def _cmd_spec_runtime_format(args: argparse.Namespace) -> int:
+    try:
+        result = render_runtime_format_spec_draft(args.golden)
+    except (OSError, ValueError) as exc:
+        print(f"spec runtime-format: {exc}")
+        return 2
+    Path(args.out).write_text(result["markdown"], encoding="utf-8")
+    status = "valid" if result["ok"] else "invalid"
+    print(f"wrote runtime-format spec draft: {args.out} ({status})")
+    return 0 if result["ok"] else 2
+
+
 def _cmd_test_golden(args: argparse.Namespace) -> int:
     results = run_golden_plans()
     for result in results:
@@ -278,6 +291,13 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--benchmark-mode", default="tiny-moe-or-expert-mlp")
     preflight.add_argument("--benchmark-iterations", type=int, default=25)
     preflight.set_defaults(func=_cmd_preflight)
+
+    spec = sub.add_parser("spec")
+    spec_sub = spec.add_subparsers(dest="spec_command", required=True)
+    spec_runtime = spec_sub.add_parser("runtime-format")
+    spec_runtime.add_argument("--golden", default="fornax/golden_vectors/runtime_format")
+    spec_runtime.add_argument("--out", required=True)
+    spec_runtime.set_defaults(func=_cmd_spec_runtime_format)
 
     tests = sub.add_parser("test")
     tests.add_argument("test_name", choices=["golden-plans", "runtime-format", "network-contract"])

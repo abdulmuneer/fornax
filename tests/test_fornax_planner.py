@@ -20,6 +20,7 @@ from fornax.network_contract import (
 )
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 from fornax.preflight import run_phase0_preflight
+from fornax.runtime_format_spec import render_runtime_format_spec_draft
 from fornax.runtime_format import (
     validate_runtime_format_golden,
     validate_runtime_format_manifest,
@@ -303,6 +304,20 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_runtime_format_manifest(manifest)
         self.assertFalse(result["ok"])
         self.assertIn("first dimension must equal page_size", "; ".join(result["errors"]))
+
+    def test_runtime_format_spec_draft_includes_review_sections(self) -> None:
+        result = render_runtime_format_spec_draft("fornax/golden_vectors/runtime_format")
+        self.assertTrue(result["ok"], result["validation"])
+        markdown = result["markdown"]
+        self.assertIn("Status: DRAFT", markdown)
+        self.assertIn("## Activation Tensor", markdown)
+        self.assertIn("## KV Page", markdown)
+        self.assertIn("## Expert Batch", markdown)
+        self.assertIn("## Failure Modes", markdown)
+        self.assertIn("## Reference Path And Golden-Vector Method", markdown)
+        self.assertIn("Send/receive reuse", markdown)
+        self.assertIn("same placement plan", markdown)
+        self.assertIn("q4/q8", markdown)
 
     def test_phase0_doctor_reports_missing_required_files(self) -> None:
         with tempfile.TemporaryDirectory() as d:
