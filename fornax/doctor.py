@@ -9,6 +9,29 @@ from .io import read_json
 REQUIRED_JSON = ["inventory.json", "links.json", "placement.json"]
 RECOMMENDED_ANY = ["target.json", "v0-target-contract.md"]
 RECOMMENDED_JSON = ["validate.json", "simulate.json", "benchmark.json"]
+G1_GATE_ARTIFACT_GROUPS = [
+    ("runtime_format_spec", ["runtime-format-and-invariants.md"]),
+    ("network_security_spec", ["networking-security-and-backpressure.md"]),
+    (
+        "substrate_adr",
+        [
+            "adr/0001-max-mojo-substrate.md",
+            "0001-max-mojo-substrate.md",
+            "adr-0001-max-mojo-substrate.md",
+        ],
+    ),
+    ("apple_probe", ["apple-expert-mlp-probe.json", "apple-probe.json"]),
+    ("apple_probe_validation", ["apple-probe-validation.json"]),
+    ("apple_role_decision", ["apple-role-decision.md"]),
+    (
+        "program_rebaseline",
+        ["roadmap-staffing-rebaseline.md", "roadmap-rebaseline.md"],
+    ),
+]
+
+
+def _present_files(bundle: Path, names: list[str]) -> list[str]:
+    return [name for name in names if (bundle / name).exists()]
 
 
 def _read_json_in_bundle(bundle: Path, name: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -103,6 +126,24 @@ def inspect_phase0_bundle(bundle_path: str | Path) -> dict[str, Any]:
             artifacts[name]["has_predicted"] = isinstance(data.get("predicted"), dict)
             if not artifacts[name]["has_predicted"]:
                 errors.append("simulate.json missing predicted block")
+
+    for key, names in G1_GATE_ARTIFACT_GROUPS:
+        present = _present_files(bundle, names)
+        artifacts[key] = {"present": bool(present), "files": present}
+        if not present:
+            warnings.append(f"missing G1 gate artifact: {key}")
+
+    apple_validation = bundle / "apple-probe-validation.json"
+    if apple_validation.exists():
+        data, error = _read_json_in_bundle(bundle, "apple-probe-validation.json")
+        if error:
+            errors.append(error)
+        elif not bool(data.get("valid")):
+            warnings.append("apple-probe-validation.json is not G1-closable")
+        elif isinstance(data.get("recommended_role"), str):
+            artifacts["apple_probe_validation"]["recommended_role"] = data.get(
+                "recommended_role"
+            )
 
     return {
         "bundle": str(bundle),

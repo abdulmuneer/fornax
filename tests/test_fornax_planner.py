@@ -496,8 +496,41 @@ class FornaxPlannerTest(unittest.TestCase):
             result = inspect_phase0_bundle(bundle)
         self.assertTrue(result["ok"], result["errors"])
         self.assertIn("benchmark.json is a dry-run prediction, not measured evidence", result["warnings"])
+        self.assertIn("missing G1 gate artifact: runtime_format_spec", result["warnings"])
         self.assertTrue(result["artifacts"]["validate.json"]["valid"])
 
+    def test_phase0_doctor_recognizes_g1_gate_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d)
+            (bundle / "adr").mkdir()
+            (bundle / "inventory.json").write_text(
+                '{"nodes": [{"id": "n0"}], "links": []}\n', encoding="utf-8"
+            )
+            (bundle / "links.json").write_text(
+                '{"links": [], "measured": true}\n', encoding="utf-8"
+            )
+            (bundle / "target.json").write_text('{"model": {}, "target": {}}\n', encoding="utf-8")
+            (bundle / "placement.json").write_text('{"feasible": true, "predicted": {}}\n', encoding="utf-8")
+            (bundle / "validate.json").write_text('{"valid": true}\n', encoding="utf-8")
+            (bundle / "simulate.json").write_text('{"predicted": {}}\n', encoding="utf-8")
+            (bundle / "benchmark.json").write_text('{"measured": true}\n', encoding="utf-8")
+            (bundle / "runtime-format-and-invariants.md").write_text("draft\n", encoding="utf-8")
+            (bundle / "networking-security-and-backpressure.md").write_text("draft\n", encoding="utf-8")
+            (bundle / "adr" / "0001-max-mojo-substrate.md").write_text("draft\n", encoding="utf-8")
+            (bundle / "apple-probe.json").write_text('{"probe_kind": "apple-expert-mlp"}\n', encoding="utf-8")
+            (bundle / "apple-probe-validation.json").write_text(
+                '{"valid": true, "recommended_role": "capacity-only"}\n',
+                encoding="utf-8",
+            )
+            (bundle / "apple-role-decision.md").write_text("draft\n", encoding="utf-8")
+            (bundle / "roadmap-staffing-rebaseline.md").write_text("draft\n", encoding="utf-8")
+            result = inspect_phase0_bundle(bundle)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual([], result["warnings"])
+        self.assertEqual(
+            "capacity-only",
+            result["artifacts"]["apple_probe_validation"]["recommended_role"],
+        )
 
     def test_phase0_doctor_rejects_empty_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -683,7 +716,8 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertTrue((bundle / "doctor.json").exists())
             doctor = inspect_phase0_bundle(bundle)
             self.assertTrue(doctor["ok"])
-            self.assertEqual([], doctor["warnings"])
+            self.assertIn("missing G1 gate artifact: runtime_format_spec", doctor["warnings"])
+            self.assertIn("missing G1 gate artifact: apple_probe", doctor["warnings"])
             benchmark = (bundle / "benchmark.json").read_text(encoding="utf-8")
             simulate = (bundle / "simulate.json").read_text(encoding="utf-8")
             self.assertIn('"measured": true', benchmark)

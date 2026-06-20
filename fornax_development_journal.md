@@ -480,3 +480,37 @@
   /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
   `make fornax-golden` all passed.
 
+### G1 artifact-aware doctor milestone
+
+- Extended `fornax.doctor.inspect_phase0_bundle` so Phase-0 bundles report the
+  newer G1 gate artifacts, not only inventory/links/placement/validation/
+  simulation/benchmark files.
+- Doctor now tracks runtime-format spec, networking/security spec, substrate ADR,
+  Apple probe artifact, Apple probe validation, Apple role decision, and roadmap
+  staffing rebaseline artifacts. Missing items are warnings, not core preflight
+  errors, so a minimal bundle remains usable while still exposing G1 gaps.
+- `apple-probe-validation.json` is parsed when present; a closable validation
+  records the recommended Apple role, while a non-closable validation warns.
+- Review-lens pass:
+  - SRE/Operations: approve. A single doctor report now distinguishes runnable
+    preflight health from missing G1 review artifacts.
+  - Program Management: approve. The report reduces status drift by making
+    written-but-not-closed artifacts visible in the same bundle summary.
+  - Software Engineering: approve with comments. The change is warning-only for
+    new gate artifacts to avoid turning the minimal preflight command into a
+    hard dependency on human-reviewed markdown.
+- Verification: focused doctor/preflight tests, `python3 -m unittest discover -s
+  tests -p 'test_fornax*.py'`, `python3 -m compileall -q fornax tests`, `python3
+  -m fornax preflight --target fornax/golden_plans/v0_target_contract_fixture.md
+  --out-dir /tmp/fornax_preflight_doctor_g1 --benchmark-iterations 1`, `python3
+  -m fornax doctor --bundle /tmp/fornax_preflight_doctor_g1 --out
+  /tmp/fornax_preflight_doctor_g1/doctor_rerun.json`, `python3 -m fornax test
+  golden-plans`, `python3 -m fornax test runtime-format --golden
+  fornax/golden_vectors/runtime_format`, `python3 -m fornax test
+  network-contract --mode simulated --fixture fornax/golden_vectors/network_contract`,
+  `python3 -m fornax spec runtime-format --golden fornax/golden_vectors/runtime_format
+  --out /tmp/fornax_runtime_format_and_invariants.md`, `python3 -m fornax spec
+  network-security --fixture fornax/golden_vectors/network_contract --out
+  /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
+  `make fornax-golden` all passed.
+
