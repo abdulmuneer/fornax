@@ -16,6 +16,7 @@ from .preflight import run_phase0_preflight
 from .network_contract import validate_network_contract
 from .runtime_format import validate_runtime_format_golden
 from .simulate import simulation_result, summarize_request_trace
+from .target_contract import render_target_contract_draft
 from .validation import validate_target_contract
 
 
@@ -32,6 +33,22 @@ def _cmd_fabric_probe(args: argparse.Namespace) -> int:
     write_json(args.out, data)
     print(f"wrote link probe: {args.out}")
     return 0
+
+
+def _cmd_target_draft(args: argparse.Namespace) -> int:
+    try:
+        result = render_target_contract_draft(
+            source_path=args.source,
+            inventory_path=args.inventory,
+            links_path=args.links,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"target draft: {exc}")
+        return 2
+    Path(args.out).write_text(result["markdown"], encoding="utf-8")
+    status = "valid" if result["valid"] else "invalid"
+    print(f"wrote target contract draft: {args.out} ({status})")
+    return 0 if result["valid"] else 2
 
 
 def _cmd_target_validate(args: argparse.Namespace) -> int:
@@ -219,6 +236,13 @@ def build_parser() -> argparse.ArgumentParser:
     target_validate.add_argument("--links")
     target_validate.add_argument("--out")
     target_validate.set_defaults(func=_cmd_target_validate)
+
+    target_draft = target_sub.add_parser("draft")
+    target_draft.add_argument("source")
+    target_draft.add_argument("--inventory", required=True)
+    target_draft.add_argument("--links")
+    target_draft.add_argument("--out", required=True)
+    target_draft.set_defaults(func=_cmd_target_draft)
 
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)

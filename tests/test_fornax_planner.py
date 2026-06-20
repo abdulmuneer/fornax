@@ -8,6 +8,7 @@ from fornax.benchmark import benchmark_from_plan, run_tiny_expert_mlp_benchmark
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
 from fornax.golden import run_golden_plans
+from fornax.io import load_inventory, write_json
 from fornax.inventory.local import (
     collect_local_inventory,
     parse_nvidia_smi_csv,
@@ -24,6 +25,7 @@ from fornax.runtime_format import (
     validate_runtime_format_manifest,
 )
 from fornax.simulate import simulation_result, summarize_request_trace
+from fornax.target_contract import render_target_contract_draft
 from fornax.validation import validate_target_contract
 
 
@@ -366,6 +368,52 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["valid"])
         failed = {check["name"] for check in result["checks"] if not check["passed"]}
         self.assertIn("planner.throughput_threshold_met", failed)
+
+    def test_target_contract_draft_is_executable_markdown_with_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            inventory_path = root / "inventory.json"
+            links_path = root / "links.json"
+            write_json(
+                inventory_path,
+                {
+                    "nodes": [
+                        {
+                            "id": "fast",
+                            "vendor": "nvidia",
+                            "runtime": "max",
+                            "mem_free_bytes": 16_000_000,
+                            "compute_class": 4_000_000_000_000.0,
+                            "mem_bandwidth_bytes_s": 400_000_000_000.0,
+                            "supports_stage": True,
+                            "supports_expert_worker": True,
+                            "supports_kv": True,
+                            "supported_dtypes": ["fp16"],
+                        }
+                    ],
+                    "links": [],
+                },
+            )
+            write_json(links_path, {"links": [], "measured": True})
+            result = render_target_contract_draft(
+                source_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                inventory_path=inventory_path,
+                links_path=links_path,
+            )
+            out = root / "v0-target-contract.md"
+            out.write_text(result["markdown"], encoding="utf-8")
+            model, target, bundle = load_target_contract(out)
+            validation = validate_target_contract(
+                model, target, bundle, load_inventory(inventory_path, links_path)
+            )
+        self.assertTrue(result["valid"], result["validation"]["checks"])
+        self.assertTrue(validation["valid"], validation["checks"])
+        self.assertIn("Status: DRAFT", result["markdown"])
+        self.assertIn("## Memory Budget", result["markdown"])
+        self.assertIn("```json fornax-target", result["markdown"])
+        self.assertEqual(
+            "draft_not_signed_off", result["machine_bundle"]["evidence"]["status"]
+        )
 
     def test_request_trace_summary_supports_phase0_simulate_contract(self) -> None:
         with tempfile.TemporaryDirectory() as d:

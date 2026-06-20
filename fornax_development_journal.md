@@ -267,3 +267,34 @@
   network-contract --mode simulated --fixture
   fornax/golden_vectors/network_contract`, `make fornax-test`, and `make
   fornax-golden` all passed.
+
+### Target-contract draft milestone
+
+- Added `fornax.target_contract.render_target_contract_draft` and the `fornax
+  target draft` command to turn an executable seed/source contract plus inventory
+  and links into a human-reviewable `v0-target-contract.md` draft.
+- The draft includes explicit non-signoff status, seed/replacement rationale,
+  target summary, fleet summary, fabric provenance, planner prediction, memory
+  budget rows, thresholds, baselines, kill metric, validation checks, and the
+  executable `json fornax-target` block with evidence metadata.
+- Review-lens pass:
+  - Analytical: approve with comments. The draft records planner predictions and
+    validation checks, but it is still a draft; G1 closure requires TL/SP review,
+    measured fabric/device evidence, and final threshold agreement.
+  - Hardware: approve with comments. Fleet and fabric provenance are exposed in
+    the draft; estimated links remain visible and cannot be mistaken for active
+    fabric measurements.
+  - High-level Software: approve. Contract authors now have a repeatable command
+    for generating the review artifact from the same machine-readable source used
+    by `target validate` and `preflight`.
+- Verification: `python3 -m fornax inventory collect --out /tmp/fornax_target_draft_inventory.json`,
+  `python3 -m fornax fabric probe --inventory /tmp/fornax_target_draft_inventory.json --out /tmp/fornax_target_draft_links.json`,
+  `python3 -m fornax target draft fornax/golden_plans/v0_target_contract_fixture.md --inventory /tmp/fornax_target_draft_inventory.json --links /tmp/fornax_target_draft_links.json --out /tmp/fornax_v0_target_contract_draft.md`,
+  `python3 -m fornax target validate /tmp/fornax_v0_target_contract_draft.md --inventory /tmp/fornax_target_draft_inventory.json --links /tmp/fornax_target_draft_links.json`,
+  generated-contract `fornax preflight`, `python3 -m unittest discover -s tests
+  -p 'test_fornax*.py'`, `python3 -m compileall -q fornax tests`,
+  `python3 -m fornax test golden-plans`, `python3 -m fornax test
+  runtime-format --golden fornax/golden_vectors/runtime_format`, `python3 -m
+  fornax test network-contract --mode simulated --fixture
+  fornax/golden_vectors/network_contract`, `make fornax-test`, and `make
+  fornax-golden` all passed.
