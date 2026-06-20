@@ -60,3 +60,24 @@
   `python3 -m fornax test golden-plans`, `python3 -m compileall -q fornax tests`,
   and direct markdown `fornax target validate` all passed.
 
+### Inventory collection milestone
+
+- Addressed the Hardware review gap from the initial planner milestone: `fornax
+  inventory collect` now calls `nvidia-smi` when available and emits NVIDIA GPU
+  nodes alongside the CPU node.
+- Live smoke check on this machine wrote `/tmp/fornax_live_inventory.json` and
+  discovered three nodes: the CPU host plus `gpu0` and `gpu1`, both `NVIDIA H100
+  80GB HBM3`. Current free-memory-derived planner budgets were about 35.8 GB for
+  `gpu0` and 27.7 GB for `gpu1` after the 10% reserve; no collection errors.
+- Honesty invariant: GPU memory fields are marked measured from `nvidia-smi`, but
+  `compute_class` and `mem_bandwidth_bytes_s` are still labeled static estimates
+  until profiler/benchmark probes calibrate them. A review issue found during
+  this milestone was fixed: `measured_fields` is now dynamic and only lists
+  NVIDIA fields when NVIDIA rows were actually parsed.
+- Added unit coverage for the `nvidia-smi` CSV parser, H100 node materialization,
+  planner memory reserve, and malformed CSV rejection.
+- Verification: `python3 -m unittest discover -s tests -p 'test_fornax*.py'`,
+  `python3 -m fornax test golden-plans`, `python3 -m compileall -q fornax tests`,
+  `make fornax-test`, `make fornax-golden`, and live `fornax inventory collect`
+  all passed.
+

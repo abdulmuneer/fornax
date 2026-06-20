@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.golden import run_golden_plans
+from fornax.inventory.local import collect_local_inventory, parse_nvidia_smi_csv
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 
 
@@ -70,6 +71,23 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 
 class FornaxPlannerTest(unittest.TestCase):
+
+    def test_nvidia_smi_inventory_parser_discovers_gpu_nodes(self) -> None:
+        csv_text = "0, NVIDIA H100 80GB HBM3, 80000, 81559, 575.57.08\n1, NVIDIA H100 80GB HBM3, 79000, 81559, 575.57.08\n"
+        rows = parse_nvidia_smi_csv(csv_text)
+        self.assertEqual(2, len(rows))
+        inventory = collect_local_inventory(nvidia_smi_csv=csv_text)
+        gpu_nodes = [node for node in inventory["nodes"] if node["vendor"] == "nvidia"]
+        self.assertEqual(["gpu0", "gpu1"], [node["id"] for node in gpu_nodes])
+        self.assertEqual("cuda:0", gpu_nodes[0]["device"])
+        self.assertEqual(int(80000 * 1024 * 1024 * 0.90), gpu_nodes[0]["mem_free_bytes"])
+        self.assertIn("static_estimate", gpu_nodes[0]["measurement"]["compute_class"])
+        self.assertIn("nvidia.memory_free_mib", inventory["measured_fields"])
+        self.assertIn("compute_class", inventory["estimated_fields"])
+
+    def test_nvidia_smi_parser_rejects_unexpected_columns(self) -> None:
+        with self.assertRaisesRegex(ValueError, "expected 5"):
+            parse_nvidia_smi_csv("0, NVIDIA H100\n")
 
     def test_markdown_target_contract_fixture_loads(self) -> None:
         model, target, bundle = load_target_contract(
