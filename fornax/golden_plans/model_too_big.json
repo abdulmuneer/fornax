@@ -1,0 +1,40 @@
+{
+  "name": "model_too_big",
+  "model": {
+    "hidden_dim": 1024,
+    "num_layers": 2,
+    "dtype_weight": "q4",
+    "dtype_activation": "fp16",
+    "layers": [
+      {"kind": "dense", "weight_bytes": 10000000, "active_flops_per_token": 1000000},
+      {"kind": "dense", "weight_bytes": 10000000, "active_flops_per_token": 1000000}
+    ]
+  },
+  "inventory": {
+    "nodes": [
+      {
+        "id": "tiny0",
+        "vendor": "cpu",
+        "runtime": "custom",
+        "mem_free_bytes": 1000000,
+        "compute_class": 1000000000000.0,
+        "mem_bandwidth_bytes_s": 100000000000.0,
+        "supports_stage": true,
+        "supports_expert_worker": false,
+        "supports_kv": true,
+        "supported_dtypes": ["fp16"]
+      }
+    ],
+    "links": []
+  },
+  "target": {
+    "concurrency": 4,
+    "prompt_len": 16,
+    "gen_len": 8,
+    "objective": "max_throughput"
+  },
+  "expected": {
+    "feasible": false,
+    "reason_contains": "no feasible contiguous stage placement"
+  }
+}

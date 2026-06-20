@@ -1,0 +1,108 @@
+{
+  "expected": {
+    "feasible": true,
+    "stage_count": 2,
+    "stages": [
+      {
+        "layers": [
+          0,
+          1,
+          2
+        ],
+        "mode": "resident",
+        "replicas": [
+          "fast"
+        ]
+      },
+      {
+        "layers": [
+          3
+        ],
+        "mode": "resident",
+        "replicas": [
+          "slow"
+        ]
+      }
+    ],
+    "throughput_tok_s_min": 5000.0
+  },
+  "inventory": {
+    "links": [
+      {
+        "a": "fast",
+        "b": "slow",
+        "bandwidth_bytes_s": 12500000000.0,
+        "latency_s": 2e-05
+      }
+    ],
+    "nodes": [
+      {
+        "compute_class": 4000000000000.0,
+        "id": "fast",
+        "mem_bandwidth_bytes_s": 400000000000.0,
+        "mem_free_bytes": 16000000,
+        "runtime": "max",
+        "supported_dtypes": [
+          "fp16"
+        ],
+        "supports_expert_worker": true,
+        "supports_kv": true,
+        "supports_stage": true,
+        "vendor": "nvidia"
+      },
+      {
+        "compute_class": 1000000000000.0,
+        "id": "slow",
+        "mem_bandwidth_bytes_s": 100000000000.0,
+        "mem_free_bytes": 16000000,
+        "runtime": "custom",
+        "supported_dtypes": [
+          "fp16"
+        ],
+        "supports_expert_worker": true,
+        "supports_kv": true,
+        "supports_stage": true,
+        "vendor": "cpu"
+      }
+    ]
+  },
+  "model": {
+    "dtype_activation": "fp16",
+    "dtype_weight": "q4",
+    "hidden_dim": 1024,
+    "layers": [
+      {
+        "active_flops_per_token": 1000000,
+        "kind": "dense",
+        "weight_bytes": 1000000
+      },
+      {
+        "active_flops_per_token": 1000000,
+        "kind": "dense",
+        "weight_bytes": 1000000
+      },
+      {
+        "active_flops_per_token": 1000000,
+        "kind": "dense",
+        "weight_bytes": 1000000
+      },
+      {
+        "active_flops_per_token": 1000000,
+        "kind": "dense",
+        "weight_bytes": 1000000
+      }
+    ],
+    "num_layers": 4
+  },
+  "name": "slow_node_gets_fewer_layers",
+  "plan_options": {
+    "max_stages": 2,
+    "min_stages": 2
+  },
+  "target": {
+    "concurrency": 4,
+    "gen_len": 8,
+    "objective": "balanced",
+    "prompt_len": 16
+  }
+}

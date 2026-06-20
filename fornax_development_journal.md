@@ -1,0 +1,48 @@
+# Fornax Development Journal
+
+## 2026-06-20
+
+- Created local branch `fornax` from `dev-agents`.
+- Re-read the Phase-0 program-management docs, project plan v3, partitioner spec,
+  review lenses, and the referenced venv/cache notes.
+- Current governing constraint: Phase 0 only. G1 has not passed, so distributed
+  worker/runtime/transport engineering is intentionally out of scope.
+- Started S0-1 with a model-free Python package:
+  - `fornax.planner` datamodels for `ModelSpec`, `Inventory`, `Target`, and
+    `PlacementPlan`;
+  - cost model for resident and remote-expert stage modes;
+  - deterministic contiguous-stage search with basic topology and replica
+    handling;
+  - packaged golden-plan fixtures and `fornax test golden-plans`;
+  - stdlib `unittest` coverage for golden fixtures, infeasibility, slow-node
+    partitioning, and monotonicity checks;
+  - preflight CLI skeleton for inventory, fabric probe, target validation,
+    planning, simulation, dry benchmark, and doctor bundle checks.
+- Implementation stance: Python/stdout JSON is deliberate for Phase 0 because
+  the partitioner spec says it is pure logic and must run without model or GPU.
+  Mojo/MAX runtime work remains gated by G1.
+
+### Milestone review-lens pass: S0-1 initial planner
+
+- Software Engineering: approve with comments. The slice is scoped to Phase-0
+  pure logic, with separate modules for datamodels, cost model, search, fixtures,
+  CLI, and tests. Test gaps to close next: more hand-worked cost cases, replica
+  edge cases, and remote-expert trace behavior.
+- Analytical: approve with comments. The planner exposes the right throughput,
+  latency, bubble, and infeasibility outputs, but the current numbers are still
+  synthetic predictions. G1 evidence will require measured probe inputs and a
+  tighter calibration ledger before any throughput claim is treated as real.
+- Hardware: approve with comments. Hardware is explicit in `Inventory` rather
+  than hard-coded, and dry benchmarks mark `measured=false`. Gap: the local
+  inventory command is a conservative CPU placeholder, not a real GPU/NIC probe.
+- Low-level Software: approve with comments. This milestone deliberately avoids
+  runtime memory ownership and kernel boundaries. The remaining B3 artifact,
+  `runtime-format-and-invariants.md`, is still open and must precede Phase 1.
+- High-level Software: approve with comments. The CLI names match the Phase-0
+  preflight workflow. Gap: `target validate` currently consumes a JSON target
+  bundle, while the G1 artifact is a markdown `v0-target-contract.md`; a contract
+  parser/validator is needed before S0-2 can close.
+- Important issue found and fixed: the slow-node golden fixture originally did
+  not force a spanning plan, so the optimizer legally selected one stage. Added
+  fixture `plan_options` support and pinned that case to exactly two stages.
+

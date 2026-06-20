@@ -1,0 +1,59 @@
+{
+  "name": "single_node_dense_attention",
+  "model": {
+    "hidden_dim": 1024,
+    "num_layers": 2,
+    "dtype_weight": "q4",
+    "dtype_activation": "fp16",
+    "layers": [
+      {
+        "kind": "attention",
+        "weight_bytes": 1048576,
+        "active_flops_per_token": 2000000,
+        "kv_bytes_per_token": 8192
+      },
+      {
+        "kind": "dense",
+        "weight_bytes": 1048576,
+        "active_flops_per_token": 2000000,
+        "kv_bytes_per_token": 0
+      }
+    ]
+  },
+  "inventory": {
+    "nodes": [
+      {
+        "id": "gpu0",
+        "vendor": "nvidia",
+        "runtime": "max",
+        "mem_free_bytes": 16777216,
+        "compute_class": 1000000000000.0,
+        "mem_bandwidth_bytes_s": 100000000000.0,
+        "supports_stage": true,
+        "supports_expert_worker": true,
+        "supports_kv": true,
+        "supported_dtypes": ["fp16", "fp8"]
+      }
+    ],
+    "links": []
+  },
+  "target": {
+    "concurrency": 4,
+    "prompt_len": 16,
+    "gen_len": 8,
+    "objective": "max_throughput"
+  },
+  "expected": {
+    "feasible": true,
+    "stage_count": 1,
+    "stages": [
+      {
+        "layers": [0, 1],
+        "replicas": ["gpu0"],
+        "mode": "resident"
+      }
+    ],
+    "bottleneck_stage": 0,
+    "throughput_tok_s_min": 1000.0
+  }
+}
