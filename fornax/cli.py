@@ -5,6 +5,11 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .apple_probe import (
+    apple_probe_template,
+    render_apple_role_decision_draft,
+    validate_apple_probe_file,
+)
 from .benchmark import benchmark_from_plan
 from .doctor import inspect_phase0_bundle
 from .golden import run_golden_plans
@@ -25,6 +30,50 @@ from .substrate_adr import (
 )
 from .target_contract import render_target_contract_draft
 from .validation import validate_target_contract
+
+
+def _cmd_apple_probe_template(args: argparse.Namespace) -> int:
+    data = apple_probe_template(
+        target_model=args.target_model,
+        pinned_build=args.pinned_build,
+        threshold_tokens_s=args.threshold_tokens_s,
+    )
+    write_json(args.out, data)
+    print(f"wrote Apple expert-MLP probe template: {args.out}")
+    return 0
+
+
+def _cmd_apple_validate_probe(args: argparse.Namespace) -> int:
+    try:
+        result = validate_apple_probe_file(args.probe)
+    except (OSError, ValueError) as exc:
+        print(f"apple validate-probe: {exc}")
+        return 2
+    if args.out:
+        write_json(args.out, result)
+    role = result.get("recommended_role", "undecided")
+    if result.get("valid"):
+        print(f"valid Apple probe evidence: role={role} outcome={result.get('outcome')}")
+        return 0
+    failed = [check["name"] for check in result.get("checks", []) if not check.get("passed")]
+    print("invalid Apple probe evidence: " + ", ".join(failed))
+    return 2
+
+
+def _cmd_apple_role_decision(args: argparse.Namespace) -> int:
+    try:
+        result = render_apple_role_decision_draft(args.probe)
+    except (OSError, ValueError) as exc:
+        print(f"apple role-decision: {exc}")
+        return 2
+    Path(args.out).write_text(result["markdown"], encoding="utf-8")
+    validation = result["validation"]
+    role = validation.get("recommended_role", "undecided")
+    if validation.get("valid"):
+        print(f"wrote Apple role decision draft: {args.out} (role={role})")
+        return 0
+    print(f"wrote incomplete Apple role decision draft: {args.out} (role={role})")
+    return 2
 
 
 def _cmd_inventory_collect(args: argparse.Namespace) -> int:
@@ -265,6 +314,25 @@ def _cmd_test(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="fornax")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    apple = sub.add_parser("apple")
+    apple_sub = apple.add_subparsers(dest="apple_command", required=True)
+    apple_template = apple_sub.add_parser("probe-template")
+    apple_template.add_argument("--out", required=True)
+    apple_template.add_argument("--target-model", default="target-model")
+    apple_template.add_argument("--pinned-build", default="unset")
+    apple_template.add_argument("--threshold-tokens-s", type=float, default=1.0)
+    apple_template.set_defaults(func=_cmd_apple_probe_template)
+
+    apple_validate = apple_sub.add_parser("validate-probe")
+    apple_validate.add_argument("probe")
+    apple_validate.add_argument("--out")
+    apple_validate.set_defaults(func=_cmd_apple_validate_probe)
+
+    apple_decision = apple_sub.add_parser("role-decision")
+    apple_decision.add_argument("--probe", required=True)
+    apple_decision.add_argument("--out", required=True)
+    apple_decision.set_defaults(func=_cmd_apple_role_decision)
 
     inv = sub.add_parser("inventory")
     inv_sub = inv.add_subparsers(dest="inventory_command", required=True)

@@ -398,3 +398,49 @@
   /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
   `make fornax-golden` all passed.
 
+### Apple expert-MLP probe tooling milestone
+
+- Added `fornax.apple_probe` and the `fornax apple` CLI group with three Phase-0
+  commands: `probe-template`, `validate-probe`, and `role-decision`.
+- The probe artifact captures the S0-7 rank-1 evidence requirements: target
+  model/expert shape, quantization, activation dtype, Apple hardware/OS,
+  pinned MAX/Mojo builds, exact command/log path, local target-Mac measurement,
+  correctness tolerance results, throughput threshold, iterations, thermals, and
+  role-decision fields.
+- Validator semantics now match the G1 gate: an unmeasured/incomplete template is
+  invalid and non-closable; measured correctness+throughput pass recommends
+  `expert-worker`; measured correctness or throughput miss remains valid evidence
+  and recommends `capacity-only` demotion.
+- Smoke validation used a synthetic measured demotion artifact under `/tmp` to
+  exercise the CLI without claiming this Linux H100 workstation ran the target
+  Mac probe. The real Apple expert-MLP measurement remains open until run on a
+  target Apple Silicon Mac with a pinned build.
+- Review-lens pass:
+  - Hardware Acceleration: approve with comments. The tool enforces rank-1 local
+    target-Mac evidence shape, but no Apple hardware measurement was performed
+    in this environment.
+  - Analytical: approve. Pass, demotion, and incomplete states are distinct, so
+    a throughput miss cannot be misreported as success while still allowing G1
+    to narrow scope.
+  - Organizational/TL: approve with comments. The role-decision draft makes the
+    Sponsor decision input reproducible, but final G1 closure still requires
+    actual target-Mac evidence or explicit Sponsor narrowing.
+- Verification: `python3 -m fornax apple probe-template --target-model
+  qwen3-moe-target --pinned-build max-26.4.0 --threshold-tokens-s 10 --out
+  /tmp/fornax_apple_probe_template.json`, `python3 -m fornax apple
+  validate-probe /tmp/fornax_apple_probe_measured_demote.json --out
+  /tmp/fornax_apple_probe_measured_demote_validation.json`, `python3 -m fornax
+  apple role-decision --probe /tmp/fornax_apple_probe_measured_demote.json --out
+  /tmp/fornax_apple_role_decision_demote.md`, expected-failing unmeasured
+  template validation, `python3 -m unittest discover -s tests -p
+  'test_fornax*.py'`, `python3 -m compileall -q fornax tests`, `python3 -m
+  fornax test golden-plans`, `python3 -m fornax test runtime-format --golden
+  fornax/golden_vectors/runtime_format`, `python3 -m fornax test
+  network-contract --mode simulated --fixture fornax/golden_vectors/network_contract`,
+  `python3 -m fornax spec runtime-format --golden fornax/golden_vectors/runtime_format
+  --out /tmp/fornax_runtime_format_and_invariants.md`, `python3 -m fornax spec
+  network-security --fixture fornax/golden_vectors/network_contract --out
+  /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
+  `make fornax-golden` all passed, except the unmeasured template validation
+  intentionally exited 2.
+

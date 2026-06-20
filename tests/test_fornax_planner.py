@@ -4,6 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fornax.apple_probe import (
+    apple_probe_template,
+    render_apple_role_decision_draft,
+    validate_apple_probe_artifact,
+)
 from fornax.benchmark import benchmark_from_plan, run_tiny_expert_mlp_benchmark
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
@@ -51,6 +56,50 @@ def dense_model(num_layers: int = 4) -> ModelSpec:
     )
 
 
+def measured_apple_probe(tokens_s: float = 12.0, threshold: float = 10.0) -> dict:
+    return {
+        "version": 1,
+        "probe_kind": "apple-expert-mlp",
+        "target_model": {
+            "name": "qwen3-moe-target",
+            "expert_mlp_shape": {"hidden": 2048, "intermediate": 8192},
+            "quantization": "q4",
+            "activation_dtype": "fp16",
+        },
+        "environment": {
+            "hardware": "Mac Studio M3 Ultra 512GB",
+            "os": "macOS 15.5",
+            "max_build": "max-26.4.0",
+            "mojo_build": "Mojo 1.0",
+            "command": "fornax-apple-expert-mlp-probe --fixture fixture.json",
+            "log_path": "/tmp/apple-probe.log",
+            "profiler": "Instruments",
+        },
+        "probe": {
+            "rank": 1,
+            "measured": True,
+            "local_to_target_mac": True,
+            "input_fixture": "fixture-sha256",
+            "output_checksum": "checksum",
+        },
+        "correctness": {
+            "passed": True,
+            "max_abs_error": 0.0001,
+            "max_rel_error": 0.001,
+            "tolerance_source": "runtime-format-and-invariants.md",
+        },
+        "throughput": {
+            "measured": True,
+            "tokens_s": tokens_s,
+            "threshold_tokens_s": threshold,
+            "warmup_iterations": 5,
+            "measurement_iterations": 25,
+            "thermal_notes": "steady state",
+        },
+        "decision": {"requested_role": "expert-worker", "demote_role": "capacity-only"},
+    }
+
+
 def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
     return Inventory.from_dict(
         {
@@ -93,6 +142,43 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 
 class FornaxPlannerTest(unittest.TestCase):
+
+    def test_apple_probe_valid_pass_recommends_expert_worker(self) -> None:
+        result = validate_apple_probe_artifact(measured_apple_probe())
+        self.assertTrue(result["valid"], result["errors"])
+        self.assertTrue(result["gate_closable"])
+        self.assertEqual("expert-worker", result["recommended_role"])
+        self.assertEqual("expert-worker-pass", result["outcome"])
+        self.assertTrue(result["performance_passed"])
+
+    def test_apple_probe_measured_throughput_miss_demotes_capacity_only(self) -> None:
+        result = validate_apple_probe_artifact(
+            measured_apple_probe(tokens_s=4.0, threshold=10.0)
+        )
+        self.assertTrue(result["valid"], result["errors"])
+        self.assertTrue(result["gate_closable"])
+        self.assertEqual("capacity-only", result["recommended_role"])
+        self.assertEqual("capacity-only-demotion", result["outcome"])
+        self.assertFalse(result["throughput_passed"])
+
+    def test_apple_probe_template_is_not_gate_closable(self) -> None:
+        result = validate_apple_probe_artifact(
+            apple_probe_template(target_model="qwen3-moe-target")
+        )
+        self.assertFalse(result["valid"])
+        self.assertFalse(result["gate_closable"])
+        self.assertEqual("undecided", result["recommended_role"])
+        self.assertIn("probe.measured", "; ".join(result["errors"]))
+
+    def test_apple_role_decision_draft_records_demotion(self) -> None:
+        probe = measured_apple_probe(tokens_s=4.0, threshold=10.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "apple_probe.json"
+            write_json(path, probe)
+            result = render_apple_role_decision_draft(path)
+        self.assertEqual("capacity-only", result["validation"]["recommended_role"])
+        self.assertIn("Recommended Apple role: `capacity-only`", result["markdown"])
+        self.assertIn("Rank 1 local probe", result["markdown"])
 
     def test_tiny_expert_mlp_benchmark_records_measurement(self) -> None:
         result = run_tiny_expert_mlp_benchmark(
