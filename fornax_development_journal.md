@@ -179,3 +179,30 @@
   compileall -q fornax tests`, `make fornax-test`, and `make fornax-golden` all
   passed.
 
+### Simulated network-contract command milestone
+
+- Implemented the missing T1 command `fornax test network-contract --mode
+  simulated` using `fornax.network_contract` and a packaged fixture under
+  `fornax/golden_vectors/network_contract/simulated.json`.
+- The validator checks the Phase-0 simulated transport contract: bounded queue
+  depth, backpressure event at capacity, timeout threshold, cancellation event,
+  plan-integrity rejection for mismatched plan IDs, and required enqueue/dequeue
+  flow.
+- Added tests for the passing fixture plus missing required events, queue
+  overflow, and dequeueing an unknown request.
+- Review-lens pass:
+  - Networking/System: approve after fix. Initial implementation tracked only
+    queue depth; fixed before commit by tracking request IDs through
+    enqueue/dequeue/cancel and rejecting duplicate/unknown queue operations.
+  - Software Engineering: approve. The command is model-free and does not create
+    a Phase-1 transport implementation.
+  - Analytical: approve with comments. This proves contract semantics in a
+    fixture, not measured TCP/RDMA/Thunderbolt behavior; real transport evidence
+    remains Phase 1+ and gated by G1.
+- Verification: `python3 -m fornax test network-contract --mode simulated
+  --fixture fornax/golden_vectors/network_contract`, `python3 -m unittest
+  discover -s tests -p 'test_fornax*.py'`, `python3 -m compileall -q fornax
+  tests`, `python3 -m fornax test golden-plans`, `python3 -m fornax test
+  runtime-format --golden fornax/golden_vectors/runtime_format`, `make
+  fornax-test`, and `make fornax-golden` all passed.
+

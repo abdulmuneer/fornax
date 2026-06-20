@@ -8,6 +8,10 @@ from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
 from fornax.golden import run_golden_plans
 from fornax.inventory.local import collect_local_inventory, parse_nvidia_smi_csv
+from fornax.network_contract import (
+    validate_network_contract,
+    validate_network_contract_fixture,
+)
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 from fornax.runtime_format import (
     validate_runtime_format_golden,
@@ -78,6 +82,78 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 
 class FornaxPlannerTest(unittest.TestCase):
+
+
+    def test_network_contract_fixture_passes(self) -> None:
+        result = validate_network_contract(
+            "fornax/golden_vectors/network_contract", mode="simulated"
+        )
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertIn("backpressure", result["summary"]["required_events_seen"])
+
+    def test_network_contract_rejects_missing_required_events(self) -> None:
+        result = validate_network_contract_fixture(
+            {
+                "version": 1,
+                "mode": "simulated",
+                "plan_id": "p1",
+                "node_id": "n1",
+                "max_queue_depth": 1,
+                "timeout_ms": 10,
+                "events": [
+                    {"kind": "enqueue", "request_id": "r1", "plan_id": "p1"},
+                    {"kind": "dequeue", "request_id": "r1", "plan_id": "p1"},
+                ],
+            }
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("missing required simulated events", "; ".join(result["errors"]))
+
+    def test_network_contract_rejects_queue_overflow(self) -> None:
+        result = validate_network_contract_fixture(
+            {
+                "version": 1,
+                "mode": "simulated",
+                "plan_id": "p1",
+                "node_id": "n1",
+                "max_queue_depth": 1,
+                "timeout_ms": 10,
+                "events": [
+                    {"kind": "enqueue", "request_id": "r1", "plan_id": "p1"},
+                    {"kind": "enqueue", "request_id": "r2", "plan_id": "p1"},
+                    {"kind": "backpressure", "queue_depth": 1, "plan_id": "p1"},
+                    {"kind": "dequeue", "request_id": "r1", "plan_id": "p1"},
+                    {"kind": "timeout", "request_id": "r3", "elapsed_ms": 10, "plan_id": "p1"},
+                    {"kind": "cancel", "request_id": "r2", "plan_id": "p1"},
+                    {"kind": "plan_integrity_reject", "request_id": "r4", "plan_id": "p2"},
+                ],
+            }
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("enqueue exceeded max_queue_depth", "; ".join(result["errors"]))
+
+
+    def test_network_contract_rejects_unknown_dequeue(self) -> None:
+        result = validate_network_contract_fixture(
+            {
+                "version": 1,
+                "mode": "simulated",
+                "plan_id": "p1",
+                "node_id": "n1",
+                "max_queue_depth": 2,
+                "timeout_ms": 10,
+                "events": [
+                    {"kind": "enqueue", "request_id": "r1", "plan_id": "p1"},
+                    {"kind": "backpressure", "queue_depth": 2, "plan_id": "p1"},
+                    {"kind": "dequeue", "request_id": "missing", "plan_id": "p1"},
+                    {"kind": "timeout", "request_id": "r3", "elapsed_ms": 10, "plan_id": "p1"},
+                    {"kind": "cancel", "request_id": "r1", "plan_id": "p1"},
+                    {"kind": "plan_integrity_reject", "request_id": "r4", "plan_id": "p2"},
+                ],
+            }
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("dequeues unknown request_id", "; ".join(result["errors"]))
 
     def test_runtime_format_golden_fixture_passes(self) -> None:
         result = validate_runtime_format_golden("fornax/golden_vectors/runtime_format")

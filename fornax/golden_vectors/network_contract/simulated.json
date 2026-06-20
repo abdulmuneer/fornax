@@ -1,0 +1,46 @@
+{
+  "events": [
+    {
+      "kind": "enqueue",
+      "plan_id": "plan-fixture-001",
+      "request_id": "r1"
+    },
+    {
+      "kind": "enqueue",
+      "plan_id": "plan-fixture-001",
+      "request_id": "r2"
+    },
+    {
+      "kind": "backpressure",
+      "plan_id": "plan-fixture-001",
+      "queue_depth": 2
+    },
+    {
+      "kind": "dequeue",
+      "plan_id": "plan-fixture-001",
+      "request_id": "r1"
+    },
+    {
+      "elapsed_ms": 75,
+      "kind": "timeout",
+      "plan_id": "plan-fixture-001",
+      "request_id": "r3"
+    },
+    {
+      "kind": "cancel",
+      "plan_id": "plan-fixture-001",
+      "request_id": "r2"
+    },
+    {
+      "kind": "plan_integrity_reject",
+      "plan_id": "plan-stale-999",
+      "request_id": "r4"
+    }
+  ],
+  "max_queue_depth": 2,
+  "mode": "simulated",
+  "node_id": "worker-a",
+  "plan_id": "plan-fixture-001",
+  "timeout_ms": 50,
+  "version": 1
+}

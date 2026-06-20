@@ -11,6 +11,7 @@ from .inventory import collect_local_inventory, probe_declared_links
 from .contracts import load_target_contract
 from .io import load_inventory, load_model_target, read_json, write_json
 from .planner import plan_placement
+from .network_contract import validate_network_contract
 from .runtime_format import validate_runtime_format_golden
 from .simulate import simulation_result, summarize_request_trace
 from .validation import validate_target_contract
@@ -146,11 +147,25 @@ def _cmd_test_runtime_format(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_network_contract(args: argparse.Namespace) -> int:
+    result = validate_network_contract(args.fixture, mode=args.mode)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        print(f"PASS network-contract: {result['fixture']}{suffix}")
+        return 0
+    print("FAIL network-contract: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test(args: argparse.Namespace) -> int:
     if args.test_name == "golden-plans":
         return _cmd_test_golden(args)
     if args.test_name == "runtime-format":
         return _cmd_test_runtime_format(args)
+    if args.test_name == "network-contract":
+        return _cmd_test_network_contract(args)
     raise ValueError(args.test_name)
 
 
@@ -206,8 +221,10 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.set_defaults(func=_cmd_doctor)
 
     tests = sub.add_parser("test")
-    tests.add_argument("test_name", choices=["golden-plans", "runtime-format"])
+    tests.add_argument("test_name", choices=["golden-plans", "runtime-format", "network-contract"])
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")
+    tests.add_argument("--mode", default="simulated")
+    tests.add_argument("--fixture", default="fornax/golden_vectors/network_contract")
     tests.set_defaults(func=_cmd_test)
     return parser
 
