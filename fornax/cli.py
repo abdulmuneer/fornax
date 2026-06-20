@@ -14,6 +14,7 @@ from .benchmark import benchmark_from_plan
 from .calibration import run_local_calibration
 from .doctor import inspect_phase0_bundle
 from .golden import run_golden_plans
+from .g1_review import render_g1_gate_review_draft
 from .inventory import collect_local_inventory, probe_declared_links
 from .contracts import load_target_contract
 from .io import load_inventory, load_model_target, read_json, write_json
@@ -245,6 +246,22 @@ def _cmd_program_rebaseline(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_program_g1_review(args: argparse.Namespace) -> int:
+    result = render_g1_gate_review_draft(
+        args.bundle,
+        review_date=args.date,
+        plan_version=args.plan_version,
+    )
+    Path(args.out).write_text(result["markdown"], encoding="utf-8")
+    blockers = result.get("closure_blockers", [])
+    suffix = f"; closure blockers: {len(blockers)}" if blockers else ""
+    print(
+        "wrote G1 gate review draft: "
+        f"{args.out} ({result['recommended_outcome']}{suffix})"
+    )
+    return 0
+
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     if args.requests and args.trace and args.requests != args.trace:
         print("preflight: pass only one of --requests or --trace")
@@ -329,8 +346,21 @@ def _cmd_test_golden(args: argparse.Namespace) -> int:
         status = "PASS" if result.passed else "FAIL"
         print(f"{status} {result.name}: {result.message}")
     passed = sum(1 for r in results if r.passed)
+    report = {
+        "test_tier": "T0",
+        "command": "fornax test golden-plans",
+        "passed": passed == len(results),
+        "passed_count": passed,
+        "total_count": len(results),
+        "results": [
+            {"name": result.name, "passed": result.passed, "message": result.message}
+            for result in results
+        ],
+    }
+    if args.out:
+        write_json(args.out, report)
     print(f"golden plans: {passed}/{len(results)} passed")
-    return 0 if passed == len(results) else 1
+    return 0 if report["passed"] else 1
 
 
 def _cmd_test_runtime_format(args: argparse.Namespace) -> int:
@@ -442,6 +472,13 @@ def build_parser() -> argparse.ArgumentParser:
     rebaseline.add_argument("--scope", choices=SCOPE_VALUES, default="pending")
     rebaseline.set_defaults(func=_cmd_program_rebaseline)
 
+    g1_review = program_sub.add_parser("g1-review")
+    g1_review.add_argument("--bundle", required=True)
+    g1_review.add_argument("--out", required=True)
+    g1_review.add_argument("--date")
+    g1_review.add_argument("--plan-version", default="v3")
+    g1_review.set_defaults(func=_cmd_program_g1_review)
+
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)
     plan.add_argument("--inventory", required=True)
@@ -511,6 +548,7 @@ def build_parser() -> argparse.ArgumentParser:
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")
     tests.add_argument("--mode", default="simulated")
     tests.add_argument("--fixture", default="fornax/golden_vectors/network_contract")
+    tests.add_argument("--out")
     tests.set_defaults(func=_cmd_test)
     return parser
 

@@ -640,3 +640,43 @@
   network-security --fixture fornax/golden_vectors/network_contract --out
   /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
   `make fornax-golden` all passed.
+
+
+### G1 gate-review draft milestone
+
+- Added `fornax program g1-review` support via `fornax.g1_review`, which renders
+  the program-management gate-review template from a Phase-0 evidence bundle.
+  The draft maps current artifacts to the G1 exit criteria and separates
+  machine-checkable evidence from human closure requirements.
+- Added optional `fornax test golden-plans --out <path>` JSON reporting so T0
+  golden-plan evidence can be attached to a bundle and consumed by the G1 review
+  draft instead of relying on console output.
+- The G1 review draft intentionally does not claim gate closure. On the smoke
+  bundle, it recommends `ITERATE` and surfaces four closure blockers after T0 is
+  attached: missing TL/SP target-contract sign-off, missing Apple probe validation
+  and role decision, missing review sign-off for generated specs, and missing
+  owner/staffing sign-off.
+- Review-lens pass:
+  - Program Management: approve. The generated draft follows the gate template,
+    keeps DEC-005 as a Sponsor decision, and makes G1 no-go/iterate evidence
+    explicit rather than implied.
+  - SRE/Operations: approve. A reproducible bundle-to-review flow now exists:
+    preflight bundle, attach T0 JSON, render gate review, inspect blockers.
+  - High-level Software: approve with comments. CLI names are direct and the
+    draft is readable; a Markdown spacing issue found during review was fixed
+    before commit.
+- Verification: focused G1-review tests, `python3 -m unittest discover -s tests
+  -p 'test_fornax*.py'`, `python3 -m compileall -q fornax tests`, `python3 -m
+  fornax preflight --target fornax/golden_plans/v0_target_contract_fixture.md
+  --out-dir /tmp/fornax_preflight_g1_review --benchmark-iterations 1
+  --include-g1-drafts --include-calibration --calibration-torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --substrate-pinned-build
+  max-26.4.0 --kickoff-date 2026-06-20 --ker-status unavailable --scope
+  pending`, `python3 -m fornax test golden-plans --out
+  /tmp/fornax_preflight_g1_review/golden-plans.json`, `python3 -m fornax
+  program g1-review --bundle /tmp/fornax_preflight_g1_review --out
+  /tmp/fornax_preflight_g1_review/g1-gate-review.md --date 2026-06-20
+  --plan-version v3`, `python3 -m fornax test runtime-format --golden
+  fornax/golden_vectors/runtime_format`, `python3 -m fornax test
+  network-contract --mode simulated --fixture fornax/golden_vectors/network_contract`,
+  `make fornax-test`, and `make fornax-golden` all passed.

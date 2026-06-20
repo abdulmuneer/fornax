@@ -14,6 +14,7 @@ from fornax.calibration import run_cpu_memory_copy_probe, run_local_calibration
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
 from fornax.golden import run_golden_plans
+from fornax.g1_review import render_g1_gate_review_draft
 from fornax.io import load_inventory, write_json
 from fornax.inventory.local import (
     collect_local_inventory,
@@ -209,6 +210,93 @@ class FornaxPlannerTest(unittest.TestCase):
     def test_program_rebaseline_rejects_unknown_ker_status(self) -> None:
         with self.assertRaisesRegex(ValueError, "ker_status must be"):
             render_program_rebaseline_draft(ker_status="maybe-later")
+
+    def test_g1_review_draft_flags_missing_gate_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d) / "bundle"
+            fake_python = Path(d) / "fake-torch-python"
+            fake_python.write_text(
+                "#!/bin/sh\n"
+                "cat <<'JSON'\n"
+                '{"measured": false, "backend": "torch", '
+                '"available": false, "error": "fake torch unavailable"}\n'
+                "JSON\n",
+                encoding="utf-8",
+            )
+            fake_python.chmod(0o755)
+            run_phase0_preflight(
+                target_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                out_dir=bundle,
+                benchmark_iterations=1,
+                include_g1_drafts=True,
+                include_calibration=True,
+                calibration_torch_python=str(fake_python),
+                substrate_pinned_build="max-26.4.0",
+                kickoff_date="2026-06-20",
+                ker_status="unavailable",
+                scope="pending",
+            )
+            review = render_g1_gate_review_draft(
+                bundle, review_date="2026-06-20", plan_version="v3"
+            )
+        self.assertFalse(review["machine_complete"])
+        self.assertFalse(review["gate_ready"])
+        self.assertEqual("ITERATE", review["recommended_outcome"])
+        missing = "; ".join(review["machine_missing_criteria"])
+        self.assertIn("Apple reversal trigger", missing)
+        self.assertIn("golden-plan tests T0 green", missing)
+        self.assertIn("missing golden-plans.json", review["markdown"])
+        self.assertIn("missing G1-closable Apple probe", review["markdown"])
+
+    def test_g1_review_draft_separates_machine_evidence_from_human_closure(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d) / "bundle"
+            fake_python = Path(d) / "fake-torch-python"
+            fake_python.write_text(
+                "#!/bin/sh\n"
+                "cat <<'JSON'\n"
+                '{"measured": false, "backend": "torch", '
+                '"available": false, "error": "fake torch unavailable"}\n'
+                "JSON\n",
+                encoding="utf-8",
+            )
+            fake_python.chmod(0o755)
+            run_phase0_preflight(
+                target_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                out_dir=bundle,
+                benchmark_iterations=1,
+                include_g1_drafts=True,
+                include_calibration=True,
+                calibration_torch_python=str(fake_python),
+                substrate_pinned_build="max-26.4.0",
+                kickoff_date="2026-06-20",
+                ker_status="unavailable",
+                scope="pending",
+            )
+            probe_path = bundle / "apple-expert-mlp-probe.json"
+            write_json(probe_path, measured_apple_probe())
+            write_json(
+                bundle / "apple-probe-validation.json",
+                validate_apple_probe_artifact(measured_apple_probe()),
+            )
+            decision = render_apple_role_decision_draft(probe_path)
+            (bundle / "apple-role-decision.md").write_text(
+                decision["markdown"], encoding="utf-8"
+            )
+            write_json(
+                bundle / "golden-plans.json",
+                {"passed": True, "results": [{"name": "fixture", "passed": True}]},
+            )
+            review = render_g1_gate_review_draft(
+                bundle, review_date="2026-06-20", plan_version="v3"
+            )
+        self.assertTrue(review["machine_complete"], review["machine_missing_criteria"])
+        self.assertFalse(review["gate_ready"])
+        self.assertEqual("SPONSOR_DECISION_REQUIRED", review["recommended_outcome"])
+        blockers = "; ".join(review["closure_blockers"])
+        self.assertIn("target-contract sign-off", blockers)
+        self.assertIn("review sign-off for generated specs", blockers)
+        self.assertIn("staffing sign-off", blockers)
 
     def test_apple_probe_valid_pass_recommends_expert_worker(self) -> None:
         result = validate_apple_probe_artifact(measured_apple_probe())
