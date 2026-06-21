@@ -17,6 +17,11 @@ from .backend_coverage import (
     validate_backend_coverage_contract,
 )
 from .benchmark import benchmark_from_plan
+from .benchmark_ledger import (
+    append_benchmark_ledger_record,
+    build_benchmark_ledger_record,
+    validate_benchmark_ledger,
+)
 from .calibration import run_local_calibration
 from .doctor import inspect_phase0_bundle
 from .engine_seam import validate_engine_seam_contract
@@ -285,10 +290,40 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
         return 2
     if args.out:
         write_json(args.out, result)
+    if args.ledger_out:
+        command = [
+            "python3",
+            "-m",
+            "fornax",
+            "benchmark",
+            "--plan",
+            args.plan,
+            "--mode",
+            args.mode,
+            "--iterations",
+            str(args.iterations),
+        ]
+        record = build_benchmark_ledger_record(
+            result,
+            benchmark_id=args.benchmark_id,
+            command=command,
+            hardware=args.hardware,
+            os_name=args.os_name,
+            driver_runtime=args.driver_runtime,
+            max_mojo_version=args.max_mojo_version,
+            model=args.model,
+            context=args.context,
+            concurrency=args.concurrency,
+            quantization=args.quantization,
+            thermals=args.thermals,
+        )
+        append_benchmark_ledger_record(args.ledger_out, record)
     tokens_s = result["result"]["tokens_s"]
+    suffix = f" ledger={args.ledger_out}" if args.ledger_out else ""
     print(
         f"benchmark({args.mode}): measured tiny expert-MLP "
         f"tokens_s={tokens_s:.3f} checksum={result['result']['checksum']:.6f}"
+        f"{suffix}"
     )
     return 0
 
@@ -395,6 +430,8 @@ def _cmd_program_simulate_phase0(args: argparse.Namespace) -> int:
             scope=args.scope,
             simulated_apple_role=args.simulated_apple_role,
             simulated_apple_reason=args.simulated_apple_reason,
+            include_benchmark_ledger=not args.no_benchmark_ledger,
+            benchmark_id=args.benchmark_id,
         )
     except (OSError, ValueError) as exc:
         print(f"program simulate-phase0: {exc}")
@@ -443,6 +480,8 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
             include_simulated_apple_evidence=args.include_simulated_apple_evidence,
             simulated_apple_role=args.simulated_apple_role,
             simulated_apple_reason=args.simulated_apple_reason,
+            include_benchmark_ledger=not args.no_benchmark_ledger,
+            benchmark_id=args.benchmark_id,
             active_local_links=args.active_local_links,
             fabric_torch_python=args.fabric_torch_python,
             active_local_link_bytes=args.active_local_link_bytes,
@@ -592,6 +631,19 @@ def _cmd_test_observability(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_benchmark_ledger(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/benchmark_ledger"
+    result = validate_benchmark_ledger(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        print(f"PASS benchmark-ledger: {result['ledger']}{suffix}")
+        return 0
+    print("FAIL benchmark-ledger: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_backend_coverage(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/backend_coverage"
     result = validate_backend_coverage_contract(fixture)
@@ -618,6 +670,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_observability(args)
     if args.test_name == "backend-coverage":
         return _cmd_test_backend_coverage(args)
+    if args.test_name == "benchmark-ledger":
+        return _cmd_test_benchmark_ledger(args)
     raise ValueError(args.test_name)
 
 
@@ -766,6 +820,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--simulated-apple-role", choices=["capacity-only", "expert-worker"], default="capacity-only"
     )
     simulate_phase0.add_argument("--simulated-apple-reason")
+    simulate_phase0.add_argument("--no-benchmark-ledger", action="store_true")
+    simulate_phase0.add_argument(
+        "--benchmark-id", default="phase0-simulated-validation-tiny-expert-mlp"
+    )
     simulate_phase0.set_defaults(func=_cmd_program_simulate_phase0)
 
     plan = sub.add_parser("plan")
@@ -787,6 +845,17 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--mode", default="tiny-moe-or-expert-mlp")
     benchmark.add_argument("--iterations", type=int, default=25)
     benchmark.add_argument("--out")
+    benchmark.add_argument("--ledger-out")
+    benchmark.add_argument("--benchmark-id", default="tiny-expert-mlp-phase0")
+    benchmark.add_argument("--hardware")
+    benchmark.add_argument("--os-name")
+    benchmark.add_argument("--driver-runtime", default="unknown")
+    benchmark.add_argument("--max-mojo-version", default="unknown")
+    benchmark.add_argument("--model", default="unknown")
+    benchmark.add_argument("--context", default="unknown")
+    benchmark.add_argument("--concurrency", default="unknown")
+    benchmark.add_argument("--quantization", default="unknown")
+    benchmark.add_argument("--thermals", default="unknown")
     benchmark.set_defaults(func=_cmd_benchmark)
 
     doctor = sub.add_parser("doctor")
@@ -812,6 +881,8 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--include-simulated-apple-evidence", action="store_true")
     preflight.add_argument("--simulated-apple-role", choices=["capacity-only", "expert-worker"], default="capacity-only")
     preflight.add_argument("--simulated-apple-reason")
+    preflight.add_argument("--no-benchmark-ledger", action="store_true")
+    preflight.add_argument("--benchmark-id", default="phase0-preflight-tiny-expert-mlp")
     preflight.add_argument("--active-local-links", action="store_true")
     preflight.add_argument("--fabric-torch-python")
     preflight.add_argument("--active-local-link-bytes", type=int, default=16 * 1024 * 1024)
@@ -861,6 +932,7 @@ def build_parser() -> argparse.ArgumentParser:
             "engine-seam",
             "observability",
             "backend-coverage",
+            "benchmark-ledger",
         ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")

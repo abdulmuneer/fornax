@@ -10,6 +10,49 @@ from .phase0_status import render_phase0_status_report
 from .preflight import run_phase0_preflight
 
 
+def _simulated_validation_command(
+    *,
+    target_path: str | Path,
+    out_dir: Path,
+    source_inventory_path: str | Path | None,
+    gpu_count: int,
+    profile: str,
+    link_bandwidth_bytes_s: float,
+    link_latency_s: float,
+    slow_node_factor: float,
+    benchmark_mode: str,
+    benchmark_iterations: int,
+) -> list[str]:
+    command = [
+        "python3",
+        "-m",
+        "fornax",
+        "program",
+        "simulate-phase0",
+        "--target",
+        str(target_path),
+        "--out-dir",
+        str(out_dir),
+        "--gpu-count",
+        str(gpu_count),
+        "--profile",
+        profile,
+        "--link-bandwidth-bytes-s",
+        str(link_bandwidth_bytes_s),
+        "--link-latency-s",
+        str(link_latency_s),
+        "--slow-node-factor",
+        str(slow_node_factor),
+        "--benchmark-mode",
+        benchmark_mode,
+        "--benchmark-iterations",
+        str(benchmark_iterations),
+    ]
+    if source_inventory_path is not None:
+        command.extend(["--source-inventory", str(source_inventory_path)])
+    return command
+
+
 def run_phase0_simulated_validation(
     *,
     target_path: str | Path,
@@ -33,6 +76,8 @@ def run_phase0_simulated_validation(
     scope: str = "pending",
     simulated_apple_role: str = "capacity-only",
     simulated_apple_reason: str | None = None,
+    include_benchmark_ledger: bool = True,
+    benchmark_id: str = "phase0-simulated-validation-tiny-expert-mlp",
 ) -> dict[str, Any]:
     """Build a local logical cluster and run the full simulated Phase-0 bundle."""
 
@@ -82,6 +127,20 @@ def run_phase0_simulated_validation(
         include_simulated_apple_evidence=True,
         simulated_apple_role=simulated_apple_role,
         simulated_apple_reason=simulated_apple_reason,
+        include_benchmark_ledger=include_benchmark_ledger,
+        benchmark_id=benchmark_id,
+        benchmark_ledger_command=_simulated_validation_command(
+            target_path=target_path,
+            out_dir=bundle,
+            source_inventory_path=source_inventory_path,
+            gpu_count=gpu_count,
+            profile=profile,
+            link_bandwidth_bytes_s=link_bandwidth_bytes_s,
+            link_latency_s=link_latency_s,
+            slow_node_factor=slow_node_factor,
+            benchmark_mode=benchmark_mode,
+            benchmark_iterations=benchmark_iterations,
+        ),
     )
 
     status_path = bundle / "phase0-status.json"

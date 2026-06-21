@@ -10,6 +10,7 @@ from .apple_probe import (
     simulated_apple_probe_artifact,
 )
 from .benchmark import DEFAULT_MODE, benchmark_from_plan
+from .benchmark_ledger import append_benchmark_ledger_record, build_benchmark_ledger_record
 from .calibration import run_local_calibration
 from .contracts import load_target_contract
 from .doctor import inspect_phase0_bundle
@@ -123,6 +124,92 @@ def _golden_plans_report() -> dict[str, Any]:
     }
 
 
+def _inventory_hardware_label(inventory_data: dict[str, Any]) -> str:
+    nodes = inventory_data.get("nodes") if isinstance(inventory_data, dict) else None
+    node_count = len(nodes) if isinstance(nodes, list) else 0
+    simulation = inventory_data.get("simulation") if isinstance(inventory_data, dict) else None
+    if isinstance(simulation, dict):
+        profile = simulation.get("profile", "unknown-profile")
+        logical_hosts = simulation.get("logical_host_count", node_count)
+        physical_gpus = simulation.get("physical_gpu_count", "unknown")
+        return (
+            "logical simulated cluster "
+            f"profile={profile}, logical_hosts={logical_hosts}, "
+            f"physical_gpus={physical_gpus}"
+        )
+    host = str(inventory_data.get("host_id") or "local-inventory")
+    return f"{host}, nodes={node_count}"
+
+
+def _inventory_driver_runtime_label(inventory_data: dict[str, Any]) -> str:
+    nodes = inventory_data.get("nodes") if isinstance(inventory_data, dict) else None
+    labels: set[str] = set()
+    if isinstance(nodes, list):
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            vendor = str(node.get("vendor") or "unknown-vendor")
+            runtime = str(node.get("runtime") or "unknown-runtime")
+            labels.add(f"{vendor}/{runtime}")
+    label = ",".join(sorted(labels)) if labels else "unknown"
+    simulation = inventory_data.get("simulation") if isinstance(inventory_data, dict) else None
+    if isinstance(simulation, dict):
+        label += f"; simulation={simulation.get('profile', 'unknown-profile')}"
+    return label
+
+
+def _benchmark_context_label(target: Any) -> str:
+    return (
+        f"prompt={target.prompt_len},gen={target.gen_len},"
+        f"objective={target.objective}"
+    )
+
+
+def _benchmark_model_label(model: Any, contract_bundle: dict[str, Any]) -> str:
+    return (
+        f"{_target_model_name(contract_bundle)},"
+        f"layers={model.num_layers},hidden={model.hidden_dim}"
+    )
+
+
+def _benchmark_thermal_label(inventory_data: dict[str, Any]) -> str | dict[str, Any]:
+    simulation = inventory_data.get("simulation") if isinstance(inventory_data, dict) else None
+    if isinstance(simulation, dict):
+        return {
+            "measured": False,
+            "simulation": True,
+            "profile": simulation.get("profile"),
+            "note": (
+                "Logical two-GPU development run; thermal behavior must be "
+                "re-measured on a physical heterogeneous cluster."
+            ),
+        }
+    return "unmeasured"
+
+
+def _default_preflight_benchmark_command(
+    *,
+    target_path: Path,
+    out_dir: Path,
+    benchmark_mode: str,
+    benchmark_iterations: int,
+) -> list[str]:
+    return [
+        "python3",
+        "-m",
+        "fornax",
+        "preflight",
+        "--target",
+        str(target_path),
+        "--out-dir",
+        str(out_dir),
+        "--benchmark-mode",
+        benchmark_mode,
+        "--benchmark-iterations",
+        str(benchmark_iterations),
+    ]
+
+
 def run_phase0_preflight(
     *,
     target_path: str | Path,
@@ -145,6 +232,9 @@ def run_phase0_preflight(
     include_simulated_apple_evidence: bool = False,
     simulated_apple_role: str = "capacity-only",
     simulated_apple_reason: str | None = None,
+    include_benchmark_ledger: bool = True,
+    benchmark_id: str = "phase0-preflight-tiny-expert-mlp",
+    benchmark_ledger_command: list[str] | None = None,
     active_local_links: bool = False,
     fabric_torch_python: str | None = None,
     active_local_link_bytes: int = 16 * 1024 * 1024,
@@ -164,6 +254,7 @@ def run_phase0_preflight(
     validate_path = bundle / "validate.json"
     simulate_path = bundle / "simulate.json"
     benchmark_path = bundle / "benchmark.json"
+    benchmark_ledger_path = bundle / "benchmark-ledger.jsonl"
     doctor_path = bundle / "doctor.json"
     calibration_path = bundle / "calibration.json"
     golden_plans_path = bundle / "golden-plans.json"
@@ -220,6 +311,30 @@ def run_phase0_preflight(
             "error": str(exc),
         }
     write_json(benchmark_path, benchmark)
+    if include_benchmark_ledger and benchmark.get("measured") is True:
+        command = benchmark_ledger_command or _default_preflight_benchmark_command(
+            target_path=target_file,
+            out_dir=bundle,
+            benchmark_mode=benchmark_mode,
+            benchmark_iterations=benchmark_iterations,
+        )
+        append_benchmark_ledger_record(
+            benchmark_ledger_path,
+            build_benchmark_ledger_record(
+                benchmark,
+                benchmark_id=benchmark_id,
+                command=command,
+                hardware=_inventory_hardware_label(inventory_data),
+                os_name=None,
+                driver_runtime=_inventory_driver_runtime_label(inventory_data),
+                max_mojo_version=substrate_pinned_build,
+                model=_benchmark_model_label(model, contract_bundle),
+                context=_benchmark_context_label(target),
+                concurrency=target.concurrency,
+                quantization=model.dtype_weight,
+                thermals=_benchmark_thermal_label(inventory_data),
+            ),
+        )
 
     if include_g1_drafts:
         generated_g1_artifacts = _write_g1_drafts(
@@ -296,6 +411,11 @@ def run_phase0_preflight(
             "validate": str(validate_path),
             "simulate": str(simulate_path),
             "benchmark": str(benchmark_path),
+            **(
+                {"benchmark_ledger": str(benchmark_ledger_path)}
+                if benchmark_ledger_path.exists()
+                else {}
+            ),
             "doctor": str(doctor_path),
             **({"calibration": str(calibration_path)} if include_calibration else {}),
             **({"golden_plans": str(golden_plans_path)} if include_golden_plans else {}),

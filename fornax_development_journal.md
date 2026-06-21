@@ -1100,3 +1100,58 @@
   /tmp/fornax_backend_coverage_matrix.md`, rendered matrix inspection,
   `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q
   fornax tests`, `make fornax-golden`, and `make fornax-test` all passed.
+
+### Benchmark ledger and simulated validation evidence milestone
+
+- Added `fornax.benchmark_ledger` and the golden fixture
+  `fornax/golden_vectors/benchmark_ledger/ledger.jsonl` for plan v3 §5.10
+  benchmark provenance. Ledger records now validate hardware, OS,
+  driver/runtime, MAX/Mojo version, model, context, concurrency, quantization,
+  thermals, command, and measured benchmark payloads.
+- Extended `fornax benchmark --ledger-out` for standalone measured tiny expert-MLP
+  ledger records, and added `fornax test benchmark-ledger` to the golden contract
+  sweep.
+- Wired `benchmark-ledger.jsonl` into Phase-0 preflight and
+  `fornax program simulate-phase0`, so the two-GPU logical-cluster method now
+  produces auditable benchmark provenance by default. The simulated record
+  explicitly names `logical simulated cluster profile=two-gpu-heterogeneous`,
+  `physical_gpus=2`, the `nvidia/max` runtime simulation, the target context,
+  quantization, and the exact `program simulate-phase0` command.
+- Doctor now validates a present benchmark ledger and warns when older bundles do
+  not include one, without making legacy minimal bundles fail. This preserves the
+  distinction between simulated milestone evidence and real benchmark-of-record
+  hardware closure.
+- Ran the requested simulation method through `/tmp/fornax_phase0_sim_ledger_cli_20260621`.
+  The generated Phase-0 status remained 9/9 S0 deliverables machine/simulation
+  complete or closed: 2 closed, 4 machine-complete, 3 simulation-complete, 0
+  incomplete. G1 still recommends `ITERATE` because real Apple rank-1 probe
+  evidence and human sign-offs remain absent.
+- Review-lens pass:
+  - Program Management: approve. The default development milestone path now uses
+    the two-GPU logical cluster and produces benchmark provenance in the same
+    evidence bundle, so milestone validation no longer blocks on a physical
+    heterogeneous cluster.
+  - Hardware Acceleration: approve with comments. The ledger is explicit that
+    the current cluster is simulated; real thermals, cross-host fabric, and
+    backend hot-path measurements still need replacement on the physical lab.
+  - SRE/Operations: approve. Doctor-visible ledger validation makes provenance
+    reviewable from one bundle and keeps the command needed to reproduce the run.
+  - Testing/Quality: approve. Regression tests cover fixture validation,
+    unmeasured-record rejection, preflight ledger generation, and the
+    `simulate-phase0` ledger path.
+- Verification: `python3 -m py_compile fornax/benchmark_ledger.py fornax/preflight.py
+  fornax/doctor.py fornax/phase0_simulated_validation.py fornax/cli.py
+  tests/test_fornax_planner.py`, focused benchmark-ledger and simulated-preflight
+  tests, `python3 -m fornax test benchmark-ledger`, `python3 -m fornax program
+  simulate-phase0 --target fornax/golden_plans/v0_target_contract_fixture.md
+  --out-dir /tmp/fornax_phase0_sim_ledger_cli_20260621 --source-inventory
+  /tmp/fornax_two_gpu_source_inventory_for_ledger.json --gpu-count 2
+  --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004
+  --slow-node-factor 0.65 --program-report-date 2026-06-21
+  --substrate-pinned-build max-26.4.0 --kickoff-date 2026-06-21 --ker-status
+  unavailable --scope pending --benchmark-iterations 1`, `python3 -m fornax test
+  benchmark-ledger --fixture
+  /tmp/fornax_phase0_sim_ledger_cli_20260621/benchmark-ledger.jsonl`, direct
+  `python3 -m fornax benchmark --ledger-out ...` smoke, `python3 -m unittest
+  tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
+  fornax-golden`, `make fornax-test`, and `git diff --check` all passed.

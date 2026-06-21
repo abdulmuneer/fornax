@@ -3,12 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .benchmark_ledger import validate_benchmark_ledger
 from .io import read_json
 
 
 REQUIRED_JSON = ["inventory.json", "links.json", "placement.json"]
 RECOMMENDED_ANY = ["target.json", "v0-target-contract.md"]
 RECOMMENDED_JSON = ["validate.json", "simulate.json", "benchmark.json", "calibration.json"]
+RECOMMENDED_LEDGER = "benchmark-ledger.jsonl"
 SIMULATED_INVENTORY_WARNING = (
     "inventory.json is simulated logical-cluster evidence, not real multi-host "
     "hardware evidence"
@@ -150,6 +152,22 @@ def inspect_phase0_bundle(bundle_path: str | Path) -> dict[str, Any]:
                 warnings.extend(
                     f"calibration.json: {warning}" for warning in calibration_warnings
                 )
+
+    ledger_path = bundle / RECOMMENDED_LEDGER
+    if ledger_path.exists():
+        ledger = validate_benchmark_ledger(ledger_path)
+        artifacts["benchmark_ledger"] = {
+            "present": True,
+            "valid": bool(ledger.get("ok")),
+            "summary": ledger.get("summary", {}),
+            "ledger": ledger.get("ledger"),
+        }
+        if not ledger.get("ok"):
+            errors.extend(f"{RECOMMENDED_LEDGER}: {error}" for error in ledger.get("errors", []))
+        warnings.extend(f"{RECOMMENDED_LEDGER}: {warning}" for warning in ledger.get("warnings", []))
+    else:
+        artifacts["benchmark_ledger"] = {"present": False}
+        warnings.append(f"missing recommended {RECOMMENDED_LEDGER}")
 
     for key, names in G1_GATE_ARTIFACT_GROUPS:
         present = _present_files(bundle, names)

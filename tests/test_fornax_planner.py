@@ -17,6 +17,12 @@ from fornax.backend_coverage import (
     validate_backend_coverage_fixture,
 )
 from fornax.benchmark import benchmark_from_plan, run_tiny_expert_mlp_benchmark
+from fornax.benchmark_ledger import (
+    append_benchmark_ledger_record,
+    build_benchmark_ledger_record,
+    validate_benchmark_ledger,
+    validate_benchmark_ledger_record,
+)
 from fornax.calibration import run_cpu_memory_copy_probe, run_local_calibration
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
@@ -378,6 +384,61 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertEqual(2, result["result"]["tokens_processed"])
         self.assertEqual(4, result["result"]["expert_calls"])
         self.assertIsInstance(result["result"]["checksum"], float)
+
+    def test_benchmark_ledger_fixture_passes(self) -> None:
+        result = validate_benchmark_ledger("fornax/golden_vectors/benchmark_ledger")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(1, result["summary"]["record_count"])
+        self.assertEqual(1, result["summary"]["measured_record_count"])
+
+    def test_benchmark_ledger_record_from_tiny_benchmark_validates_and_appends(self) -> None:
+        benchmark = run_tiny_expert_mlp_benchmark(
+            iterations=1, batch_tokens=2, hidden_dim=4, intermediate_dim=6
+        )
+        record = build_benchmark_ledger_record(
+            benchmark,
+            benchmark_id="unit-tiny-expert-mlp",
+            command=["python3", "-m", "fornax", "benchmark"],
+            hardware="unit-cpu",
+            os_name="unit-os",
+            driver_runtime="unit-runtime",
+            max_mojo_version="unit-max-mojo",
+            model="unit-model",
+            context="prompt=8,gen=4",
+            concurrency=4,
+            quantization="q4",
+            thermals="unit-stable",
+            timestamp_utc="2026-06-21T00:00:00Z",
+        )
+        self.assertTrue(validate_benchmark_ledger_record(record)["ok"])
+        with tempfile.TemporaryDirectory() as d:
+            ledger = Path(d) / "ledger.jsonl"
+            append_benchmark_ledger_record(ledger, record)
+            result = validate_benchmark_ledger(ledger)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(1, result["summary"]["measured_record_count"])
+
+    def test_benchmark_ledger_rejects_unmeasured_benchmark(self) -> None:
+        benchmark = run_tiny_expert_mlp_benchmark(iterations=1, batch_tokens=1)
+        benchmark = dict(benchmark)
+        benchmark["measured"] = False
+        record = build_benchmark_ledger_record(
+            benchmark,
+            benchmark_id="unit-unmeasured",
+            command=["python3", "-m", "fornax", "benchmark"],
+            hardware="unit-cpu",
+            os_name="unit-os",
+            driver_runtime="unit-runtime",
+            max_mojo_version="unit-max-mojo",
+            model="unit-model",
+            context="prompt=1,gen=1",
+            concurrency=1,
+            quantization="q4",
+            thermals="unit-stable",
+        )
+        result = validate_benchmark_ledger_record(record)
+        self.assertFalse(result["ok"])
+        self.assertIn("benchmark.measured must be true", "; ".join(result["errors"]))
 
     def test_benchmark_from_plan_rejects_infeasible_plan(self) -> None:
         with self.assertRaisesRegex(ValueError, "infeasible plan"):
@@ -1099,6 +1160,10 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertTrue(doctor["ok"])
             self.assertIn("missing G1 gate artifact: runtime_format_spec", doctor["warnings"])
             self.assertIn("missing G1 gate artifact: apple_probe", doctor["warnings"])
+            self.assertIn("benchmark_ledger", result["artifacts"])
+            self.assertTrue(doctor["artifacts"]["benchmark_ledger"]["valid"])
+            ledger = validate_benchmark_ledger(bundle / "benchmark-ledger.jsonl")
+            self.assertTrue(ledger["ok"], ledger["errors"])
             benchmark = (bundle / "benchmark.json").read_text(encoding="utf-8")
             simulate = (bundle / "simulate.json").read_text(encoding="utf-8")
             self.assertIn('"measured": true', benchmark)
@@ -1127,7 +1192,10 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertTrue(result["ok"], result["doctor"])
             self.assertTrue(doctor["ok"], doctor)
             self.assertTrue((bundle / "golden-plans.json").exists())
+            self.assertTrue((bundle / "benchmark-ledger.jsonl").exists())
             self.assertIn("golden_plans", result["artifacts"])
+            self.assertIn("benchmark_ledger", result["artifacts"])
+            self.assertTrue(doctor["artifacts"]["benchmark_ledger"]["valid"])
             self.assertNotIn("golden-plan tests T0 green", review["machine_missing_criteria"])
             self.assertEqual(
                 "logical_multi_host",
@@ -1229,6 +1297,7 @@ class FornaxPlannerTest(unittest.TestCase):
                 bundle / "source-inventory.json",
                 bundle / "simulated-cluster-inventory.json",
                 bundle / "inventory.json",
+                bundle / "benchmark-ledger.jsonl",
                 bundle / "g1-gate-review.md",
                 bundle / "phase0-status.json",
                 bundle / "phase0-status.md",
@@ -1239,6 +1308,12 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertTrue(all(path.exists() for path in required_files))
             self.assertIn("source_inventory", result["artifacts"])
             self.assertIn("simulated_cluster_inventory", result["artifacts"])
+            self.assertIn("benchmark_ledger", result["artifacts"])
+            ledger = validate_benchmark_ledger(bundle / "benchmark-ledger.jsonl")
+            self.assertTrue(ledger["ok"], ledger["errors"])
+            ledger_text = (bundle / "benchmark-ledger.jsonl").read_text(encoding="utf-8")
+            self.assertIn("logical simulated cluster", ledger_text)
+            self.assertIn("simulate-phase0", ledger_text)
             self.assertEqual(9, result["summary"]["total"])
             self.assertEqual(9, result["summary"]["machine_or_better"])
             self.assertTrue(result["simulation"]["present"])
@@ -1308,9 +1383,11 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertTrue((bundle / "roadmap-staffing-rebaseline.md").exists())
             self.assertTrue((bundle / "calibration.json").exists())
             self.assertTrue((bundle / "golden-plans.json").exists())
+            self.assertTrue((bundle / "benchmark-ledger.jsonl").exists())
             self.assertTrue((bundle / "g1-gate-review.md").exists())
             self.assertTrue((bundle / "phase0-status.json").exists())
             self.assertTrue(doctor["artifacts"]["calibration.json"]["measured"])
+            self.assertTrue(doctor["artifacts"]["benchmark_ledger"]["valid"])
             warnings = doctor["warnings"]
             self.assertNotIn("missing G1 gate artifact: runtime_format_spec", warnings)
             self.assertNotIn("missing G1 gate artifact: network_security_spec", warnings)
