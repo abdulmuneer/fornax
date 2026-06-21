@@ -1,0 +1,292 @@
+{
+  "events": [
+    {
+      "kind": "worker_registered",
+      "node_id": "sim-gpu0",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "role": "stage_worker",
+      "stage_index": 0,
+      "timestamp_s": 0.0,
+      "worker_id": "stage-0"
+    },
+    {
+      "kind": "worker_registered",
+      "node_id": "sim-gpu1",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "role": "expert_worker",
+      "timestamp_s": 0.0,
+      "worker_id": "expert-0"
+    },
+    {
+      "kind": "plan_loaded",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "timestamp_s": 0.001,
+      "worker_id": "stage-0"
+    },
+    {
+      "kind": "plan_loaded",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "timestamp_s": 0.001,
+      "worker_id": "expert-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "kind": "activation_received",
+      "payload_id": "activation-0",
+      "payload_kind": "activation",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "queue_depth": 1,
+      "request_id": "req-worker-fixture",
+      "source": "scheduler",
+      "timestamp_s": 0.002,
+      "worker_id": "stage-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "kind": "stage_execute_start",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "stage_index": 0,
+      "timestamp_s": 0.003,
+      "worker_id": "stage-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "kind": "kv_write",
+      "owner_stage": 0,
+      "page_id": "kv-0",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "timestamp_s": 0.004,
+      "token_count": 2,
+      "worker_id": "stage-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "elapsed_ms": 4.0,
+      "kind": "stage_execute_end",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "stage_index": 0,
+      "timestamp_s": 0.007,
+      "worker_id": "stage-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "kind": "activation_sent",
+      "payload_id": "expert-batch-0",
+      "payload_kind": "expert_batch",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "target_worker_id": "expert-0",
+      "timestamp_s": 0.008,
+      "worker_id": "stage-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "kind": "expert_batch_received",
+      "payload_id": "expert-batch-0",
+      "payload_kind": "expert_batch",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "queue_depth": 1,
+      "request_id": "req-worker-fixture",
+      "timestamp_s": 0.009,
+      "worker_id": "expert-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "expert_ids": [
+        3,
+        7
+      ],
+      "kind": "expert_execute_start",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "timestamp_s": 0.01,
+      "worker_id": "expert-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "elapsed_ms": 3.0,
+      "expert_ids": [
+        3,
+        7
+      ],
+      "kind": "expert_execute_end",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "timestamp_s": 0.013,
+      "worker_id": "expert-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "kind": "expert_result_sent",
+      "payload_id": "expert-result-0",
+      "payload_kind": "expert_result",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "target_worker_id": "stage-0",
+      "timestamp_s": 0.014,
+      "worker_id": "expert-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "kind": "activation_sent",
+      "payload_id": "activation-1",
+      "payload_kind": "activation",
+      "plan_hash": "sha256:worker-contract-fixture",
+      "plan_id": "worker-contract-fixture",
+      "request_id": "req-worker-fixture",
+      "target_worker_id": "stage-1",
+      "timestamp_s": 0.015,
+      "worker_id": "stage-0"
+    },
+    {
+      "kind": "stale_plan_reject",
+      "plan_id": "worker-contract-fixture",
+      "reason": "plan hash mismatch",
+      "rejected_plan_hash": "sha256:old-plan",
+      "request_id": "req-worker-fixture",
+      "timestamp_s": 0.016,
+      "worker_id": "stage-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "kind": "cleanup",
+      "plan_id": "worker-contract-fixture",
+      "released": [
+        "activation",
+        "kv_page"
+      ],
+      "request_id": "req-worker-fixture",
+      "timestamp_s": 0.017,
+      "worker_id": "stage-0"
+    },
+    {
+      "batch_id": "mb-0",
+      "kind": "cleanup",
+      "plan_id": "worker-contract-fixture",
+      "released": [
+        "expert_batch",
+        "expert_result"
+      ],
+      "request_id": "req-worker-fixture",
+      "timestamp_s": 0.017,
+      "worker_id": "expert-0"
+    }
+  ],
+  "max_queue_depth": 2,
+  "mode": "t1-simulation",
+  "note": "T1 simulated worker contract; validates worker identity, plan-integrity tags, activation/KV/expert payload handoff, and cleanup without real distributed runtime execution.",
+  "plan_hash": "sha256:worker-contract-fixture",
+  "plan_id": "worker-contract-fixture",
+  "record_kind": "worker-simulation-contract",
+  "request_id": "req-worker-fixture",
+  "runtime_payload": {
+    "activation": {
+      "dtype": "fp16",
+      "layout": "contiguous_row_major",
+      "shape": [
+        2,
+        4
+      ],
+      "values": [
+        0.0,
+        0.1,
+        0.2,
+        0.3,
+        1.0,
+        1.1,
+        1.2,
+        1.3
+      ]
+    },
+    "expert_batch": {
+      "expert_ids": [
+        3,
+        7
+      ],
+      "gather_order": [
+        0,
+        1
+      ],
+      "hidden_shape": [
+        2,
+        4
+      ],
+      "layer_id": 1,
+      "token_indices": [
+        0,
+        1
+      ],
+      "topk_weights": [
+        0.75,
+        0.25
+      ]
+    },
+    "kv_page": {
+      "dtype": "fp16",
+      "owner_stage": 0,
+      "page_size": 4,
+      "shape": [
+        4,
+        2,
+        4
+      ],
+      "token_count": 2
+    },
+    "tolerances": {
+      "fp16": {
+        "atol": 0.001,
+        "rtol": 0.001
+      }
+    },
+    "version": 1
+  },
+  "summary": {
+    "cleanup_count": 2,
+    "event_count": 17,
+    "expert_worker_count": 1,
+    "plan_integrity_reject_count": 1,
+    "stage_worker_count": 1,
+    "worker_count": 2
+  },
+  "version": 1,
+  "workers": [
+    {
+      "node_id": "sim-gpu0",
+      "role": "stage_worker",
+      "stage_index": 0,
+      "supported_payloads": [
+        "activation",
+        "kv_page",
+        "expert_batch"
+      ],
+      "worker_id": "stage-0"
+    },
+    {
+      "node_id": "sim-gpu1",
+      "role": "expert_worker",
+      "supported_payloads": [
+        "expert_batch",
+        "expert_result"
+      ],
+      "worker_id": "expert-0"
+    }
+  ]
+}

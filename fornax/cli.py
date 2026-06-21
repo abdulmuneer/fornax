@@ -58,6 +58,7 @@ from .substrate_adr import (
 )
 from .target_contract import render_target_contract_draft
 from .validation import validate_target_contract
+from .workers import simulated_worker_contract, validate_worker_contract
 
 
 def _cmd_apple_probe_template(args: argparse.Namespace) -> int:
@@ -278,6 +279,29 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
         f"latency={predicted['per_request_latency_s']:.6f}s "
         f"bubble={predicted['bubble_fraction']:.3f}"
         f"{suffix}"
+    )
+    return 0
+
+
+def _cmd_workers_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulated_worker_contract(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            plan_hash=args.plan_hash,
+            max_queue_depth=args.max_queue_depth,
+        )
+    except ValueError as exc:
+        print(f"workers simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "workers simulate: "
+        f"workers={summary['worker_count']} "
+        f"events={summary['event_count']} "
+        f"plan_rejects={summary['plan_integrity_reject_count']} "
+        f"cleanup={summary['cleanup_count']}"
     )
     return 0
 
@@ -659,6 +683,25 @@ def _cmd_test_observability(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_worker_contract(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/worker_contract"
+    result = validate_worker_contract(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS worker-contract: {fixture} "
+            f"workers={summary['worker_count']} events={summary['event_count']} "
+            f"plan_rejects={summary['plan_integrity_reject_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL worker-contract: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_scheduler_contract(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/scheduler_contract"
     result = validate_scheduler_contract(fixture)
@@ -714,6 +757,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_engine_seam(args)
     if args.test_name == "observability":
         return _cmd_test_observability(args)
+    if args.test_name == "worker-contract":
+        return _cmd_test_worker_contract(args)
     if args.test_name == "scheduler-contract":
         return _cmd_test_scheduler_contract(args)
     if args.test_name == "backend-coverage":
@@ -888,6 +933,16 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument("--out")
     simulate.set_defaults(func=_cmd_simulate)
 
+    workers = sub.add_parser("workers")
+    workers_sub = workers.add_subparsers(dest="workers_command", required=True)
+    workers_simulate = workers_sub.add_parser("simulate")
+    workers_simulate.add_argument("--out", required=True)
+    workers_simulate.add_argument("--plan-id", default="worker-contract-plan")
+    workers_simulate.add_argument("--request-id", default="req-worker-contract")
+    workers_simulate.add_argument("--plan-hash", default="sha256:worker-contract-plan")
+    workers_simulate.add_argument("--max-queue-depth", type=int, default=2)
+    workers_simulate.set_defaults(func=_cmd_workers_simulate)
+
     scheduler = sub.add_parser("scheduler")
     scheduler_sub = scheduler.add_subparsers(dest="scheduler_command", required=True)
     scheduler_simulate = scheduler_sub.add_parser("simulate")
@@ -991,6 +1046,7 @@ def build_parser() -> argparse.ArgumentParser:
             "network-contract",
             "engine-seam",
             "observability",
+            "worker-contract",
             "scheduler-contract",
             "backend-coverage",
             "benchmark-ledger",

@@ -1199,3 +1199,46 @@
   `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q
   fornax tests`, `make fornax-golden`, `make fornax-test`, and `git diff --check`
   all passed.
+
+### T1 simulated worker contract milestone
+
+- Added `fornax.workers` for the model-free T1 worker contract: simulated stage
+  and expert worker registration, plan loading with plan hashes, activation
+  receive/send, KV write, expert-batch receive/execute/result handoff,
+  stale-plan rejection, and per-worker cleanup.
+- Added `fornax workers simulate --out ...` to emit a deterministic worker
+  contract artifact without real `StageWorker` execution, MAX graphs, or network
+  transport. This keeps the milestone on the pre-G1 simulation track.
+- Added `fornax test worker-contract` and the golden fixture
+  `fornax/golden_vectors/worker_contract/fixture.json`; expanded
+  `make fornax-golden` so the local T0/T1 sweep validates worker, scheduler,
+  network, runtime-format, engine-seam, observability, backend-coverage, and
+  benchmark-ledger contracts.
+- The validator enforces worker identity/roles, runtime-format payload validity,
+  root/event plan and request ID consistency, plan-hash tags on payload/execution
+  events, stale-plan rejection on mismatched hashes, bounded queue depth,
+  role-appropriate stage/expert events, start/end pairing, per-worker cleanup,
+  and summary/event consistency.
+- Review-lens pass:
+  - Distributed Systems/Scheduler: approve with comments. The worker contract now
+    connects scheduler microbatches to stage/expert worker lifecycle events, but
+    real worker orchestration and 1F1B overlap remain later simulation/runtime
+    milestones.
+  - Networking/System: approve with comments. Plan-integrity tags and stale-plan
+    rejection are explicit at the worker boundary; transport serialization and
+    TCP/shm implementation are still out of scope until G1 authorizes Phase 1.
+  - Low-level Software: approve. Runtime-format payload validation is reused
+    instead of duplicating tensor-shape checks, and cleanup requirements make
+    ownership failure visible in fixture tests.
+  - Testing/Quality: approve. Focused tests cover fixture validity, generated
+    artifacts, plan-hash mismatch rejection, missing cleanup, role/event mismatch,
+    and unsupported payload rejection.
+- Verification: `python3 -m py_compile fornax/workers.py fornax/cli.py
+  tests/test_fornax_planner.py`, `python3 -m fornax test worker-contract`,
+  focused worker-contract unittests, `python3 -m fornax workers simulate --out
+  /tmp/fornax_worker_contract_cli_20260621.json --plan-id cli-worker-plan
+  --request-id cli-request --plan-hash sha256:cli-worker-plan --max-queue-depth
+  2`, `python3 -m fornax test worker-contract --fixture
+  /tmp/fornax_worker_contract_cli_20260621.json`, `python3 -m unittest
+  tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
+  fornax-golden`, `make fornax-test`, and `git diff --check` all passed.

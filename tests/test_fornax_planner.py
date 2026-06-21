@@ -67,6 +67,11 @@ from fornax.simulate import simulation_result, summarize_request_trace
 from fornax.substrate_adr import render_substrate_adr_draft
 from fornax.target_contract import render_target_contract_draft
 from fornax.validation import validate_target_contract
+from fornax.workers import (
+    simulated_worker_contract,
+    validate_worker_contract,
+    validate_worker_contract_fixture,
+)
 
 
 def dense_model(num_layers: int = 4) -> ModelSpec:
@@ -550,6 +555,70 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_observability_fixture(fixture)
         self.assertFalse(result["ok"])
         self.assertIn("plan_id must match", "; ".join(result["errors"]))
+
+    def test_worker_contract_fixture_passes(self) -> None:
+        result = validate_worker_contract("fornax/golden_vectors/worker_contract")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(2, result["summary"]["worker_count"])
+        self.assertEqual(1, result["summary"]["stage_worker_count"])
+        self.assertEqual(1, result["summary"]["expert_worker_count"])
+        self.assertEqual(1, result["summary"]["plan_integrity_reject_count"])
+        self.assertEqual(2, result["summary"]["cleanup_count"])
+
+    def test_simulated_worker_contract_validates_plan_integrity_and_cleanup(self) -> None:
+        contract = simulated_worker_contract(
+            plan_id="unit-worker-plan",
+            request_id="unit-request",
+            plan_hash="sha256:unit-worker-plan",
+            max_queue_depth=2,
+        )
+        result = validate_worker_contract_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        kinds = {event["kind"] for event in contract["events"]}
+        self.assertIn("stale_plan_reject", kinds)
+        self.assertIn("cleanup", kinds)
+        self.assertIn("expert_batch_received", kinds)
+
+    def test_worker_contract_rejects_payload_plan_hash_mismatch(self) -> None:
+        contract = simulated_worker_contract()
+        for event in contract["events"]:
+            if event["kind"] == "activation_received":
+                event["plan_hash"] = "sha256:wrong-plan"
+                break
+        result = validate_worker_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("plan_hash must match", "; ".join(result["errors"]))
+
+    def test_worker_contract_rejects_missing_cleanup(self) -> None:
+        contract = simulated_worker_contract()
+        contract["events"] = [
+            event for event in contract["events"] if event["kind"] != "cleanup"
+        ]
+        contract["summary"]["event_count"] = len(contract["events"])
+        contract["summary"]["cleanup_count"] = 0
+        result = validate_worker_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("workers missing cleanup event", "; ".join(result["errors"]))
+
+    def test_worker_contract_rejects_role_event_mismatch(self) -> None:
+        contract = simulated_worker_contract()
+        for event in contract["events"]:
+            if event["kind"] == "expert_execute_start":
+                event["worker_id"] = "stage-0"
+                break
+        result = validate_worker_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("not valid for role", "; ".join(result["errors"]))
+
+    def test_worker_contract_rejects_unsupported_payload_kind(self) -> None:
+        contract = simulated_worker_contract()
+        for worker in contract["workers"]:
+            if worker["worker_id"] == "stage-0":
+                worker["supported_payloads"] = ["kv_page"]
+                break
+        result = validate_worker_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("payload_kind is not supported", "; ".join(result["errors"]))
 
     def test_scheduler_contract_fixture_passes(self) -> None:
         result = validate_scheduler_contract("fornax/golden_vectors/scheduler_contract")
