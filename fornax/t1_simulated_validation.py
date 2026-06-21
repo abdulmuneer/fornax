@@ -6,6 +6,10 @@ from typing import Any
 from .backend_coverage import validate_backend_coverage_contract
 from .benchmark_ledger import validate_benchmark_ledger
 from .engine_seam import validate_engine_seam_contract
+from .engine_simulation import (
+    simulated_engine_contract,
+    validate_engine_simulation_fixture,
+)
 from .golden import run_golden_plans
 from .inventory import build_logical_cluster_inventory, collect_local_inventory
 from .io import read_json, write_json
@@ -151,6 +155,7 @@ def run_t1_simulated_validation(
     scheduler_path = bundle / "scheduler-contract.json"
     worker_path = bundle / "worker-contract.json"
     transport_path = bundle / "transport-contract.json"
+    engine_path = bundle / "engine-simulation.json"
     results_path = bundle / "t1-simulated-validation.json"
 
     write_json(source_inventory_path_out, source_inventory)
@@ -185,9 +190,19 @@ def run_t1_simulated_validation(
         max_queue_depth=max_queue_depth,
         timeout_ms=timeout_ms,
     )
+    engine = simulated_engine_contract(
+        plan_id=plan_id,
+        request_id=request_id,
+        plan_hash=plan_hash,
+        max_queue_depth=max_queue_depth,
+        max_inflight=max_inflight,
+        microbatch_size=microbatch_size,
+        timeout_ms=timeout_ms,
+    )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
+    write_json(engine_path, engine)
 
     checks = [
         _check(
@@ -225,6 +240,12 @@ def run_t1_simulated_validation(
             "T1",
             validate_observability_contract("fornax/golden_vectors/observability"),
             "fornax/golden_vectors/observability",
+        ),
+        _check(
+            "engine-simulation",
+            "T1",
+            validate_engine_simulation_fixture(engine),
+            str(engine_path),
         ),
         _check(
             "scheduler-contract",
@@ -268,6 +289,7 @@ def run_t1_simulated_validation(
             "scheduler_contract": str(scheduler_path),
             "worker_contract": str(worker_path),
             "transport_contract": str(transport_path),
+            "engine_simulation": str(engine_path),
             "validation": str(results_path),
         },
         "summary": {

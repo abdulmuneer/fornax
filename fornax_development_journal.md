@@ -1328,3 +1328,55 @@
   inspection showing 11/11 passed, `python3 -m unittest tests.test_fornax_planner`,
   `python3 -m compileall -q fornax tests`, `make fornax-golden`, `make
   fornax-test`, and `git diff --check` all passed.
+
+### T1 simulated FornaxEngine lifecycle milestone
+
+- Added `fornax.engine_simulation` for a model-free `FornaxEngine` orchestration
+  contract. The artifact composes generated scheduler, worker, and transport
+  contracts and validates the internal request lifecycle across scheduler
+  dispatch, stage worker calls, activation handoff, expert dispatch, streaming
+  token emission, cancellation propagation, health probes, request finish, and
+  cleanup.
+- Added `fornax engine simulate --out ...` and `fornax test engine-simulation`;
+  added the golden fixture `fornax/golden_vectors/engine_simulation/fixture.json`;
+  expanded `make fornax-golden` and `fornax program simulate-t1` so the engine
+  lifecycle is now part of the regular T1 simulated-cluster evidence path.
+- Updated the one-command T1 bundle to write `engine-simulation.json` and validate
+  12 checks: logical cluster, golden plans, runtime format, network contract,
+  engine seam, observability, engine simulation, scheduler contract, worker
+  contract, transport contract, backend coverage, and benchmark ledger.
+- The validator enforces embedded scheduler/worker/transport contract validity,
+  root plan/request/hash consistency, known worker and transport payload refs,
+  terminal request events, emitted-token accounting, cancellation cleanup targets,
+  health-probe readiness, and final cleanup components.
+- Review-lens pass:
+  - System Engineering: approve with comments. This is the first integrated
+    `FornaxEngine` lifecycle artifact across scheduler, workers, and transport;
+    real execution, MAX graph calls, and process orchestration remain future
+    implementation tiers.
+  - Distributed Runtime/Scheduler: approve. The simulated lifecycle now proves
+    scheduler dispatch, stage calls, transport handoff, remote expert dispatch,
+    and cancellation propagation are contractually connected.
+  - SRE/Operations: approve. Health probes and cleanup are visible in the same
+    request trace, making simulated bad-plan reproduction and lifecycle review
+    more operationally useful.
+  - Testing/Quality: approve. Regression tests cover fixture validity,
+    generated contract composition, embedded transport hash mismatch, missing
+    request finish, token summary mismatch, and missing cleanup.
+- Verification: `python3 -m py_compile fornax/engine_simulation.py
+  fornax/t1_simulated_validation.py fornax/cli.py tests/test_fornax_planner.py`,
+  focused engine-simulation tests, `python3 -m fornax engine simulate --out
+  /tmp/fornax_engine_simulation_cli_20260621.json --plan-id cli-engine-plan
+  --request-id cli-engine-request --plan-hash sha256:cli-engine-plan
+  --max-queue-depth 2 --max-inflight 2 --microbatch-size 2 --timeout-ms 50`,
+  `python3 -m fornax test engine-simulation --fixture
+  /tmp/fornax_engine_simulation_cli_20260621.json`, `python3 -m fornax program
+  simulate-t1 --out-dir /tmp/fornax_t1_engine_simulated_validation_cli_20260621
+  --source-inventory /tmp/fornax_t1_source_inventory_20260621.json --gpu-count 2
+  --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000
+  --link-latency-s 0.0004 --slow-node-factor 0.65 --plan-id cli-t1-engine-plan
+  --request-id cli-t1-engine-request --plan-hash sha256:cli-t1-engine-plan
+  --max-queue-depth 2 --max-inflight 2 --microbatch-size 2 --timeout-ms 50`,
+  artifact summary inspection showing 12/12 passed, `python3 -m unittest
+  tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
+  fornax-golden`, `make fornax-test`, and `git diff --check` all passed.

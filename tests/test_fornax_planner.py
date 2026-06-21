@@ -30,6 +30,11 @@ from fornax.engine_seam import (
     validate_engine_seam_contract,
     validate_engine_seam_fixture,
 )
+from fornax.engine_simulation import (
+    simulated_engine_contract,
+    validate_engine_simulation,
+    validate_engine_simulation_fixture,
+)
 from fornax.golden import run_golden_plans
 from fornax.g1_review import render_g1_gate_review_draft
 from fornax.io import load_inventory, read_json, write_json
@@ -691,8 +696,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(11, result["summary"]["check_count"])
-        self.assertEqual(11, result["summary"]["passed_count"])
+        self.assertEqual(12, result["summary"]["check_count"])
+        self.assertEqual(12, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -700,6 +705,7 @@ class FornaxPlannerTest(unittest.TestCase):
             endpoint["worker_environment"]["CUDA_VISIBLE_DEVICES"]
             for endpoint in transport["endpoints"]
         })
+        self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("transport-contract", {check["name"] for check in validation["checks"]})
         self.assertIn("scheduler-contract", {check["name"] for check in validation["checks"]})
         self.assertIn("worker-contract", {check["name"] for check in validation["checks"]})
@@ -717,6 +723,68 @@ class FornaxPlannerTest(unittest.TestCase):
                     source_inventory_path=source_path,
                     gpu_count=2,
                 )
+
+
+    def test_engine_simulation_fixture_passes(self) -> None:
+        result = validate_engine_simulation("fornax/golden_vectors/engine_simulation")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(3, result["summary"]["embedded_contract_count"])
+        self.assertEqual(2, result["summary"]["request_count"])
+        self.assertEqual(2, result["summary"]["token_count"])
+        self.assertIn("activation_handoff", result["summary"]["required_events_seen"])
+
+    def test_simulated_engine_contract_composes_scheduler_worker_transport(self) -> None:
+        contract = simulated_engine_contract(
+            plan_id="unit-engine-plan",
+            request_id="unit-engine-request",
+            plan_hash="sha256:unit-engine-plan",
+            max_queue_depth=2,
+            max_inflight=2,
+            microbatch_size=2,
+            timeout_ms=50.0,
+        )
+        result = validate_engine_simulation_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual("unit-engine-plan", contract["scheduler_contract"]["plan_id"])
+        self.assertEqual("sha256:unit-engine-plan", contract["worker_contract"]["plan_hash"])
+        self.assertEqual("sha256:unit-engine-plan", contract["transport_contract"]["plan_hash"])
+        self.assertEqual(3, contract["summary"]["embedded_contract_count"])
+
+    def test_engine_simulation_rejects_embedded_transport_plan_hash_mismatch(self) -> None:
+        contract = simulated_engine_contract()
+        contract["transport_contract"]["plan_hash"] = "sha256:wrong-plan"
+        result = validate_engine_simulation_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("transport_contract.plan_hash", "; ".join(result["errors"]))
+
+    def test_engine_simulation_rejects_missing_request_finished(self) -> None:
+        contract = simulated_engine_contract()
+        contract["events"] = [
+            event
+            for event in contract["events"]
+            if not (event["kind"] == "request_finished" and event["request_id"] == contract["request_id"])
+        ]
+        contract["summary"]["event_count"] = len(contract["events"])
+        contract["summary"]["finished_count"] = 1
+        result = validate_engine_simulation_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("primary request missing", "; ".join(result["errors"]))
+
+    def test_engine_simulation_rejects_token_summary_mismatch(self) -> None:
+        contract = simulated_engine_contract()
+        contract["summary"]["token_count"] = 99
+        result = validate_engine_simulation_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("summary.token_count", "; ".join(result["errors"]))
+
+    def test_engine_simulation_rejects_missing_cleanup(self) -> None:
+        contract = simulated_engine_contract()
+        contract["events"] = [event for event in contract["events"] if event["kind"] != "cleanup"]
+        contract["summary"]["event_count"] = len(contract["events"])
+        contract["summary"]["cleanup_count"] = 0
+        result = validate_engine_simulation_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("events missing required engine events", "; ".join(result["errors"]))
 
     def test_transport_contract_fixture_passes(self) -> None:
         result = validate_transport_contract("fornax/golden_vectors/transport_contract")

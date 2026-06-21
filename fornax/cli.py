@@ -25,6 +25,10 @@ from .benchmark_ledger import (
 from .calibration import run_local_calibration
 from .doctor import inspect_phase0_bundle
 from .engine_seam import validate_engine_seam_contract
+from .engine_simulation import (
+    simulated_engine_contract,
+    validate_engine_simulation,
+)
 from .golden import run_golden_plans
 from .g1_review import render_g1_gate_review_draft
 from .inventory import (
@@ -281,6 +285,33 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
         f"latency={predicted['per_request_latency_s']:.6f}s "
         f"bubble={predicted['bubble_fraction']:.3f}"
         f"{suffix}"
+    )
+    return 0
+
+
+def _cmd_engine_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulated_engine_contract(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            plan_hash=args.plan_hash,
+            max_queue_depth=args.max_queue_depth,
+            max_inflight=args.max_inflight,
+            microbatch_size=args.microbatch_size,
+            timeout_ms=args.timeout_ms,
+        )
+    except ValueError as exc:
+        print(f"engine simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "engine simulate: "
+        f"events={summary['event_count']} "
+        f"requests={summary['request_count']} "
+        f"finished={summary['finished_count']} "
+        f"tokens={summary['token_count']} "
+        f"embedded_contracts={summary['embedded_contract_count']}"
     )
     return 0
 
@@ -730,6 +761,27 @@ def _cmd_test_engine_seam(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_engine_simulation(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/engine_simulation"
+    result = validate_engine_simulation(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS engine-simulation: {fixture} "
+            f"events={summary['event_count']} "
+            f"requests={summary['request_count']} "
+            f"tokens={summary['token_count']} "
+            f"embedded_contracts={summary['embedded_contract_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL engine-simulation: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_observability(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/observability"
     result = validate_observability_contract(fixture)
@@ -837,6 +889,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_network_contract(args)
     if args.test_name == "engine-seam":
         return _cmd_test_engine_seam(args)
+    if args.test_name == "engine-simulation":
+        return _cmd_test_engine_simulation(args)
     if args.test_name == "observability":
         return _cmd_test_observability(args)
     if args.test_name == "worker-contract":
@@ -1037,6 +1091,20 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument("--out")
     simulate.set_defaults(func=_cmd_simulate)
 
+    engine = sub.add_parser("engine")
+    engine_sub = engine.add_subparsers(dest="engine_command", required=True)
+    engine_simulate = engine_sub.add_parser("simulate")
+    engine_simulate.add_argument("--out", required=True)
+    engine_simulate.add_argument("--plan-id", default="engine-simulated-plan")
+    engine_simulate.add_argument("--request-id", default="req-engine-simulated")
+    engine_simulate.add_argument("--plan-hash", default="sha256:engine-simulated-plan")
+    engine_simulate.add_argument("--max-queue-depth", type=int, default=2)
+    engine_simulate.add_argument("--max-inflight", type=int, default=2)
+    engine_simulate.add_argument("--microbatch-size", type=int, default=2)
+    engine_simulate.add_argument("--timeout-ms", type=float, default=50.0)
+    engine_simulate.set_defaults(func=_cmd_engine_simulate)
+
+
     workers = sub.add_parser("workers")
     workers_sub = workers.add_subparsers(dest="workers_command", required=True)
     workers_simulate = workers_sub.add_parser("simulate")
@@ -1163,6 +1231,7 @@ def build_parser() -> argparse.ArgumentParser:
             "runtime-format",
             "network-contract",
             "engine-seam",
+            "engine-simulation",
             "observability",
             "worker-contract",
             "transport-contract",
