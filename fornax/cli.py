@@ -35,6 +35,7 @@ from .program_rebaseline import (
 from .network_contract import validate_network_contract
 from .network_security_spec import render_network_security_spec_draft
 from .phase0_status import render_phase0_status_report
+from .phase0_simulated_validation import run_phase0_simulated_validation
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
 from .simulate import simulation_result, summarize_request_trace
@@ -360,6 +361,50 @@ def _cmd_program_phase0_status(args: argparse.Namespace) -> int:
     return 2 if result.get("doctor_errors") else 0
 
 
+def _cmd_program_simulate_phase0(args: argparse.Namespace) -> int:
+    if args.requests and args.trace and args.requests != args.trace:
+        print("program simulate-phase0: pass only one of --requests or --trace")
+        return 2
+    trace_path = args.requests or args.trace
+    try:
+        result = run_phase0_simulated_validation(
+            target_path=args.target,
+            out_dir=args.out_dir,
+            source_inventory_path=args.source_inventory,
+            gpu_count=args.gpu_count,
+            profile=args.profile,
+            link_bandwidth_bytes_s=args.link_bandwidth_bytes_s,
+            link_latency_s=args.link_latency_s,
+            slow_node_factor=args.slow_node_factor,
+            requests_path=trace_path,
+            benchmark_mode=args.benchmark_mode,
+            benchmark_iterations=args.benchmark_iterations,
+            include_calibration=args.include_calibration,
+            calibration_torch_python=args.calibration_torch_python,
+            program_report_date=args.program_report_date,
+            program_plan_version=args.program_plan_version,
+            substrate_pinned_build=args.substrate_pinned_build,
+            kickoff_date=args.kickoff_date,
+            ker_status=args.ker_status,
+            scope=args.scope,
+            simulated_apple_role=args.simulated_apple_role,
+            simulated_apple_reason=args.simulated_apple_reason,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program simulate-phase0: {exc}")
+        return 2
+    summary = result["summary"]
+    g1 = result["g1"]
+    print(
+        "phase0 simulated validation: "
+        f"bundle={result['bundle']}; "
+        f"{summary.get('machine_or_better', 0)}/{summary.get('total', 0)} "
+        "deliverables machine/simulation complete or closed; "
+        f"recommended={g1.get('recommended_outcome')}; simulation evidence only"
+    )
+    return 0 if result["ok"] else 2
+
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     if args.requests and args.trace and args.requests != args.trace:
         print("preflight: pass only one of --requests or --trace")
@@ -629,6 +674,35 @@ def build_parser() -> argparse.ArgumentParser:
     phase0_status.add_argument("--date")
     phase0_status.add_argument("--plan-version", default="v3")
     phase0_status.set_defaults(func=_cmd_program_phase0_status)
+
+    simulate_phase0 = program_sub.add_parser("simulate-phase0")
+    simulate_phase0.add_argument("--target", required=True)
+    simulate_phase0.add_argument("--out-dir", required=True)
+    simulate_phase0.add_argument("--source-inventory")
+    simulate_phase0.add_argument("--gpu-count", type=int, default=2)
+    simulate_phase0.add_argument(
+        "--profile", choices=SIMULATED_CLUSTER_PROFILES, default="two-gpu-heterogeneous"
+    )
+    simulate_phase0.add_argument("--link-bandwidth-bytes-s", type=float, default=25.0e9)
+    simulate_phase0.add_argument("--link-latency-s", type=float, default=0.00025)
+    simulate_phase0.add_argument("--slow-node-factor", type=float, default=0.65)
+    simulate_phase0.add_argument("--requests")
+    simulate_phase0.add_argument("--trace", help="deprecated alias for --requests")
+    simulate_phase0.add_argument("--benchmark-mode", default="tiny-moe-or-expert-mlp")
+    simulate_phase0.add_argument("--benchmark-iterations", type=int, default=25)
+    simulate_phase0.add_argument("--include-calibration", action="store_true")
+    simulate_phase0.add_argument("--calibration-torch-python")
+    simulate_phase0.add_argument("--program-report-date")
+    simulate_phase0.add_argument("--program-plan-version", default="v3")
+    simulate_phase0.add_argument("--substrate-pinned-build", default="unset")
+    simulate_phase0.add_argument("--kickoff-date")
+    simulate_phase0.add_argument("--ker-status", choices=KER_STATUS_VALUES, default="unassigned")
+    simulate_phase0.add_argument("--scope", choices=SCOPE_VALUES, default="pending")
+    simulate_phase0.add_argument(
+        "--simulated-apple-role", choices=["capacity-only", "expert-worker"], default="capacity-only"
+    )
+    simulate_phase0.add_argument("--simulated-apple-reason")
+    simulate_phase0.set_defaults(func=_cmd_program_simulate_phase0)
 
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)

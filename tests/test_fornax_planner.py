@@ -31,6 +31,7 @@ from fornax.network_contract import (
 )
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 from fornax.phase0_status import render_phase0_status_report
+from fornax.phase0_simulated_validation import run_phase0_simulated_validation
 from fornax.preflight import run_phase0_preflight
 from fornax.program_rebaseline import render_program_rebaseline_draft
 from fornax.runtime_format_spec import render_runtime_format_spec_draft
@@ -1095,6 +1096,63 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("simulated Apple role=capacity-only", by_id["S0-7"]["evidence"])
         self.assertIn("R-10", report["markdown"])
         self.assertIn("simulation_complete", report["markdown"])
+
+    def test_program_simulate_phase0_builds_full_simulated_bundle(self) -> None:
+        csv_text = (
+            "0, NVIDIA H100 80GB HBM3, 80000, 81559, 575.57.08\n"
+            "1, NVIDIA H100 80GB HBM3, 79000, 81559, 575.57.08\n"
+        )
+        source = collect_local_inventory(nvidia_smi_csv=csv_text)
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source_path = root / "source-inventory.json"
+            bundle = root / "bundle"
+            write_json(source_path, source)
+
+            result = run_phase0_simulated_validation(
+                target_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                out_dir=bundle,
+                source_inventory_path=source_path,
+                gpu_count=2,
+                link_bandwidth_bytes_s=12.5e9,
+                link_latency_s=0.0004,
+                slow_node_factor=0.65,
+                benchmark_iterations=1,
+                program_report_date="2026-06-21",
+                substrate_pinned_build="max-26.4.0",
+                kickoff_date="2026-06-21",
+                ker_status="unavailable",
+                scope="pending",
+            )
+
+            by_id = {item["id"]: item for item in result["status"]["deliverables"]}
+            required_files = (
+                bundle / "source-inventory.json",
+                bundle / "simulated-cluster-inventory.json",
+                bundle / "inventory.json",
+                bundle / "g1-gate-review.md",
+                bundle / "phase0-status.json",
+                bundle / "phase0-status.md",
+                bundle / "apple-probe-simulation.json",
+                bundle / "apple-role-decision-simulated.md",
+            )
+            self.assertTrue(result["ok"], result["preflight"]["doctor"])
+            self.assertTrue(all(path.exists() for path in required_files))
+            self.assertIn("source_inventory", result["artifacts"])
+            self.assertIn("simulated_cluster_inventory", result["artifacts"])
+            self.assertEqual(9, result["summary"]["total"])
+            self.assertEqual(9, result["summary"]["machine_or_better"])
+            self.assertTrue(result["simulation"]["present"])
+            self.assertTrue(result["apple_simulation"]["present"])
+            self.assertFalse(result["apple_simulation"]["gate_closable"])
+            self.assertEqual("simulation_complete", by_id["S0-2"]["status"])
+            self.assertEqual("simulation_complete", by_id["S0-7"]["status"])
+            self.assertEqual("simulation_complete", by_id["S0-9"]["status"])
+            self.assertEqual("ITERATE", result["g1"]["recommended_outcome"])
+            self.assertIn(
+                "Apple reversal trigger evaluated from rank-1 local probe",
+                result["g1"]["machine_missing_criteria"],
+            )
 
     def test_phase0_preflight_can_include_g1_drafts(self) -> None:
         with tempfile.TemporaryDirectory() as d:

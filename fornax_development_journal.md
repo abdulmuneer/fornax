@@ -960,3 +960,43 @@
   --simulated-apple-role capacity-only --program-report-date 2026-06-21
   --substrate-pinned-build max-26.4.0 --kickoff-date 2026-06-21 --ker-status
   unavailable --scope pending` all passed.
+
+### One-command simulated Phase-0 validation milestone
+
+- Added `fornax program simulate-phase0`, which packages the local logical
+  cluster simulation method into the program-management workflow. The command
+  collects or accepts a source inventory, writes `source-inventory.json`, builds
+  `simulated-cluster-inventory.json`, and runs the full preflight with G1 drafts,
+  T0 golden evidence, program reports, and simulated Apple S0-7 evidence.
+- This is now the default development milestone path for two local GPUs treated
+  as two logical hosts. It validates planner, runtime-contract, networking,
+  evidence-bundle, status-report, and Apple-simulation plumbing without waiting
+  for a physical heterogeneous cluster.
+- Ran the one-command path at `/tmp/fornax_phase0_simulate_onecmd`. Phase-0
+  status shows 9/9 S0 deliverables closed, machine-complete, or
+  simulation-complete: 2 closed, 4 machine-complete, 3 simulation-complete, and
+  0 incomplete. G1 still recommends `ITERATE` because real Apple rank-1 probe
+  validation, sign-offs, and staffing closure remain absent.
+- Review-lens pass:
+  - Program Management: approve. The command directly supports the simulated
+    milestone plan and produces the status artifact needed for milestone review.
+  - SRE/Operations: approve. Operators no longer have to stitch inventory
+    collection, cluster simulation, preflight, and reports by hand.
+  - Hardware/Acceleration: approve with comments. The generated inventory and
+    Apple artifacts are explicitly simulation evidence and cannot close real
+    multi-host or rank-1 Apple gates.
+  - Testing/Quality: approve. Regression coverage asserts the 9/9 simulated S0
+    posture while preserving `G1=ITERATE`.
+- Verification: `python3 -m py_compile fornax/phase0_simulated_validation.py
+  fornax/cli.py tests/test_fornax_planner.py`, focused
+  `test_program_simulate_phase0_builds_full_simulated_bundle`, `python3 -m
+  fornax program simulate-phase0 --target
+  fornax/golden_plans/v0_target_contract_fixture.md --out-dir
+  /tmp/fornax_phase0_simulate_onecmd --gpu-count 2
+  --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004
+  --slow-node-factor 0.65 --program-report-date 2026-06-21
+  --substrate-pinned-build max-26.4.0 --kickoff-date 2026-06-21 --ker-status
+  unavailable --scope pending --benchmark-iterations 1`, status-artifact
+  inspection, `python3 -m unittest tests.test_fornax_planner`, `python3 -m
+  compileall -q fornax tests`, `make fornax-test`, and `make fornax-golden` all
+  passed.
