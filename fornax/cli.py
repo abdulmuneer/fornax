@@ -35,6 +35,7 @@ from .program_rebaseline import (
 )
 from .network_contract import validate_network_contract
 from .network_security_spec import render_network_security_spec_draft
+from .observability import validate_observability_contract
 from .phase0_status import render_phase0_status_report
 from .phase0_simulated_validation import run_phase0_simulated_validation
 from .runtime_format import validate_runtime_format_golden
@@ -562,6 +563,19 @@ def _cmd_test_engine_seam(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_observability(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/observability"
+    result = validate_observability_contract(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        print(f"PASS observability: {result['fixture']}{suffix}")
+        return 0
+    print("FAIL observability: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test(args: argparse.Namespace) -> int:
     if args.test_name == "golden-plans":
         return _cmd_test_golden(args)
@@ -571,6 +585,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_network_contract(args)
     if args.test_name == "engine-seam":
         return _cmd_test_engine_seam(args)
+    if args.test_name == "observability":
+        return _cmd_test_observability(args)
     raise ValueError(args.test_name)
 
 
@@ -800,7 +816,13 @@ def build_parser() -> argparse.ArgumentParser:
     tests = sub.add_parser("test")
     tests.add_argument(
         "test_name",
-        choices=["golden-plans", "runtime-format", "network-contract", "engine-seam"],
+        choices=[
+            "golden-plans",
+            "runtime-format",
+            "network-contract",
+            "engine-seam",
+            "observability",
+        ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")
     tests.add_argument("--mode", default="simulated")

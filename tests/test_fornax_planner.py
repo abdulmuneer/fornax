@@ -29,6 +29,10 @@ from fornax.inventory.local import (
     probe_declared_links,
 )
 from fornax.network_security_spec import render_network_security_spec_draft
+from fornax.observability import (
+    validate_observability_contract,
+    validate_observability_fixture,
+)
 from fornax.network_contract import (
     validate_network_contract,
     validate_network_contract_fixture,
@@ -396,6 +400,34 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_engine_seam_fixture(fixture)
         self.assertFalse(result["ok"])
         self.assertIn("speculative decoding is out of v0", "; ".join(result["errors"]))
+
+    def test_observability_fixture_passes(self) -> None:
+        result = validate_observability_contract("fornax/golden_vectors/observability")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertIn("router_decision", result["summary"]["required_events_seen"])
+        self.assertIn("bad_plan_reproduction", result["summary"]["required_events_seen"])
+        self.assertEqual(2, result["summary"]["stage_count"])
+        self.assertEqual(
+            ["demoted", "excluded", "selected"],
+            result["summary"]["placement_decisions"],
+        )
+
+    def test_observability_rejects_missing_required_events(self) -> None:
+        fixture = read_json("fornax/golden_vectors/observability/fixture.json")
+        fixture["events"] = [
+            event for event in fixture["events"] if event.get("kind") != "router_decision"
+        ]
+        result = validate_observability_fixture(fixture)
+        self.assertFalse(result["ok"])
+        self.assertIn("missing required observability events", "; ".join(result["errors"]))
+        self.assertIn("router_decision", "; ".join(result["errors"]))
+
+    def test_observability_rejects_plan_id_mismatch(self) -> None:
+        fixture = read_json("fornax/golden_vectors/observability/fixture.json")
+        fixture["events"][0]["plan_id"] = "wrong-plan"
+        result = validate_observability_fixture(fixture)
+        self.assertFalse(result["ok"])
+        self.assertIn("plan_id must match", "; ".join(result["errors"]))
 
     def test_network_contract_fixture_passes(self) -> None:
         result = validate_network_contract(

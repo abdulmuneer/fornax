@@ -1034,3 +1034,35 @@
   test network-contract`, `python3 -m fornax test engine-seam`, `python3 -m
   unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`,
   `make fornax-golden`, and `make fornax-test` all passed.
+
+### T1 observability contract milestone
+
+- Added `fornax.observability` and the golden fixture
+  `fornax/golden_vectors/observability/fixture.json` for the plan v3 §5.9
+  observability requirement pulled into Phase 0/T1 simulation.
+- The validator requires request/plan ID propagation and checks event coverage for
+  per-stage timings, bubble fraction, queue depth, backpressure, router decisions,
+  remote expert hits, expert wait, migration, KV page counts, memory pressure,
+  allocation failures, eviction/replay, placement explanations, and reproducible
+  bad-plan fixture logs.
+- Added `fornax test observability` and expanded `make fornax-golden` so the
+  current model-free golden-contract command covers planner, runtime format,
+  network contract, engine seam, and observability contracts.
+- Review-lens pass:
+  - System Engineering: approve. The milestone makes the T1 request lifecycle
+    observable across scheduler, routing, KV, placement, and failure reproduction
+    before real workers exist.
+  - SRE/Operations: approve with comments. The fixture provides a concrete
+    diagnostics contract for future logs/metrics; live log emission and dashboard
+    wiring remain later milestones.
+  - Low-level Software: approve with comments. KV pressure, allocation failure,
+    eviction, and replay are explicit in the contract, but real memory-manager
+    invariants still need implementation after G1.
+  - Testing/Quality: approve. Regression tests catch missing required telemetry
+    and broken plan-ID propagation, and `make fornax-golden` now exercises the
+    observability contract.
+- Verification: `python3 -m py_compile fornax/observability.py fornax/cli.py
+  tests/test_fornax_planner.py`, focused observability tests, `python3 -m fornax
+  test observability`, `python3 -m unittest tests.test_fornax_planner`,
+  `python3 -m compileall -q fornax tests`, `make fornax-golden`, and `make
+  fornax-test` all passed.

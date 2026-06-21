@@ -1,0 +1,170 @@
+{
+  "contract_kind": "observability",
+  "version": 1,
+  "mode": "t1-simulation",
+  "request_id": "req-obsv-001",
+  "plan_id": "plan-obsv-good",
+  "reproducible_bad_plan": {
+    "bad_plan_id": "plan-obsv-bad-link",
+    "fixture_path": "fornax/golden_vectors/observability/fixture.json",
+    "expected_error": "plan references missing stage link",
+    "command": [
+      "python3",
+      "-m",
+      "fornax",
+      "test",
+      "observability",
+      "--fixture",
+      "fornax/golden_vectors/observability/fixture.json"
+    ]
+  },
+  "events": [
+    {
+      "kind": "stage_timing",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "stage_id": 0,
+      "phase": "prefill",
+      "elapsed_ms": 3.2
+    },
+    {
+      "kind": "stage_timing",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "stage_id": 1,
+      "phase": "decode",
+      "elapsed_ms": 2.7
+    },
+    {
+      "kind": "bubble_fraction",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "value": 0.17
+    },
+    {
+      "kind": "queue_depth",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "depth": 2
+    },
+    {
+      "kind": "backpressure",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "queue_depth": 4,
+      "reason": "bounded admission queue reached max depth"
+    },
+    {
+      "kind": "router_decision",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "layer_id": 3,
+      "token_id": 12,
+      "expert_ids": [
+        7,
+        2
+      ],
+      "remote": true
+    },
+    {
+      "kind": "remote_expert_hit",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "source_stage": "sim-stage-0",
+      "target_node": "sim-host-1",
+      "expert_id": 7
+    },
+    {
+      "kind": "expert_wait",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "expert_id": 7,
+      "elapsed_ms": 0.42
+    },
+    {
+      "kind": "migration",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "expert_id": 7,
+      "from_node": "sim-host-1",
+      "to_node": "sim-host-0",
+      "reason": "simulated hot expert locality rebalance"
+    },
+    {
+      "kind": "kv_page_count",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "owner": "stage-0-kv",
+      "pages": 12
+    },
+    {
+      "kind": "memory_pressure",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "level": "warning",
+      "bytes_used": 73014444032,
+      "bytes_limit": 85899345920
+    },
+    {
+      "kind": "allocation_failure",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "bytes_requested": 1048576,
+      "reason": "simulated fragmented KV arena"
+    },
+    {
+      "kind": "eviction",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "page_id": "kv-page-009",
+      "reason": "memory pressure"
+    },
+    {
+      "kind": "replay",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "page_id": "kv-page-009",
+      "source": "prefix_registry"
+    },
+    {
+      "kind": "placement_explanation",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "node_id": "sim-gpu0",
+      "decision": "selected",
+      "reason": "highest memory headroom for stage 0"
+    },
+    {
+      "kind": "placement_explanation",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "node_id": "sim-gpu1",
+      "decision": "demoted",
+      "reason": "logical heterogeneity profile marks node as slower worker"
+    },
+    {
+      "kind": "placement_explanation",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "node_id": "cpu0",
+      "decision": "excluded",
+      "reason": "does not meet accelerator runtime requirement"
+    },
+    {
+      "kind": "bad_plan_reproduction",
+      "request_id": "req-obsv-001",
+      "plan_id": "plan-obsv-good",
+      "bad_plan_id": "plan-obsv-bad-link",
+      "expected_error": "plan references missing stage link",
+      "command": [
+        "python3",
+        "-m",
+        "fornax",
+        "test",
+        "observability",
+        "--fixture",
+        "fornax/golden_vectors/observability/fixture.json"
+      ]
+    }
+  ]
+}
