@@ -9,6 +9,12 @@ from .io import read_json
 REQUIRED_JSON = ["inventory.json", "links.json", "placement.json"]
 RECOMMENDED_ANY = ["target.json", "v0-target-contract.md"]
 RECOMMENDED_JSON = ["validate.json", "simulate.json", "benchmark.json", "calibration.json"]
+SIMULATED_INVENTORY_WARNING = (
+    "inventory.json is simulated logical-cluster evidence, not real multi-host "
+    "hardware evidence"
+)
+
+
 G1_GATE_ARTIFACT_GROUPS = [
     ("runtime_format_spec", ["runtime-format-and-invariants.md"]),
     ("network_security_spec", ["networking-security-and-backpressure.md"]),
@@ -71,6 +77,11 @@ def inspect_phase0_bundle(bundle_path: str | Path) -> dict[str, Any]:
         if name == "inventory.json":
             nodes = data.get("nodes")
             artifacts[name]["node_count"] = len(nodes) if isinstance(nodes, list) else None
+            simulation = data.get("simulation")
+            if isinstance(simulation, dict):
+                artifacts[name]["simulation_mode"] = simulation.get("mode")
+                artifacts[name]["simulation_profile"] = simulation.get("profile")
+                warnings.append(SIMULATED_INVENTORY_WARNING)
             if not isinstance(nodes, list) or not nodes:
                 errors.append("inventory.json must contain at least one node")
         if name == "links.json":

@@ -15,7 +15,12 @@ from .calibration import run_local_calibration
 from .doctor import inspect_phase0_bundle
 from .golden import run_golden_plans
 from .g1_review import render_g1_gate_review_draft
-from .inventory import collect_local_inventory, probe_declared_links
+from .inventory import (
+    SIMULATED_CLUSTER_PROFILES,
+    build_logical_cluster_inventory,
+    collect_local_inventory,
+    probe_declared_links,
+)
 from .contracts import load_target_contract
 from .io import load_inventory, load_model_target, read_json, write_json
 from .planner import plan_placement
@@ -110,6 +115,34 @@ def _cmd_inventory_collect(args: argparse.Namespace) -> int:
     data = collect_local_inventory()
     write_json(args.out, data)
     print(f"wrote inventory: {args.out}")
+    return 0
+
+
+def _cmd_inventory_simulate_cluster(args: argparse.Namespace) -> int:
+    try:
+        source = (
+            read_json(args.source_inventory)
+            if args.source_inventory
+            else collect_local_inventory()
+        )
+        data = build_logical_cluster_inventory(
+            source,
+            gpu_count=args.gpu_count,
+            profile=args.profile,
+            link_bandwidth_bytes_s=args.link_bandwidth_bytes_s,
+            link_latency_s=args.link_latency_s,
+            slow_node_factor=args.slow_node_factor,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"inventory simulate-cluster: {exc}")
+        return 2
+    write_json(args.out, data)
+    simulation = data.get("simulation", {})
+    print(
+        "wrote simulated cluster inventory: "
+        f"{args.out}; logical_hosts={simulation.get('logical_host_count')}; "
+        "simulation evidence only"
+    )
     return 0
 
 
@@ -282,12 +315,18 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
         return 2
     trace_path = args.requests or args.trace
     try:
+        inventory_data = None
+        if args.inventory:
+            inventory_data = read_json(args.inventory)
+            if not isinstance(inventory_data, dict):
+                raise ValueError("--inventory must contain a JSON object")
         result = run_phase0_preflight(
             target_path=args.target,
             out_dir=args.out_dir,
             requests_path=trace_path,
             benchmark_mode=args.benchmark_mode,
             benchmark_iterations=args.benchmark_iterations,
+            inventory_data=inventory_data,
             include_g1_drafts=args.include_g1_drafts,
             substrate_pinned_build=args.substrate_pinned_build,
             kickoff_date=args.kickoff_date,
@@ -457,6 +496,18 @@ def build_parser() -> argparse.ArgumentParser:
     inv_collect.add_argument("--out", required=True)
     inv_collect.set_defaults(func=_cmd_inventory_collect)
 
+    inv_simulate = inv_sub.add_parser("simulate-cluster")
+    inv_simulate.add_argument("--out", required=True)
+    inv_simulate.add_argument("--source-inventory")
+    inv_simulate.add_argument("--gpu-count", type=int, default=2)
+    inv_simulate.add_argument(
+        "--profile", choices=SIMULATED_CLUSTER_PROFILES, default="two-gpu-heterogeneous"
+    )
+    inv_simulate.add_argument("--link-bandwidth-bytes-s", type=float, default=25.0e9)
+    inv_simulate.add_argument("--link-latency-s", type=float, default=0.00025)
+    inv_simulate.add_argument("--slow-node-factor", type=float, default=0.65)
+    inv_simulate.set_defaults(func=_cmd_inventory_simulate_cluster)
+
     fabric = sub.add_parser("fabric")
     fabric_sub = fabric.add_subparsers(dest="fabric_command", required=True)
     fabric_probe = fabric_sub.add_parser("probe")
@@ -530,6 +581,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight = sub.add_parser("preflight")
     preflight.add_argument("--target", required=True)
     preflight.add_argument("--out-dir", required=True)
+    preflight.add_argument("--inventory")
     preflight.add_argument("--requests")
     preflight.add_argument("--trace", help="deprecated alias for --requests")
     preflight.add_argument("--benchmark-mode", default="tiny-moe-or-expert-mlp")

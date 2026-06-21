@@ -735,3 +735,53 @@
   network-security --fixture fornax/golden_vectors/network_contract --out
   /tmp/fornax_networking_security_and_backpressure.md`, `make fornax-test`, and
   `make fornax-golden` all passed.
+
+
+### Logical simulated cluster milestone
+
+- Added `fornax inventory simulate-cluster` to split local NVIDIA GPUs into
+  separate logical hosts. Each logical node keeps the source physical device and
+  records the worker binding needed to launch one process per GPU through
+  `CUDA_VISIBLE_DEVICES`.
+- The default `two-gpu-heterogeneous` profile deliberately scales the second
+  logical node's compute, memory bandwidth, and available memory so planner and
+  scheduler work can exercise heterogeneous-placement paths before a real
+  multi-machine lab is available.
+- Wired simulated inventories into `fornax preflight --inventory` and added
+  doctor-visible simulation provenance. Simulation bundles can validate normal
+  inventory, link, placement, validation, benchmark, and G1-review plumbing, but
+  now carry an explicit warning that they are not real multi-host hardware
+  evidence.
+- Ran the flow on this workstation: local inventory collection found two GPUs,
+  produced `/tmp/fornax_sim_cluster_inventory.json` with `sim-host-0` and
+  `sim-host-1`, and preflight wrote `/tmp/fornax_preflight_sim_cluster` with the
+  expected simulation and unmeasured-link warnings.
+- Review-lens pass:
+  - Program Management: approve with comments. This unblocks milestone
+    development and SIM-track validation, while preserving physical cluster
+    closure as a later hardware gate.
+  - SRE/Operations: approve. The simulation path is explicit, reproducible from
+    a source inventory file, and doctor-visible so reports cannot confuse it with
+    production cluster evidence.
+  - Hardware: approve with comments. The profile is useful for local
+    heterogeneity testing, but fabric bandwidth and latency are synthetic until
+    replaced by real cross-machine measurements.
+- Verification: `python3 -m py_compile fornax/inventory/simulated_cluster.py
+  fornax/cli.py fornax/doctor.py tests/test_fornax_planner.py`, focused
+  simulated-cluster unittest cases, `python3 -m unittest tests.test_fornax_planner`,
+  `python3 -m fornax inventory collect --out /tmp/fornax_local_inventory.json`,
+  `python3 -m fornax inventory simulate-cluster --source-inventory
+  /tmp/fornax_local_inventory.json --out /tmp/fornax_sim_cluster_inventory.json
+  --gpu-count 2 --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004
+  --slow-node-factor 0.65`, `python3 -m fornax preflight --target
+  fornax/golden_plans/v0_target_contract_fixture.md --inventory
+  /tmp/fornax_sim_cluster_inventory.json --out-dir
+  /tmp/fornax_preflight_sim_cluster --benchmark-iterations 1 --include-g1-drafts
+  --substrate-pinned-build max-26.4.0 --kickoff-date 2026-06-21 --ker-status
+  unavailable --scope pending`, `python3 -m fornax doctor --bundle
+  /tmp/fornax_preflight_sim_cluster`, `python3 -m fornax program g1-review
+  --bundle /tmp/fornax_preflight_sim_cluster --out
+  /tmp/fornax_preflight_sim_cluster_g1_review.md --date 2026-06-21
+  --plan-version v3`, `python3 -m fornax test golden-plans --out
+  /tmp/fornax_golden_plans_sim_slice.json`, `make fornax-test`, and `make
+  fornax-golden` all passed.

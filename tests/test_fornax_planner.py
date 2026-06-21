@@ -16,6 +16,7 @@ from fornax.doctor import inspect_phase0_bundle
 from fornax.golden import run_golden_plans
 from fornax.g1_review import render_g1_gate_review_draft
 from fornax.io import load_inventory, write_json
+from fornax.inventory import build_logical_cluster_inventory
 from fornax.inventory.local import (
     collect_local_inventory,
     parse_nvidia_smi_csv,
@@ -809,6 +810,32 @@ class FornaxPlannerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "expected 5"):
             parse_nvidia_smi_csv("0, NVIDIA H100\n")
 
+    def test_simulated_cluster_inventory_splits_two_gpus_into_logical_hosts(self) -> None:
+        csv_text = (
+            "0, NVIDIA H100 80GB HBM3, 80000, 81559, 575.57.08\n"
+            "1, NVIDIA H100 80GB HBM3, 79000, 81559, 575.57.08\n"
+        )
+        source = collect_local_inventory(nvidia_smi_csv=csv_text)
+        result = build_logical_cluster_inventory(
+            source,
+            link_bandwidth_bytes_s=12.5e9,
+            link_latency_s=0.0004,
+            slow_node_factor=0.5,
+        )
+        self.assertEqual("logical_multi_host", result["simulation"]["mode"])
+        self.assertEqual("two-gpu-heterogeneous", result["simulation"]["profile"])
+        self.assertEqual(["sim-host-0", "sim-host-1"], [n["host_id"] for n in result["nodes"]])
+        self.assertEqual(["cuda:0", "cuda:0"], [n["device"] for n in result["nodes"]])
+        self.assertEqual("0", result["nodes"][0]["worker_environment"]["CUDA_VISIBLE_DEVICES"])
+        self.assertEqual("1", result["nodes"][1]["worker_environment"]["CUDA_VISIBLE_DEVICES"])
+        self.assertLess(result["nodes"][1]["compute_class"], result["nodes"][0]["compute_class"])
+        self.assertEqual(1, len(result["links"]))
+        link = result["links"][0]
+        self.assertEqual(12.5e9, link["bandwidth_bytes_s"])
+        self.assertEqual(0.0004, link["latency_s"])
+        self.assertTrue(link["measurement"]["simulated"])
+        self.assertFalse(link["measurement"]["measured"])
+
     def test_fabric_probe_synthesizes_same_host_local_links(self) -> None:
         inventory = {
             "host_id": "host-a",
@@ -959,6 +986,41 @@ class FornaxPlannerTest(unittest.TestCase):
             simulate = (bundle / "simulate.json").read_text(encoding="utf-8")
             self.assertIn('"measured": true', benchmark)
             self.assertIn('"request_count": 1', simulate)
+
+    def test_phase0_preflight_accepts_simulated_logical_cluster_inventory(self) -> None:
+        csv_text = (
+            "0, NVIDIA H100 80GB HBM3, 80000, 81559, 575.57.08\n"
+            "1, NVIDIA H100 80GB HBM3, 79000, 81559, 575.57.08\n"
+        )
+        source = collect_local_inventory(nvidia_smi_csv=csv_text)
+        inventory = build_logical_cluster_inventory(source)
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d) / "bundle"
+            result = run_phase0_preflight(
+                target_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                out_dir=bundle,
+                benchmark_iterations=1,
+                inventory_data=inventory,
+            )
+            doctor = inspect_phase0_bundle(bundle)
+            self.assertTrue(result["ok"], result["doctor"])
+            self.assertTrue(doctor["ok"], doctor)
+            self.assertEqual(
+                "logical_multi_host",
+                doctor["artifacts"]["inventory.json"]["simulation_mode"],
+            )
+            self.assertIn(
+                "inventory.json is simulated logical-cluster evidence, not real multi-host hardware evidence",
+                doctor["warnings"],
+            )
+            self.assertIn(
+                "links.json: links include unmeasured declarations",
+                doctor["warnings"],
+            )
+            self.assertIn(
+                "links.json: no active fabric measurements recorded",
+                doctor["warnings"],
+            )
 
     def test_phase0_preflight_can_include_g1_drafts(self) -> None:
         with tempfile.TemporaryDirectory() as d:
