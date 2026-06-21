@@ -1046,6 +1046,8 @@ class FornaxPlannerTest(unittest.TestCase):
                 inventory_data=inventory,
                 include_g1_drafts=True,
                 include_golden_plans=True,
+                include_program_reports=True,
+                program_report_date="2026-06-21",
                 substrate_pinned_build="max-26.4.0",
                 kickoff_date="2026-06-21",
                 ker_status="unavailable",
@@ -1054,7 +1056,13 @@ class FornaxPlannerTest(unittest.TestCase):
             report = render_phase0_status_report(
                 bundle, report_date="2026-06-21", plan_version="v3"
             )
+            program_report_files = (
+                (bundle / "g1-gate-review.md").exists(),
+                (bundle / "phase0-status.json").exists(),
+                (bundle / "phase0-status.md").exists(),
+            )
         by_id = {item["id"]: item for item in report["deliverables"]}
+        self.assertTrue(all(program_report_files))
         self.assertTrue(report["simulation"]["present"])
         self.assertEqual("closed", by_id["S0-1"]["status"])
         self.assertEqual("simulation_complete", by_id["S0-2"]["status"])
@@ -1088,6 +1096,8 @@ class FornaxPlannerTest(unittest.TestCase):
                 include_calibration=True,
                 calibration_torch_python=str(fake_python),
                 include_golden_plans=True,
+                include_program_reports=True,
+                program_report_date="2026-06-20",
                 substrate_pinned_build="max-26.4.0",
                 kickoff_date="2026-06-20",
                 ker_status="unavailable",
@@ -1120,6 +1130,8 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertTrue((bundle / "roadmap-staffing-rebaseline.md").exists())
             self.assertTrue((bundle / "calibration.json").exists())
             self.assertTrue((bundle / "golden-plans.json").exists())
+            self.assertTrue((bundle / "g1-gate-review.md").exists())
+            self.assertTrue((bundle / "phase0-status.json").exists())
             self.assertTrue(doctor["artifacts"]["calibration.json"]["measured"])
             warnings = doctor["warnings"]
             self.assertNotIn("missing G1 gate artifact: runtime_format_spec", warnings)

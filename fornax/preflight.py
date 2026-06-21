@@ -9,8 +9,10 @@ from .benchmark import DEFAULT_MODE, benchmark_from_plan
 from .calibration import run_local_calibration
 from .contracts import load_target_contract
 from .doctor import inspect_phase0_bundle
+from .g1_review import render_g1_gate_review_draft
 from .golden import run_golden_plans
 from .inventory import collect_local_inventory, probe_declared_links
+from .phase0_status import render_phase0_status_report
 from .io import load_inventory, write_json
 from .network_security_spec import render_network_security_spec_draft
 from .planner import plan_placement
@@ -133,6 +135,9 @@ def run_phase0_preflight(
     include_calibration: bool = False,
     calibration_torch_python: str | None = None,
     include_golden_plans: bool = False,
+    include_program_reports: bool = False,
+    program_report_date: str | None = None,
+    program_plan_version: str = "v3",
     active_local_links: bool = False,
     fabric_torch_python: str | None = None,
     active_local_link_bytes: int = 16 * 1024 * 1024,
@@ -155,7 +160,11 @@ def run_phase0_preflight(
     doctor_path = bundle / "doctor.json"
     calibration_path = bundle / "calibration.json"
     golden_plans_path = bundle / "golden-plans.json"
+    g1_review_path = bundle / "g1-gate-review.md"
+    phase0_status_path = bundle / "phase0-status.json"
+    phase0_status_markdown_path = bundle / "phase0-status.md"
     generated_g1_artifacts: dict[str, str] = {}
+    generated_program_reports: dict[str, str] = {}
 
     write_json(inventory_path, inventory_data)
     link_data = probe_declared_links(
@@ -221,6 +230,29 @@ def run_phase0_preflight(
 
     doctor = inspect_phase0_bundle(bundle)
     write_json(doctor_path, doctor)
+
+    if include_program_reports:
+        g1_review = render_g1_gate_review_draft(
+            bundle,
+            review_date=program_report_date,
+            plan_version=program_plan_version,
+        )
+        g1_review_path.write_text(g1_review["markdown"], encoding="utf-8")
+        phase0_status = render_phase0_status_report(
+            bundle,
+            report_date=program_report_date,
+            plan_version=program_plan_version,
+        )
+        write_json(phase0_status_path, phase0_status)
+        phase0_status_markdown_path.write_text(
+            phase0_status["markdown"], encoding="utf-8"
+        )
+        generated_program_reports = {
+            "g1_review": str(g1_review_path),
+            "phase0_status": str(phase0_status_path),
+            "phase0_status_markdown": str(phase0_status_markdown_path),
+        }
+
     return {
         "ok": bool(doctor["ok"]) and bool(validation["valid"]) and bool(plan.feasible),
         "bundle": str(bundle),
@@ -236,6 +268,7 @@ def run_phase0_preflight(
             **({"calibration": str(calibration_path)} if include_calibration else {}),
             **({"golden_plans": str(golden_plans_path)} if include_golden_plans else {}),
             **generated_g1_artifacts,
+            **generated_program_reports,
         },
         "doctor": doctor,
     }

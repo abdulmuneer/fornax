@@ -872,3 +872,45 @@
   program phase0-status --bundle /tmp/fornax_preflight_phase0_status --out
   /tmp/fornax_phase0_status.json --markdown-out /tmp/fornax_phase0_status.md
   --date 2026-06-21 --plan-version v3` all passed.
+
+
+### Preflight program-report bundle milestone
+
+- Added optional `fornax preflight --include-program-reports` support. A single
+  preflight run can now materialize `g1-gate-review.md`, `phase0-status.json`,
+  and `phase0-status.md` alongside inventory, links, placement, validation,
+  simulation, benchmark, generated G1 drafts, and T0 golden evidence.
+- Wired report metadata through `--program-report-date` and
+  `--program-plan-version` so generated program artifacts use the same date and
+  plan-version fields as the standalone `program g1-review` and
+  `program phase0-status` commands.
+- Ran the full simulated-cluster evidence path at
+  `/tmp/fornax_preflight_program_reports`. The bundle includes the generated G1
+  review and Phase-0 status report. Current report posture remains 8/9 S0 items
+  machine/simulation complete or closed, with S0-7 incomplete until Apple probe
+  validation and role decision are attached.
+- Review-lens pass:
+  - Program Management: approve. This makes the simulated milestone-validation
+    flow reproducible from one command while keeping the generated artifacts in
+    DRAFT/PENDING gate posture.
+  - SRE/Operations: approve. The operator no longer needs to remember separate
+    post-preflight report commands for routine evidence bundles.
+  - Testing/Quality: approve after fix. Focused test initially checked generated
+    files after the temporary bundle was deleted; the test now validates artifacts
+    before cleanup.
+- Verification: `python3 -m py_compile fornax/preflight.py fornax/cli.py
+  fornax/phase0_status.py tests/test_fornax_planner.py`, focused preflight report
+  tests, `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall
+  -q fornax tests`, `make fornax-test`, `make fornax-golden`, `python3 -m fornax
+  inventory collect --out /tmp/fornax_local_inventory_program_reports.json`,
+  `python3 -m fornax inventory simulate-cluster --source-inventory
+  /tmp/fornax_local_inventory_program_reports.json --out
+  /tmp/fornax_sim_inventory_program_reports.json --gpu-count 2
+  --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor
+  0.65`, and `python3 -m fornax preflight --target
+  fornax/golden_plans/v0_target_contract_fixture.md --inventory
+  /tmp/fornax_sim_inventory_program_reports.json --out-dir
+  /tmp/fornax_preflight_program_reports --benchmark-iterations 1 --include-g1-drafts
+  --include-golden-plans --include-program-reports --program-report-date
+  2026-06-21 --substrate-pinned-build max-26.4.0 --kickoff-date 2026-06-21
+  --ker-status unavailable --scope pending` all passed.
