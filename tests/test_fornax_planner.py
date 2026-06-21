@@ -49,6 +49,11 @@ from fornax.inventory.local import (
     parse_nvidia_smi_csv,
     probe_declared_links,
 )
+from fornax.moe import (
+    simulated_moe_contract,
+    validate_moe_contract,
+    validate_moe_contract_fixture,
+)
 from fornax.network_security_spec import render_network_security_spec_draft
 from fornax.observability import (
     validate_observability_contract,
@@ -701,8 +706,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(13, result["summary"]["check_count"])
-        self.assertEqual(13, result["summary"]["passed_count"])
+        self.assertEqual(14, result["summary"]["check_count"])
+        self.assertEqual(14, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -712,6 +717,7 @@ class FornaxPlannerTest(unittest.TestCase):
         })
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("continuous-batching", {check["name"] for check in validation["checks"]})
+        self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
         self.assertIn("transport-contract", {check["name"] for check in validation["checks"]})
         self.assertIn("scheduler-contract", {check["name"] for check in validation["checks"]})
         self.assertIn("worker-contract", {check["name"] for check in validation["checks"]})
@@ -873,6 +879,75 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("CUDA_VISIBLE_DEVICES", "; ".join(result["errors"]))
 
+
+    def test_moe_runtime_fixture_passes(self) -> None:
+        result = validate_moe_contract("fornax/golden_vectors/moe_runtime")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(3, result["summary"]["expert_count"])
+        self.assertEqual(2, result["summary"]["remote_dispatch_count"])
+        self.assertEqual(1, result["summary"]["migration_recommendation_count"])
+        self.assertIn("weighted_gather_end", result["summary"]["required_events_seen"])
+
+    def test_simulated_moe_runtime_validates_routing_dispatch_and_gather(self) -> None:
+        contract = simulated_moe_contract(
+            plan_id="unit-moe-plan",
+            request_id="unit-moe-request",
+            plan_hash="sha256:unit-moe-plan",
+            max_remote_wait_ms=5.0,
+        )
+        result = validate_moe_contract_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(3, contract["summary"]["expert_count"])
+        self.assertGreater(contract["summary"]["remote_hit_rate"], 0.0)
+        self.assertEqual("sha256:unit-moe-plan", contract["plan_hash"])
+
+    def test_moe_runtime_rejects_plan_hash_mismatch(self) -> None:
+        contract = simulated_moe_contract()
+        for event in contract["events"]:
+            if event["kind"] == "remote_expert_dispatch":
+                event["plan_hash"] = "sha256:wrong-plan"
+                break
+        result = validate_moe_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("plan_hash must match", "; ".join(result["errors"]))
+
+    def test_moe_runtime_rejects_remote_wait_over_budget(self) -> None:
+        contract = simulated_moe_contract(max_remote_wait_ms=5.0)
+        for event in contract["events"]:
+            if event["kind"] == "remote_expert_dispatch":
+                event["remote_wait_ms"] = 12.0
+                break
+        result = validate_moe_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("remote_wait_ms exceeds", "; ".join(result["errors"]))
+
+    def test_moe_runtime_rejects_missing_weighted_gather(self) -> None:
+        contract = simulated_moe_contract()
+        contract["events"] = [
+            event for event in contract["events"] if not event["kind"].startswith("weighted_gather")
+        ]
+        contract["summary"]["event_count"] = len(contract["events"])
+        contract["summary"]["weighted_gather_count"] = 0
+        result = validate_moe_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("weighted_gather", "; ".join(result["errors"]))
+
+    def test_moe_runtime_rejects_bad_topk_weights(self) -> None:
+        contract = simulated_moe_contract()
+        contract["routing_trace"][0]["topk_weights"] = [0.9, 0.9]
+        result = validate_moe_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("topk_weights must sum", "; ".join(result["errors"]))
+
+    def test_moe_runtime_rejects_migration_below_threshold(self) -> None:
+        contract = simulated_moe_contract(migration_hotness_threshold=0.5)
+        for event in contract["events"]:
+            if event["kind"] == "migration_recommendation":
+                event["hotness"] = 0.1
+                break
+        result = validate_moe_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("hotness must be", "; ".join(result["errors"]))
 
     def test_continuous_batching_fixture_passes(self) -> None:
         result = validate_continuous_batching("fornax/golden_vectors/continuous_batching")

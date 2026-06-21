@@ -50,6 +50,7 @@ from .program_rebaseline import (
     SCOPE_VALUES,
     render_program_rebaseline_draft,
 )
+from .moe import simulated_moe_contract, validate_moe_contract
 from .network_contract import validate_network_contract
 from .network_security_spec import render_network_security_spec_draft
 from .observability import validate_observability_contract
@@ -392,6 +393,33 @@ def _cmd_scheduler_simulate(args: argparse.Namespace) -> int:
         f"backpressure={summary['backpressure_count']} "
         f"max_queue={summary['max_observed_queue_depth']} "
         f"max_inflight={summary['max_observed_inflight']}"
+    )
+    return 0
+
+
+def _cmd_moe_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulated_moe_contract(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            plan_hash=args.plan_hash,
+            layer_id=args.layer_id,
+            top_k=args.top_k,
+            max_remote_wait_ms=args.max_remote_wait_ms,
+            migration_hotness_threshold=args.migration_hotness_threshold,
+        )
+    except ValueError as exc:
+        print(f"moe simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "moe simulate: "
+        f"tokens={summary['token_count']} "
+        f"experts={summary['expert_count']} "
+        f"remote_dispatches={summary['remote_dispatch_count']} "
+        f"migrations={summary['migration_recommendation_count']} "
+        f"remote_hit_rate={summary['remote_hit_rate']:.3f}"
     )
     return 0
 
@@ -866,6 +894,27 @@ def _cmd_test_transport_contract(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_moe_runtime(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/moe_runtime"
+    result = validate_moe_contract(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS moe-runtime: {fixture} "
+            f"experts={summary['expert_count']} "
+            f"remote_dispatches={summary['remote_dispatch_count']} "
+            f"migrations={summary['migration_recommendation_count']} "
+            f"remote_hit_rate={summary['remote_hit_rate']:.3f}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL moe-runtime: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_continuous_batching(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/continuous_batching"
     result = validate_continuous_batching(fixture)
@@ -947,6 +996,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_worker_contract(args)
     if args.test_name == "transport-contract":
         return _cmd_test_transport_contract(args)
+    if args.test_name == "moe-runtime":
+        return _cmd_test_moe_runtime(args)
     if args.test_name == "continuous-batching":
         return _cmd_test_continuous_batching(args)
     if args.test_name == "scheduler-contract":
@@ -1128,7 +1179,6 @@ def build_parser() -> argparse.ArgumentParser:
     simulate_t1.add_argument("--timeout-ms", type=float, default=50.0)
     simulate_t1.set_defaults(func=_cmd_program_simulate_t1)
 
-
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)
     plan.add_argument("--inventory", required=True)
@@ -1192,6 +1242,19 @@ def build_parser() -> argparse.ArgumentParser:
     scheduler_simulate.add_argument("--microbatch-size", type=int, default=2)
     scheduler_simulate.add_argument("--out")
     scheduler_simulate.set_defaults(func=_cmd_scheduler_simulate)
+
+    moe = sub.add_parser("moe")
+    moe_sub = moe.add_subparsers(dest="moe_command", required=True)
+    moe_simulate = moe_sub.add_parser("simulate")
+    moe_simulate.add_argument("--out", required=True)
+    moe_simulate.add_argument("--plan-id", default="moe-simulated-plan")
+    moe_simulate.add_argument("--request-id", default="req-moe-simulated")
+    moe_simulate.add_argument("--plan-hash", default="sha256:moe-simulated-plan")
+    moe_simulate.add_argument("--layer-id", type=int, default=1)
+    moe_simulate.add_argument("--top-k", type=int, default=2)
+    moe_simulate.add_argument("--max-remote-wait-ms", type=float, default=5.0)
+    moe_simulate.add_argument("--migration-hotness-threshold", type=float, default=0.50)
+    moe_simulate.set_defaults(func=_cmd_moe_simulate)
 
     batching = sub.add_parser("batching")
     batching_sub = batching.add_subparsers(dest="batching_command", required=True)
@@ -1300,6 +1363,7 @@ def build_parser() -> argparse.ArgumentParser:
             "observability",
             "worker-contract",
             "transport-contract",
+            "moe-runtime",
             "continuous-batching",
             "scheduler-contract",
             "backend-coverage",

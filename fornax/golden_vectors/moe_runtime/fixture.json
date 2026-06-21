@@ -1,0 +1,510 @@
+{
+  "events": [
+    {
+      "kind": "router_topk_start",
+      "layer_id": 1,
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.0,
+      "token_count": 3,
+      "top_k": 2
+    },
+    {
+      "elapsed_ms": 1.0,
+      "kind": "router_topk_end",
+      "layer_id": 1,
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "routes": [
+        {
+          "expert_ids": [
+            3,
+            7
+          ],
+          "layer_id": 1,
+          "token_index": 0,
+          "topk_weights": [
+            0.75,
+            0.25
+          ]
+        },
+        {
+          "expert_ids": [
+            3,
+            5
+          ],
+          "layer_id": 1,
+          "token_index": 1,
+          "topk_weights": [
+            0.6,
+            0.4
+          ]
+        },
+        {
+          "expert_ids": [
+            5,
+            7
+          ],
+          "layer_id": 1,
+          "token_index": 2,
+          "topk_weights": [
+            0.55,
+            0.45
+          ]
+        }
+      ],
+      "timestamp_s": 0.001
+    },
+    {
+      "expert_id": 3,
+      "kind": "expert_bucketed",
+      "layer_id": 1,
+      "payload_id": "expert-batch-3",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "target_worker_id": "stage-0",
+      "timestamp_s": 0.0023,
+      "token_indices": [
+        0,
+        1
+      ],
+      "topk_weights": [
+        0.75,
+        0.6
+      ]
+    },
+    {
+      "expert_id": 3,
+      "kind": "local_expert_dispatch",
+      "layer_id": 1,
+      "node_id": "sim-gpu0",
+      "payload_id": "expert-batch-3",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.0043,
+      "token_count": 2,
+      "worker_id": "stage-0"
+    },
+    {
+      "expert_id": 3,
+      "kind": "expert_execute_start",
+      "layer_id": 1,
+      "payload_id": "expert-batch-3",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.0063,
+      "worker_id": "stage-0"
+    },
+    {
+      "elapsed_ms": 3.0,
+      "expert_id": 3,
+      "kind": "expert_execute_end",
+      "layer_id": 1,
+      "payload_id": "expert-batch-3",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "result_payload_id": "expert-result-3",
+      "timestamp_s": 0.0093,
+      "worker_id": "stage-0"
+    },
+    {
+      "expert_id": 3,
+      "kind": "expert_result_received",
+      "layer_id": 1,
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "result_payload_id": "expert-result-3",
+      "timestamp_s": 0.0103,
+      "token_indices": [
+        0,
+        1
+      ]
+    },
+    {
+      "expert_id": 5,
+      "kind": "expert_bucketed",
+      "layer_id": 1,
+      "payload_id": "expert-batch-5",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "target_worker_id": "expert-0",
+      "timestamp_s": 0.0025,
+      "token_indices": [
+        1,
+        2
+      ],
+      "topk_weights": [
+        0.4,
+        0.55
+      ]
+    },
+    {
+      "expert_id": 5,
+      "kind": "remote_expert_dispatch",
+      "layer_id": 1,
+      "max_remote_wait_ms": 5.0,
+      "node_id": "sim-gpu1",
+      "payload_id": "expert-batch-5",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "remote_wait_ms": 2.0,
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.0045000000000000005,
+      "token_count": 2,
+      "worker_id": "expert-0"
+    },
+    {
+      "expert_id": 5,
+      "kind": "expert_execute_start",
+      "layer_id": 1,
+      "payload_id": "expert-batch-5",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.006500000000000001,
+      "worker_id": "expert-0"
+    },
+    {
+      "elapsed_ms": 3.0,
+      "expert_id": 5,
+      "kind": "expert_execute_end",
+      "layer_id": 1,
+      "payload_id": "expert-batch-5",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "result_payload_id": "expert-result-5",
+      "timestamp_s": 0.0095,
+      "worker_id": "expert-0"
+    },
+    {
+      "expert_id": 5,
+      "kind": "expert_result_received",
+      "layer_id": 1,
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "result_payload_id": "expert-result-5",
+      "timestamp_s": 0.0105,
+      "token_indices": [
+        1,
+        2
+      ]
+    },
+    {
+      "expert_id": 7,
+      "kind": "expert_bucketed",
+      "layer_id": 1,
+      "payload_id": "expert-batch-7",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "target_worker_id": "expert-0",
+      "timestamp_s": 0.0027,
+      "token_indices": [
+        0,
+        2
+      ],
+      "topk_weights": [
+        0.25,
+        0.45
+      ]
+    },
+    {
+      "expert_id": 7,
+      "kind": "remote_expert_dispatch",
+      "layer_id": 1,
+      "max_remote_wait_ms": 5.0,
+      "node_id": "sim-gpu1",
+      "payload_id": "expert-batch-7",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "remote_wait_ms": 3.0,
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.0047,
+      "token_count": 2,
+      "worker_id": "expert-0"
+    },
+    {
+      "expert_id": 7,
+      "kind": "expert_execute_start",
+      "layer_id": 1,
+      "payload_id": "expert-batch-7",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.0067,
+      "worker_id": "expert-0"
+    },
+    {
+      "elapsed_ms": 3.0,
+      "expert_id": 7,
+      "kind": "expert_execute_end",
+      "layer_id": 1,
+      "payload_id": "expert-batch-7",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "result_payload_id": "expert-result-7",
+      "timestamp_s": 0.009699999999999999,
+      "worker_id": "expert-0"
+    },
+    {
+      "expert_id": 7,
+      "kind": "expert_result_received",
+      "layer_id": 1,
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "result_payload_id": "expert-result-7",
+      "timestamp_s": 0.0107,
+      "token_indices": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": "migrate_next_window",
+      "expert_id": 5,
+      "from_node_id": "sim-gpu1",
+      "hotness": 0.6666666666666666,
+      "kind": "migration_recommendation",
+      "layer_id": 1,
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "reason": "expert hotness exceeds migration threshold",
+      "request_id": "req-moe-simulated",
+      "threshold": 0.5,
+      "timestamp_s": 0.02,
+      "to_node_id": "sim-gpu0"
+    },
+    {
+      "kind": "weighted_gather_start",
+      "layer_id": 1,
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "source_result_payloads": [
+        "expert-result-3",
+        "expert-result-5",
+        "expert-result-7"
+      ],
+      "timestamp_s": 0.021,
+      "token_indices": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "elapsed_ms": 3.0,
+      "kind": "weighted_gather_end",
+      "layer_id": 1,
+      "output_checksum": "sha256:00000000000000000000000000000000000000000000000000000000000000ab",
+      "output_payload_id": "moe-gathered-0",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.024,
+      "token_indices": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "hot_experts": [
+        3,
+        5
+      ],
+      "kind": "expert_trace_recorded",
+      "layer_id": 1,
+      "migration_candidates": [
+        5
+      ],
+      "plan_id": "moe-simulated-plan",
+      "remote_hit_rate": 0.6666666666666666,
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.025,
+      "trace_id": "expert-trace-0"
+    },
+    {
+      "kind": "cleanup",
+      "plan_hash": "sha256:moe-simulated-plan",
+      "plan_id": "moe-simulated-plan",
+      "released_payloads": [
+        "expert-batch-3",
+        "expert-batch-5",
+        "expert-batch-7",
+        "expert-result-3",
+        "expert-result-5",
+        "expert-result-7",
+        "moe-gathered-0"
+      ],
+      "request_id": "req-moe-simulated",
+      "timestamp_s": 0.026
+    }
+  ],
+  "expert_placement": [
+    {
+      "expert_id": 3,
+      "layer_id": 1,
+      "local_to_stage": true,
+      "node_id": "sim-gpu0",
+      "role": "hot_resident",
+      "worker_id": "stage-0"
+    },
+    {
+      "expert_id": 5,
+      "layer_id": 1,
+      "local_to_stage": false,
+      "node_id": "sim-gpu1",
+      "role": "warm_remote",
+      "worker_id": "expert-0"
+    },
+    {
+      "expert_id": 7,
+      "layer_id": 1,
+      "local_to_stage": false,
+      "node_id": "sim-gpu1",
+      "role": "cold_remote",
+      "worker_id": "expert-0"
+    }
+  ],
+  "layer_id": 1,
+  "max_remote_wait_ms": 5.0,
+  "migration_hotness_threshold": 0.5,
+  "mode": "t1-simulation",
+  "note": "T1 simulated MoE expert runtime; validates router top-k, expert bucketing, local/remote dispatch, migration recommendation, weighted gather, expert traces, and cleanup without model execution.",
+  "plan_hash": "sha256:moe-simulated-plan",
+  "plan_id": "moe-simulated-plan",
+  "record_kind": "moe-expert-runtime-simulation-contract",
+  "request_id": "req-moe-simulated",
+  "routing_trace": [
+    {
+      "expert_ids": [
+        3,
+        7
+      ],
+      "layer_id": 1,
+      "token_index": 0,
+      "topk_weights": [
+        0.75,
+        0.25
+      ]
+    },
+    {
+      "expert_ids": [
+        3,
+        5
+      ],
+      "layer_id": 1,
+      "token_index": 1,
+      "topk_weights": [
+        0.6,
+        0.4
+      ]
+    },
+    {
+      "expert_ids": [
+        5,
+        7
+      ],
+      "layer_id": 1,
+      "token_index": 2,
+      "topk_weights": [
+        0.55,
+        0.45
+      ]
+    }
+  ],
+  "runtime_payload": {
+    "activation": {
+      "dtype": "fp16",
+      "layout": "contiguous_row_major",
+      "shape": [
+        3,
+        4
+      ],
+      "values": [
+        0.0,
+        0.1,
+        0.2,
+        0.3,
+        1.0,
+        1.1,
+        1.2,
+        1.3,
+        2.0,
+        2.1,
+        2.2,
+        2.3
+      ]
+    },
+    "expert_batch": {
+      "expert_ids": [
+        3,
+        5,
+        7
+      ],
+      "gather_order": [
+        0,
+        1,
+        2
+      ],
+      "hidden_shape": [
+        3,
+        4
+      ],
+      "layer_id": 1,
+      "token_indices": [
+        0,
+        1,
+        2
+      ],
+      "topk_weights": [
+        0.75,
+        0.6,
+        0.45
+      ]
+    },
+    "kv_page": {
+      "dtype": "fp16",
+      "owner_stage": 0,
+      "page_size": 4,
+      "shape": [
+        4,
+        2,
+        4
+      ],
+      "token_count": 3
+    },
+    "tolerances": {
+      "fp16": {
+        "atol": 0.001,
+        "rtol": 0.001
+      }
+    },
+    "version": 1
+  },
+  "summary": {
+    "event_count": 22,
+    "expert_count": 3,
+    "local_dispatch_count": 1,
+    "migration_recommendation_count": 1,
+    "remote_dispatch_count": 2,
+    "remote_hit_rate": 0.6666666666666666,
+    "token_count": 3,
+    "weighted_gather_count": 1
+  },
+  "top_k": 2,
+  "version": 1
+}

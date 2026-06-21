@@ -17,6 +17,7 @@ from .engine_simulation import (
 from .golden import run_golden_plans
 from .inventory import build_logical_cluster_inventory, collect_local_inventory
 from .io import read_json, write_json
+from .moe import simulated_moe_contract, validate_moe_contract_fixture
 from .network_contract import validate_network_contract
 from .observability import validate_observability_contract
 from .runtime_format import validate_runtime_format_golden
@@ -161,6 +162,7 @@ def run_t1_simulated_validation(
     transport_path = bundle / "transport-contract.json"
     engine_path = bundle / "engine-simulation.json"
     batching_path = bundle / "continuous-batching.json"
+    moe_path = bundle / "moe-runtime.json"
     results_path = bundle / "t1-simulated-validation.json"
 
     write_json(source_inventory_path_out, source_inventory)
@@ -210,11 +212,17 @@ def run_t1_simulated_validation(
         max_inflight=max(max_inflight, 4),
         microbatch_size=microbatch_size,
     )
+    moe = simulated_moe_contract(
+        plan_id=plan_id,
+        request_id=request_id,
+        plan_hash=plan_hash,
+    )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
     write_json(engine_path, engine)
     write_json(batching_path, batching)
+    write_json(moe_path, moe)
 
     checks = [
         _check(
@@ -266,6 +274,12 @@ def run_t1_simulated_validation(
             str(batching_path),
         ),
         _check(
+            "moe-runtime",
+            "T1",
+            validate_moe_contract_fixture(moe),
+            str(moe_path),
+        ),
+        _check(
             "scheduler-contract",
             "T1",
             validate_scheduler_contract(scheduler),
@@ -309,6 +323,7 @@ def run_t1_simulated_validation(
             "transport_contract": str(transport_path),
             "engine_simulation": str(engine_path),
             "continuous_batching": str(batching_path),
+            "moe_runtime": str(moe_path),
             "validation": str(results_path),
         },
         "summary": {
