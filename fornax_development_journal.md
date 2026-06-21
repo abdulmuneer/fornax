@@ -1066,3 +1066,37 @@
   test observability`, `python3 -m unittest tests.test_fornax_planner`,
   `python3 -m compileall -q fornax tests`, `make fornax-golden`, and `make
   fornax-test` all passed.
+
+### Backend operation coverage matrix milestone
+
+- Added `fornax.backend_coverage` and the golden fixture
+  `fornax/golden_vectors/backend_coverage/fixture.json` for the plan v3 §5.10 /
+  WBS D3 backend operation coverage matrix.
+- The matrix covers Apple, NVIDIA, and AMD across attention, dense MLP,
+  router/top-k, expert GEMM/MLP, collect/scatter/gather, KV operations,
+  sampling/logits, serialization/pack/gather, and transport. Each backend cell
+  carries `supported`, `fast_enough`, `correct`, `used_by_target_model`, and
+  traceable evidence fields. Current op-level statuses are deliberately
+  `unknown` where measured ledgers are not attached.
+- Added `fornax test backend-coverage` and `fornax spec backend-coverage` to
+  validate the machine-readable matrix and render
+  `/tmp/fornax_backend_coverage_matrix.md`. Expanded `make fornax-golden` so the
+  local golden-contract sweep includes backend coverage.
+- Review-lens pass:
+  - Hardware Acceleration: approve with comments. The artifact names the
+    operation classes, backend targets, profiler/harness expectations, and
+    missing measurements instead of accepting generic GPU claims. Real hot-path
+    evidence is still pending measured ledgers.
+  - Low-level Software: approve. The matrix forces backend-equivalence and
+    correctness status per operation/backend and keeps platform-specific evidence
+    isolated from runtime code.
+  - Program Management: approve with comments. D3 now has a concrete artifact for
+    G1 discussion, but unknown cells remain decision inputs, not closure claims.
+  - Testing/Quality: approve. Regression tests catch missing required operations
+    and missing benchmark-ledger fields; the renderer makes the matrix reviewable.
+- Verification: `python3 -m py_compile fornax/backend_coverage.py fornax/cli.py
+  tests/test_fornax_planner.py`, focused backend-coverage tests, `python3 -m
+  fornax test backend-coverage`, `python3 -m fornax spec backend-coverage --out
+  /tmp/fornax_backend_coverage_matrix.md`, rendered matrix inspection,
+  `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q
+  fornax tests`, `make fornax-golden`, and `make fornax-test` all passed.

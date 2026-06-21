@@ -1,0 +1,404 @@
+{
+  "contract_kind": "backend-coverage",
+  "version": 1,
+  "target_model": "qwen3-moe-target",
+  "quantization": "q4",
+  "in_flight_dtype": "fp16",
+  "profilers": {
+    "linux_nvidia": {
+      "name": "nsys/ncu or MAX timing harness",
+      "role": "Linux NVIDIA kernel/runtime profiler named for target-contract probes",
+      "command": [
+        "python3",
+        "-m",
+        "fornax",
+        "benchmark",
+        "--mode",
+        "tiny-moe-or-expert-mlp"
+      ],
+      "status": "planned; replace with pinned H100/MAX command when measured"
+    },
+    "linux_amd": {
+      "name": "rocprof or MAX-compatible timing harness",
+      "role": "Linux AMD profiler named if AMD enters the target fleet",
+      "command": [
+        "python3",
+        "-m",
+        "fornax",
+        "benchmark",
+        "--mode",
+        "tiny-moe-or-expert-mlp"
+      ],
+      "status": "planned; AMD not proven in current Phase-0 local hardware"
+    },
+    "macos_apple_silicon": {
+      "name": "Apple expert-MLP probe timing harness",
+      "role": "macOS Apple Silicon MAX/Mojo-compatible timing harness",
+      "command": [
+        "python3",
+        "-m",
+        "fornax",
+        "apple",
+        "validate-probe",
+        "apple-expert-mlp-probe.json"
+      ],
+      "status": "planned; gate of record remains rank-1 local Apple probe"
+    }
+  },
+  "benchmark_ledger_fields": [
+    "hardware",
+    "os",
+    "driver_runtime",
+    "max_mojo_version",
+    "model",
+    "context",
+    "concurrency",
+    "quantization",
+    "thermals",
+    "command"
+  ],
+  "operations": [
+    {
+      "operation": "attention",
+      "backends": {
+        "linux_nvidia": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "target-contract attention probe ledger",
+            "note": "No op-level measured attention ledger is attached yet."
+          }
+        },
+        "linux_amd": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "AMD backend coverage ledger",
+            "note": "AMD coverage is unproven until AMD enters the measured target fleet."
+          }
+        },
+        "macos_apple_silicon": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": false,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "Apple role decision; attention is not v0 Apple baseline",
+            "note": "Apple arbitrary stage support remains unproven before the role gate."
+          }
+        }
+      }
+    },
+    {
+      "operation": "dense_mlp",
+      "backends": {
+        "linux_nvidia": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "target-contract dense MLP probe ledger",
+            "note": "No op-level measured dense MLP ledger is attached yet."
+          }
+        },
+        "linux_amd": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "AMD backend coverage ledger",
+            "note": "AMD dense MLP coverage is unproven in Phase 0."
+          }
+        },
+        "macos_apple_silicon": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": false,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "Apple role decision",
+            "note": "Apple dense MLP stage role is later than the expert-worker gate."
+          }
+        }
+      }
+    },
+    {
+      "operation": "router_topk",
+      "backends": {
+        "linux_nvidia": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "router/top-k correctness fixture",
+            "note": "Router/top-k backend parity is not measured yet."
+          }
+        },
+        "linux_amd": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "AMD router/top-k coverage ledger",
+            "note": "AMD router/top-k support is unproven in Phase 0."
+          }
+        },
+        "macos_apple_silicon": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": false,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "Apple role decision",
+            "note": "Apple router/top-k is not required for capacity-only role."
+          }
+        }
+      }
+    },
+    {
+      "operation": "expert_gemm_mlp",
+      "backends": {
+        "linux_nvidia": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "target expert-MLP benchmark ledger",
+            "note": "Tiny benchmark plumbing exists; target expert MLP is not measured yet."
+          }
+        },
+        "linux_amd": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "AMD expert-MLP coverage ledger",
+            "note": "AMD expert-MLP coverage is unproven in Phase 0."
+          }
+        },
+        "macos_apple_silicon": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "rank-1 local Apple expert-MLP probe",
+            "note": "Apple expert-worker role depends on measured target expert MLP."
+          }
+        }
+      }
+    },
+    {
+      "operation": "collect_scatter_gather",
+      "backends": {
+        "linux_nvidia": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "MoE gather parity fixture",
+            "note": "Collect/scatter/gather parity is not measured yet."
+          }
+        },
+        "linux_amd": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "AMD gather coverage ledger",
+            "note": "AMD gather support is unproven in Phase 0."
+          }
+        },
+        "macos_apple_silicon": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": false,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "Apple role decision",
+            "note": "Apple gather role is not required unless Apple becomes an expert worker."
+          }
+        }
+      }
+    },
+    {
+      "operation": "kv_operations",
+      "backends": {
+        "linux_nvidia": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "runtime-format KV page fixture",
+            "note": "KV format exists; backend KV ops are not measured yet."
+          }
+        },
+        "linux_amd": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "AMD KV coverage ledger",
+            "note": "AMD KV coverage is unproven in Phase 0."
+          }
+        },
+        "macos_apple_silicon": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": false,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "Apple role decision",
+            "note": "Apple KV-heavy decode role is later than the expert-worker gate."
+          }
+        }
+      }
+    },
+    {
+      "operation": "sampling_logits",
+      "backends": {
+        "linux_nvidia": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "engine seam result semantics",
+            "note": "Sampling/logits backend correctness is not measured yet."
+          }
+        },
+        "linux_amd": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "AMD sampling/logits coverage ledger",
+            "note": "AMD sampling/logits coverage is unproven in Phase 0."
+          }
+        },
+        "macos_apple_silicon": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": false,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "Apple role decision",
+            "note": "Apple final-stage sampling is not a v0 baseline role."
+          }
+        }
+      }
+    },
+    {
+      "operation": "serialization_pack_gather",
+      "backends": {
+        "linux_nvidia": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "runtime-format serialization fixture",
+            "note": "Serialization overhead is not measured yet."
+          }
+        },
+        "linux_amd": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "AMD serialization coverage ledger",
+            "note": "AMD serialization support is unproven in Phase 0."
+          }
+        },
+        "macos_apple_silicon": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "Apple expert payload byte-compatibility probe",
+            "note": "Quant byte compatibility must be proven before Apple expert-worker role."
+          }
+        }
+      }
+    },
+    {
+      "operation": "transport",
+      "backends": {
+        "linux_nvidia": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "fabric probe and network contract",
+            "note": "Active local fabric probe exists; real multi-host transport is not measured."
+          }
+        },
+        "linux_amd": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "AMD fabric coverage ledger",
+            "note": "AMD transport path is unproven in Phase 0."
+          }
+        },
+        "macos_apple_silicon": {
+          "supported": "unknown",
+          "fast_enough": "unknown",
+          "correct": "unknown",
+          "used_by_target_model": true,
+          "evidence": {
+            "kind": "planned_probe",
+            "source": "desktop-minimal Apple link probe",
+            "note": "Apple transport evidence requires target Mac and link measurement."
+          }
+        }
+      }
+    }
+  ]
+}

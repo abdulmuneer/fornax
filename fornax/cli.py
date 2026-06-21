@@ -12,6 +12,10 @@ from .apple_probe import (
     simulated_apple_probe_artifact,
     validate_apple_probe_file,
 )
+from .backend_coverage import (
+    render_backend_coverage_report,
+    validate_backend_coverage_contract,
+)
 from .benchmark import benchmark_from_plan
 from .calibration import run_local_calibration
 from .doctor import inspect_phase0_bundle
@@ -470,6 +474,18 @@ def _cmd_spec_network_security(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 2
 
 
+def _cmd_spec_backend_coverage(args: argparse.Namespace) -> int:
+    try:
+        result = render_backend_coverage_report(args.fixture)
+    except (OSError, ValueError) as exc:
+        print(f"spec backend-coverage: {exc}")
+        return 2
+    Path(args.out).write_text(result["markdown"], encoding="utf-8")
+    status = "valid" if result["ok"] else "invalid"
+    print(f"wrote backend coverage matrix draft: {args.out} ({status})")
+    return 0 if result["ok"] else 2
+
+
 def _cmd_spec_runtime_format(args: argparse.Namespace) -> int:
     try:
         result = render_runtime_format_spec_draft(args.golden)
@@ -576,6 +592,19 @@ def _cmd_test_observability(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_backend_coverage(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/backend_coverage"
+    result = validate_backend_coverage_contract(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        print(f"PASS backend-coverage: {result['fixture']}{suffix}")
+        return 0
+    print("FAIL backend-coverage: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test(args: argparse.Namespace) -> int:
     if args.test_name == "golden-plans":
         return _cmd_test_golden(args)
@@ -587,6 +616,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_engine_seam(args)
     if args.test_name == "observability":
         return _cmd_test_observability(args)
+    if args.test_name == "backend-coverage":
+        return _cmd_test_backend_coverage(args)
     raise ValueError(args.test_name)
 
 
@@ -803,6 +834,13 @@ def build_parser() -> argparse.ArgumentParser:
     spec_network.add_argument("--out", required=True)
     spec_network.set_defaults(func=_cmd_spec_network_security)
 
+    spec_backend = spec_sub.add_parser("backend-coverage")
+    spec_backend.add_argument(
+        "--fixture", default="fornax/golden_vectors/backend_coverage"
+    )
+    spec_backend.add_argument("--out", required=True)
+    spec_backend.set_defaults(func=_cmd_spec_backend_coverage)
+
     spec_substrate = spec_sub.add_parser("substrate-adr")
     spec_substrate.add_argument("--out", required=True)
     spec_substrate.add_argument("--pinned-build", default="unset")
@@ -822,6 +860,7 @@ def build_parser() -> argparse.ArgumentParser:
             "network-contract",
             "engine-seam",
             "observability",
+            "backend-coverage",
         ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")

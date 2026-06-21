@@ -11,6 +11,11 @@ from fornax.apple_probe import (
     simulated_apple_probe_artifact,
     validate_apple_probe_artifact,
 )
+from fornax.backend_coverage import (
+    render_backend_coverage_report,
+    validate_backend_coverage_contract,
+    validate_backend_coverage_fixture,
+)
 from fornax.benchmark import benchmark_from_plan, run_tiny_expert_mlp_benchmark
 from fornax.calibration import run_cpu_memory_copy_probe, run_local_calibration
 from fornax.contracts import TargetContractError, load_target_contract
@@ -400,6 +405,41 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_engine_seam_fixture(fixture)
         self.assertFalse(result["ok"])
         self.assertIn("speculative decoding is out of v0", "; ".join(result["errors"]))
+
+    def test_backend_coverage_fixture_passes(self) -> None:
+        result = validate_backend_coverage_contract("fornax/golden_vectors/backend_coverage")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(9, result["summary"]["operation_count"])
+        self.assertIn("expert_gemm_mlp", result["summary"]["required_operations_seen"])
+        self.assertIn("macos_apple_silicon", result["summary"]["required_backends"])
+
+    def test_backend_coverage_rejects_missing_required_operation(self) -> None:
+        fixture = read_json("fornax/golden_vectors/backend_coverage/fixture.json")
+        fixture["operations"] = [
+            item for item in fixture["operations"] if item.get("operation") != "attention"
+        ]
+        result = validate_backend_coverage_fixture(fixture)
+        self.assertFalse(result["ok"])
+        self.assertIn("operations missing required entries", "; ".join(result["errors"]))
+        self.assertIn("attention", "; ".join(result["errors"]))
+
+    def test_backend_coverage_rejects_missing_ledger_field(self) -> None:
+        fixture = read_json("fornax/golden_vectors/backend_coverage/fixture.json")
+        fixture["benchmark_ledger_fields"].remove("thermals")
+        result = validate_backend_coverage_fixture(fixture)
+        self.assertFalse(result["ok"])
+        self.assertIn("benchmark_ledger_fields missing", "; ".join(result["errors"]))
+        self.assertIn("thermals", "; ".join(result["errors"]))
+
+    def test_backend_coverage_report_renders_matrix(self) -> None:
+        result = render_backend_coverage_report("fornax/golden_vectors/backend_coverage")
+        self.assertTrue(result["ok"], result["validation"]["errors"])
+        markdown = result["markdown"]
+        self.assertIn("# Backend Operation Coverage Matrix", markdown)
+        self.assertIn("Status: DRAFT", markdown)
+        self.assertIn("expert_gemm_mlp", markdown)
+        self.assertIn("macos_apple_silicon", markdown)
+        self.assertIn("Benchmark Ledger Fields", markdown)
 
     def test_observability_fixture_passes(self) -> None:
         result = validate_observability_contract("fornax/golden_vectors/observability")
