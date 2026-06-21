@@ -7,6 +7,8 @@ from pathlib import Path
 from fornax.apple_probe import (
     apple_probe_template,
     render_apple_role_decision_draft,
+    render_simulated_apple_role_decision,
+    simulated_apple_probe_artifact,
     validate_apple_probe_artifact,
 )
 from fornax.benchmark import benchmark_from_plan, run_tiny_expert_mlp_benchmark
@@ -317,6 +319,20 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertEqual("capacity-only", result["recommended_role"])
         self.assertEqual("capacity-only-demotion", result["outcome"])
         self.assertFalse(result["throughput_passed"])
+
+    def test_simulated_apple_probe_is_development_only(self) -> None:
+        artifact = simulated_apple_probe_artifact(
+            target_model="qwen3-moe-target",
+            pinned_build="max-26.4.0",
+            recommended_role="capacity-only",
+        )
+        validation = validate_apple_probe_artifact(artifact)
+        markdown = render_simulated_apple_role_decision(artifact)
+        self.assertEqual("apple-expert-mlp-simulation", artifact["probe_kind"])
+        self.assertFalse(artifact["decision"]["gate_closable"])
+        self.assertFalse(validation["gate_closable"])
+        self.assertEqual("undecided", validation["recommended_role"])
+        self.assertIn("not G1 closure evidence", markdown)
 
     def test_apple_probe_template_is_not_gate_closable(self) -> None:
         result = validate_apple_probe_artifact(
@@ -1048,6 +1064,8 @@ class FornaxPlannerTest(unittest.TestCase):
                 include_golden_plans=True,
                 include_program_reports=True,
                 program_report_date="2026-06-21",
+                include_simulated_apple_evidence=True,
+                simulated_apple_role="capacity-only",
                 substrate_pinned_build="max-26.4.0",
                 kickoff_date="2026-06-21",
                 ker_status="unavailable",
@@ -1060,18 +1078,21 @@ class FornaxPlannerTest(unittest.TestCase):
                 (bundle / "g1-gate-review.md").exists(),
                 (bundle / "phase0-status.json").exists(),
                 (bundle / "phase0-status.md").exists(),
+                (bundle / "apple-probe-simulation.json").exists(),
+                (bundle / "apple-role-decision-simulated.md").exists(),
             )
         by_id = {item["id"]: item for item in report["deliverables"]}
         self.assertTrue(all(program_report_files))
         self.assertTrue(report["simulation"]["present"])
         self.assertEqual("closed", by_id["S0-1"]["status"])
         self.assertEqual("simulation_complete", by_id["S0-2"]["status"])
-        self.assertEqual("incomplete", by_id["S0-7"]["status"])
+        self.assertEqual("simulation_complete", by_id["S0-7"]["status"])
         self.assertEqual("simulation_complete", by_id["S0-9"]["status"])
         self.assertIn(
             "Apple reversal trigger evaluated from rank-1 local probe",
             report["g1"]["machine_missing_criteria"],
         )
+        self.assertIn("simulated Apple role=capacity-only", by_id["S0-7"]["evidence"])
         self.assertIn("R-10", report["markdown"])
         self.assertIn("simulation_complete", report["markdown"])
 

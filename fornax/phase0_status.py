@@ -6,6 +6,7 @@ from typing import Any
 
 from .doctor import inspect_phase0_bundle
 from .g1_review import render_g1_gate_review_draft
+from .io import read_json
 
 
 REQUIRED_PREFLIGHT_ARTIFACTS = (
@@ -37,7 +38,8 @@ def render_phase0_status_report(
     evidence_rows = g1.get("evidence_rows", [])
     artifacts = doctor.get("artifacts") if isinstance(doctor.get("artifacts"), dict) else {}
     simulation = _simulation_summary(artifacts)
-    deliverables = _deliverables(artifacts, evidence_rows, simulation)
+    apple_simulation = _apple_simulation_summary(bundle)
+    deliverables = _deliverables(artifacts, evidence_rows, simulation, apple_simulation)
     summary = _summary(deliverables)
     markdown = _render_markdown(
         bundle=bundle,
@@ -55,6 +57,7 @@ def render_phase0_status_report(
         "plan_version": plan_version,
         "current_gate": "G1",
         "simulation": simulation,
+        "apple_simulation": apple_simulation,
         "summary": summary,
         "deliverables": deliverables,
         "g1": {
@@ -74,6 +77,7 @@ def _deliverables(
     artifacts: dict[str, Any],
     evidence_rows: list[dict[str, Any]],
     simulation: dict[str, Any],
+    apple_simulation: dict[str, Any],
 ) -> list[dict[str, Any]]:
     row = _row_lookup(evidence_rows)
     target = row.get("v0 target contract reviewed and signed off", {})
@@ -140,15 +144,7 @@ def _deliverables(
             "substrate_adr",
             closure_gap="substrate ADR review sign-off is not represented in the bundle",
         ),
-        _from_row(
-            "S0-7",
-            "Apple expert-MLP probe and role decision",
-            "KER",
-            "A-2/R-4",
-            apple,
-            simulation_sensitive=False,
-            simulation=simulation,
-        ),
+        _apple_deliverable(apple, apple_simulation),
         _from_row(
             "S0-8",
             "Roadmap rebaseline and staffing answer",
@@ -263,6 +259,33 @@ def _artifact(
     }
 
 
+def _apple_deliverable(row: dict[str, Any], apple_simulation: dict[str, Any]) -> dict[str, Any]:
+    deliverable = _from_row(
+        "S0-7",
+        "Apple expert-MLP probe and role decision",
+        "KER",
+        "A-2/R-4",
+        row,
+        simulation_sensitive=False,
+        simulation={"present": False},
+    )
+    if not deliverable["machine_ok"] and apple_simulation.get("present"):
+        role = apple_simulation.get("recommended_role", "unknown")
+        deliverable.update(
+            {
+                "status": "simulation_complete",
+                "simulation_sensitive": True,
+                "evidence": deliverable["evidence"]
+                + f"; simulated Apple role={role}",
+                "closure_gap": (
+                    "simulated Apple evidence only; rank-1 local Mac probe "
+                    "and real role decision remain missing"
+                ),
+            }
+        )
+    return deliverable
+
+
 def _preflight_deliverable(
     row: dict[str, Any], artifacts: dict[str, Any], simulation: dict[str, Any]
 ) -> dict[str, Any]:
@@ -317,6 +340,29 @@ def _simulation_summary(artifacts: dict[str, Any]) -> dict[str, Any]:
         "mode": inventory.get("simulation_mode"),
         "profile": inventory.get("simulation_profile"),
         "warning": "simulation evidence is not real multi-host hardware evidence",
+    }
+
+
+def _apple_simulation_summary(bundle: Path) -> dict[str, Any]:
+    path = bundle / "apple-probe-simulation.json"
+    decision_path = bundle / "apple-role-decision-simulated.md"
+    if not path.exists():
+        return {"present": False}
+    try:
+        data = read_json(path)
+    except Exception as exc:  # noqa: BLE001 - status should report parse failures softly.
+        return {"present": False, "error": str(exc)}
+    if not isinstance(data, dict):
+        return {"present": False, "error": "artifact is not a JSON object"}
+    decision = data.get("decision") if isinstance(data.get("decision"), dict) else {}
+    simulation = data.get("simulation") if isinstance(data.get("simulation"), dict) else {}
+    return {
+        "present": True,
+        "mode": simulation.get("mode"),
+        "recommended_role": decision.get("recommended_role"),
+        "gate_closable": bool(decision.get("gate_closable")),
+        "role_decision_present": decision_path.exists(),
+        "warning": "simulated Apple evidence is not G1 closure evidence",
     }
 
 

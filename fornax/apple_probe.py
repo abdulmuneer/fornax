@@ -7,6 +7,8 @@ from .io import read_json
 
 
 APPLE_PROBE_KIND = "apple-expert-mlp"
+SIMULATED_APPLE_PROBE_KIND = "apple-expert-mlp-simulation"
+SIMULATED_APPLE_ROLE_VALUES = ("capacity-only", "expert-worker")
 
 
 def apple_probe_template(
@@ -65,6 +67,90 @@ def apple_probe_template(
             "A measured correctness or throughput miss is still usable evidence: it demotes Apple to capacity-only for G1.",
         ],
     }
+
+
+def simulated_apple_probe_artifact(
+    *,
+    target_model: str = "target-model",
+    pinned_build: str = "unset",
+    recommended_role: str = "capacity-only",
+    reason: str = "Simulated development evidence until rank-1 Apple probe is available.",
+) -> dict[str, Any]:
+    """Return a development-only Apple role simulation artifact.
+
+    This artifact exercises milestone/status plumbing. It is deliberately not
+    accepted by validate_apple_probe_artifact and cannot close G1.
+    """
+
+    if recommended_role not in SIMULATED_APPLE_ROLE_VALUES:
+        raise ValueError(
+            "recommended_role must be one of: "
+            + ", ".join(SIMULATED_APPLE_ROLE_VALUES)
+        )
+    return {
+        "version": 1,
+        "probe_kind": SIMULATED_APPLE_PROBE_KIND,
+        "simulation": {
+            "mode": "development_only",
+            "source": "fornax.apple_probe.simulated_apple_probe_artifact",
+            "warning": (
+                "Simulation evidence only; this does not replace the rank-1 "
+                "local Apple probe required for G1."
+            ),
+        },
+        "target_model": {"name": target_model},
+        "environment": {
+            "hardware": "simulated Apple Silicon target",
+            "max_build": pinned_build,
+        },
+        "decision": {
+            "recommended_role": recommended_role,
+            "gate_closable": False,
+            "rationale": reason,
+        },
+        "notes": [
+            "Development-only artifact for simulated milestone validation.",
+            "Do not write this data to apple-probe-validation.json.",
+        ],
+    }
+
+
+def render_simulated_apple_role_decision(
+    artifact: dict[str, Any], *, source: str = "apple-probe-simulation.json"
+) -> str:
+    decision = artifact.get("decision") if isinstance(artifact.get("decision"), dict) else {}
+    simulation = artifact.get("simulation") if isinstance(artifact.get("simulation"), dict) else {}
+    target = artifact.get("target_model") if isinstance(artifact.get("target_model"), dict) else {}
+    return "\n".join(
+        [
+            "# Simulated Apple Role Decision",
+            "",
+            "Status: DEVELOPMENT SIMULATION - not G1 closure evidence.",
+            "",
+            "## Source",
+            "",
+            f"- Artifact: `{source}`",
+            f"- Probe kind: {artifact.get('probe_kind', 'missing')}",
+            f"- Target model: {target.get('name', 'missing')}",
+            f"- Simulation mode: {simulation.get('mode', 'missing')}",
+            "",
+            "## Simulated Decision",
+            "",
+            f"- Recommended role: `{decision.get('recommended_role', 'missing')}`",
+            f"- Gate closable: {decision.get('gate_closable', False)}",
+            f"- Rationale: {decision.get('rationale', 'missing')}",
+            "",
+            "## Gate Interpretation",
+            "",
+            (
+                "This artifact can validate program/status plumbing in a "
+                "simulated development bundle, but the real G1 Apple "
+                "criterion still requires a measured rank-1 local probe "
+                "and role decision on the pinned target Mac build."
+            ),
+            "",
+        ]
+    )
 
 
 def validate_apple_probe_file(path: str | Path) -> dict[str, Any]:

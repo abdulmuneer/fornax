@@ -4,7 +4,11 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .apple_probe import apple_probe_template
+from .apple_probe import (
+    apple_probe_template,
+    render_simulated_apple_role_decision,
+    simulated_apple_probe_artifact,
+)
 from .benchmark import DEFAULT_MODE, benchmark_from_plan
 from .calibration import run_local_calibration
 from .contracts import load_target_contract
@@ -138,6 +142,9 @@ def run_phase0_preflight(
     include_program_reports: bool = False,
     program_report_date: str | None = None,
     program_plan_version: str = "v3",
+    include_simulated_apple_evidence: bool = False,
+    simulated_apple_role: str = "capacity-only",
+    simulated_apple_reason: str | None = None,
     active_local_links: bool = False,
     fabric_torch_python: str | None = None,
     active_local_link_bytes: int = 16 * 1024 * 1024,
@@ -160,10 +167,13 @@ def run_phase0_preflight(
     doctor_path = bundle / "doctor.json"
     calibration_path = bundle / "calibration.json"
     golden_plans_path = bundle / "golden-plans.json"
+    apple_simulation_path = bundle / "apple-probe-simulation.json"
+    apple_simulated_role_path = bundle / "apple-role-decision-simulated.md"
     g1_review_path = bundle / "g1-gate-review.md"
     phase0_status_path = bundle / "phase0-status.json"
     phase0_status_markdown_path = bundle / "phase0-status.md"
     generated_g1_artifacts: dict[str, str] = {}
+    generated_simulation_artifacts: dict[str, str] = {}
     generated_program_reports: dict[str, str] = {}
 
     write_json(inventory_path, inventory_data)
@@ -228,6 +238,28 @@ def run_phase0_preflight(
     if include_golden_plans:
         write_json(golden_plans_path, _golden_plans_report())
 
+    if include_simulated_apple_evidence:
+        artifact = simulated_apple_probe_artifact(
+            target_model=_target_model_name(contract_bundle),
+            pinned_build=substrate_pinned_build,
+            recommended_role=simulated_apple_role,
+            reason=(
+                simulated_apple_reason
+                or "Simulated S0-7 evidence for local milestone validation."
+            ),
+        )
+        write_json(apple_simulation_path, artifact)
+        apple_simulated_role_path.write_text(
+            render_simulated_apple_role_decision(
+                artifact, source=str(apple_simulation_path)
+            ),
+            encoding="utf-8",
+        )
+        generated_simulation_artifacts = {
+            "apple_probe_simulation": str(apple_simulation_path),
+            "apple_role_decision_simulated": str(apple_simulated_role_path),
+        }
+
     doctor = inspect_phase0_bundle(bundle)
     write_json(doctor_path, doctor)
 
@@ -268,6 +300,7 @@ def run_phase0_preflight(
             **({"calibration": str(calibration_path)} if include_calibration else {}),
             **({"golden_plans": str(golden_plans_path)} if include_golden_plans else {}),
             **generated_g1_artifacts,
+            **generated_simulation_artifacts,
             **generated_program_reports,
         },
         "doctor": doctor,

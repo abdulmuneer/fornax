@@ -8,6 +8,8 @@ from typing import Any
 from .apple_probe import (
     apple_probe_template,
     render_apple_role_decision_draft,
+    render_simulated_apple_role_decision,
+    simulated_apple_probe_artifact,
     validate_apple_probe_file,
 )
 from .benchmark import benchmark_from_plan
@@ -53,6 +55,30 @@ def _cmd_apple_probe_template(args: argparse.Namespace) -> int:
     )
     write_json(args.out, data)
     print(f"wrote Apple expert-MLP probe template: {args.out}")
+    return 0
+
+
+def _cmd_apple_simulate_probe(args: argparse.Namespace) -> int:
+    try:
+        artifact = simulated_apple_probe_artifact(
+            target_model=args.target_model,
+            pinned_build=args.pinned_build,
+            recommended_role=args.role,
+            reason=args.reason,
+        )
+    except ValueError as exc:
+        print(f"apple simulate-probe: {exc}")
+        return 2
+    write_json(args.out, artifact)
+    if args.decision_out:
+        Path(args.decision_out).write_text(
+            render_simulated_apple_role_decision(artifact, source=args.out),
+            encoding="utf-8",
+        )
+    print(
+        "wrote simulated Apple probe artifact: "
+        f"{args.out} (role={args.role}; not G1 closure evidence)"
+    )
     return 0
 
 
@@ -363,6 +389,9 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
             include_program_reports=args.include_program_reports,
             program_report_date=args.program_report_date,
             program_plan_version=args.program_plan_version,
+            include_simulated_apple_evidence=args.include_simulated_apple_evidence,
+            simulated_apple_role=args.simulated_apple_role,
+            simulated_apple_reason=args.simulated_apple_reason,
             active_local_links=args.active_local_links,
             fabric_torch_python=args.fabric_torch_python,
             active_local_link_bytes=args.active_local_link_bytes,
@@ -509,6 +538,18 @@ def build_parser() -> argparse.ArgumentParser:
     apple_template.add_argument("--threshold-tokens-s", type=float, default=1.0)
     apple_template.set_defaults(func=_cmd_apple_probe_template)
 
+    apple_simulate = apple_sub.add_parser("simulate-probe")
+    apple_simulate.add_argument("--out", required=True)
+    apple_simulate.add_argument("--decision-out")
+    apple_simulate.add_argument("--target-model", default="target-model")
+    apple_simulate.add_argument("--pinned-build", default="unset")
+    apple_simulate.add_argument("--role", choices=["capacity-only", "expert-worker"], default="capacity-only")
+    apple_simulate.add_argument(
+        "--reason",
+        default="Simulated development evidence until rank-1 Apple probe is available.",
+    )
+    apple_simulate.set_defaults(func=_cmd_apple_simulate_probe)
+
     apple_validate = apple_sub.add_parser("validate-probe")
     apple_validate.add_argument("probe")
     apple_validate.add_argument("--out")
@@ -630,6 +671,9 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--include-program-reports", action="store_true")
     preflight.add_argument("--program-report-date")
     preflight.add_argument("--program-plan-version", default="v3")
+    preflight.add_argument("--include-simulated-apple-evidence", action="store_true")
+    preflight.add_argument("--simulated-apple-role", choices=["capacity-only", "expert-worker"], default="capacity-only")
+    preflight.add_argument("--simulated-apple-reason")
     preflight.add_argument("--active-local-links", action="store_true")
     preflight.add_argument("--fabric-torch-python")
     preflight.add_argument("--active-local-link-bytes", type=int, default=16 * 1024 * 1024)

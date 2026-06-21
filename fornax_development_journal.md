@@ -914,3 +914,49 @@
   --include-golden-plans --include-program-reports --program-report-date
   2026-06-21 --substrate-pinned-build max-26.4.0 --kickoff-date 2026-06-21
   --ker-status unavailable --scope pending` all passed.
+
+
+### Simulated Apple S0-7 evidence milestone
+
+- Added development-only Apple simulation artifacts for local milestone validation:
+  `apple-probe-simulation.json` and `apple-role-decision-simulated.md`.
+- Added `fornax apple simulate-probe` for standalone generation, and
+  `fornax preflight --include-simulated-apple-evidence` so the full simulated
+  evidence bundle can exercise S0-7 status plumbing without a target Mac.
+- The simulated artifact is deliberately not accepted by the real
+  `validate_apple_probe_artifact` gate path and does not write
+  `apple-probe-validation.json` or `apple-role-decision.md`. G1 review therefore
+  still reports the Apple rank-1 probe/role-decision criterion as missing.
+- Ran the full two-H100 logical-cluster preflight with simulated Apple evidence at
+  `/tmp/fornax_preflight_apple_sim`. Phase-0 status now shows 9/9 S0 deliverables
+  as closed, machine-complete, or simulation-complete. G1 still recommends
+  `ITERATE`, with Apple rank-1 local probe evidence missing.
+- Review-lens pass:
+  - Program Management: approve with comments. This unblocks simulated milestone
+    validation across all S0 rows while preserving the real G1 decision boundary.
+  - Hardware/Acceleration: approve with comments. The artifact is clearly marked
+    development-only and cannot satisfy the rank-1 local Apple probe requirement.
+  - Testing/Quality: approve. Tests verify that the simulated Apple artifact is
+    not gate-closable and that status distinguishes simulated S0-7 from real G1
+    closure.
+- Verification: `python3 -m py_compile fornax/apple_probe.py fornax/preflight.py
+  fornax/phase0_status.py fornax/cli.py tests/test_fornax_planner.py`, focused
+  simulated-Apple tests, `python3 -m unittest tests.test_fornax_planner`,
+  `python3 -m compileall -q fornax tests`, `make fornax-test`, `make
+  fornax-golden`, `python3 -m fornax apple simulate-probe --out
+  /tmp/fornax_apple_probe_simulation.json --decision-out
+  /tmp/fornax_apple_role_decision_simulated.md --target-model qwen3-moe-target
+  --pinned-build max-26.4.0 --role capacity-only`, `python3 -m fornax inventory
+  collect --out /tmp/fornax_local_inventory_apple_sim.json`, `python3 -m fornax
+  inventory simulate-cluster --source-inventory
+  /tmp/fornax_local_inventory_apple_sim.json --out
+  /tmp/fornax_sim_inventory_apple_sim.json --gpu-count 2
+  --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor
+  0.65`, and `python3 -m fornax preflight --target
+  fornax/golden_plans/v0_target_contract_fixture.md --inventory
+  /tmp/fornax_sim_inventory_apple_sim.json --out-dir /tmp/fornax_preflight_apple_sim
+  --benchmark-iterations 1 --include-g1-drafts --include-golden-plans
+  --include-program-reports --include-simulated-apple-evidence
+  --simulated-apple-role capacity-only --program-report-date 2026-06-21
+  --substrate-pinned-build max-26.4.0 --kickoff-date 2026-06-21 --ker-status
+  unavailable --scope pending` all passed.
