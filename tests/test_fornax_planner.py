@@ -24,6 +24,11 @@ from fornax.benchmark_ledger import (
     validate_benchmark_ledger_record,
 )
 from fornax.calibration import run_cpu_memory_copy_probe, run_local_calibration
+from fornax.continuous_batching import (
+    simulate_continuous_batching,
+    validate_continuous_batching,
+    validate_continuous_batching_fixture,
+)
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
 from fornax.engine_seam import (
@@ -696,8 +701,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(12, result["summary"]["check_count"])
-        self.assertEqual(12, result["summary"]["passed_count"])
+        self.assertEqual(13, result["summary"]["check_count"])
+        self.assertEqual(13, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -706,6 +711,7 @@ class FornaxPlannerTest(unittest.TestCase):
             for endpoint in transport["endpoints"]
         })
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
+        self.assertIn("continuous-batching", {check["name"] for check in validation["checks"]})
         self.assertIn("transport-contract", {check["name"] for check in validation["checks"]})
         self.assertIn("scheduler-contract", {check["name"] for check in validation["checks"]})
         self.assertIn("worker-contract", {check["name"] for check in validation["checks"]})
@@ -866,6 +872,70 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_transport_contract_fixture(contract)
         self.assertFalse(result["ok"])
         self.assertIn("CUDA_VISIBLE_DEVICES", "; ".join(result["errors"]))
+
+
+    def test_continuous_batching_fixture_passes(self) -> None:
+        result = validate_continuous_batching("fornax/golden_vectors/continuous_batching")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(result["summary"]["overlap_observed"])
+        self.assertEqual(3, result["summary"]["microbatch_count"])
+        self.assertIn("bubble_sample", result["summary"]["required_events_seen"])
+
+    def test_simulated_continuous_batching_validates_fairness_and_overlap(self) -> None:
+        contract = simulate_continuous_batching(
+            plan_id="unit-batching-plan",
+            max_queue_depth=4,
+            max_inflight=4,
+            microbatch_size=2,
+            fairness_window_s=0.05,
+            transfer_s=0.002,
+        )
+        result = validate_continuous_batching_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(
+            contract["summary"]["admitted_request_order"],
+            contract["summary"]["formed_request_order"],
+        )
+        self.assertTrue(contract["summary"]["overlap_observed"])
+        self.assertLess(contract["summary"]["bubble_fraction"], 1.0)
+
+    def test_continuous_batching_rejects_fifo_fairness_violation(self) -> None:
+        contract = simulate_continuous_batching()
+        order = contract["summary"]["formed_request_order"]
+        contract["summary"]["formed_request_order"] = list(reversed(order))
+        result = validate_continuous_batching_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("summary.formed_request_order", "; ".join(result["errors"]))
+
+    def test_continuous_batching_rejects_missing_overlap(self) -> None:
+        contract = simulate_continuous_batching()
+        contract["events"] = [
+            event
+            for event in contract["events"]
+            if event["kind"] != "stage_compute_start" or event.get("stage_index") != 1
+        ]
+        contract["summary"]["event_count"] = len(contract["events"])
+        result = validate_continuous_batching_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("1F1B overlap", "; ".join(result["errors"]))
+
+    def test_continuous_batching_rejects_wait_above_fairness_window(self) -> None:
+        contract = simulate_continuous_batching(fairness_window_s=0.05)
+        for event in contract["events"]:
+            if event["kind"] == "fairness_yield":
+                event["oldest_wait_s"] = 0.25
+                break
+        contract["summary"]["max_wait_s"] = 0.25
+        result = validate_continuous_batching_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("exceeds fairness_window_s", "; ".join(result["errors"]))
+
+    def test_continuous_batching_rejects_bubble_summary_mismatch(self) -> None:
+        contract = simulate_continuous_batching()
+        contract["summary"]["overlap_observed"] = False
+        result = validate_continuous_batching_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("summary.overlap_observed", "; ".join(result["errors"]))
 
     def test_scheduler_contract_fixture_passes(self) -> None:
         result = validate_scheduler_contract("fornax/golden_vectors/scheduler_contract")

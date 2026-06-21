@@ -1380,3 +1380,54 @@
   artifact summary inspection showing 12/12 passed, `python3 -m unittest
   tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
   fornax-golden`, `make fornax-test`, and `git diff --check` all passed.
+
+### T1 continuous batching and 1F1B simulation milestone
+
+- Added `fornax.continuous_batching` for a model-free T1 continuous-batching
+  contract. The artifact validates admission, FIFO fairness, bounded queue and
+  inflight counts, microbatch formation, 1F1B-style stage overlap, activation
+  transfer start/end pairing, token emission, request completion, and bubble
+  telemetry.
+- Added `fornax batching simulate --out ...` and `fornax test
+  continuous-batching`; added the golden fixture
+  `fornax/golden_vectors/continuous_batching/fixture.json`; expanded
+  `make fornax-golden` and `fornax program simulate-t1` so continuous batching
+  is included in the regular simulated-cluster evidence path.
+- Updated the one-command T1 bundle to write `continuous-batching.json` and
+  validate 13 checks: logical cluster, golden plans, runtime format, network
+  contract, engine seam, observability, engine simulation, continuous batching,
+  scheduler contract, worker contract, transport contract, backend coverage, and
+  benchmark ledger.
+- The validator enforces FIFO admission/formation order, fairness-window waits,
+  required bubble samples, stage compute start/end pairing, activation transfer
+  pairing, request terminal events, overlap observed across different pipeline
+  stages, and summary/event consistency.
+- Review-lens pass:
+  - Distributed Runtime/Scheduler: approve with comments. The T1 simulation now
+    covers continuous batching and 1F1B-style overlap, but real latency/throughput
+    scaling and fairness under live arrivals remain T3 hardware work.
+  - Analytical Performance: approve with comments. Bubble fraction and wait time
+    are now emitted as contract telemetry; they are simulated signals, not
+    measured planner-accuracy evidence.
+  - SRE/Operations: approve. Backpressure, queue depth, inflight count, and
+    fairness-yield events make operational saturation behavior visible in the
+    simulated bundle.
+  - Testing/Quality: approve. Regression tests cover fixture validity, generated
+    fairness/overlap, FIFO order mismatch, missing overlap, fairness-window
+    violation, and bubble-summary mismatch.
+- Verification: `python3 -m py_compile fornax/continuous_batching.py
+  fornax/t1_simulated_validation.py fornax/cli.py tests/test_fornax_planner.py`,
+  focused continuous-batching tests, `python3 -m fornax batching simulate --out
+  /tmp/fornax_continuous_batching_cli_20260621.json --plan-id cli-batching-plan
+  --max-queue-depth 4 --max-inflight 4 --microbatch-size 2 --fairness-window-s
+  0.05 --transfer-s 0.002`, `python3 -m fornax test continuous-batching --fixture
+  /tmp/fornax_continuous_batching_cli_20260621.json`, `python3 -m fornax program
+  simulate-t1 --out-dir /tmp/fornax_t1_continuous_batching_validation_cli_20260621
+  --source-inventory /tmp/fornax_t1_source_inventory_20260621.json --gpu-count 2
+  --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000
+  --link-latency-s 0.0004 --slow-node-factor 0.65 --plan-id cli-t1-batching-plan
+  --request-id cli-t1-batching-request --plan-hash sha256:cli-t1-batching-plan
+  --max-queue-depth 2 --max-inflight 2 --microbatch-size 2 --timeout-ms 50`,
+  artifact summary inspection showing 13/13 passed, `python3 -m unittest
+  tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
+  fornax-golden`, `make fornax-test`, and `git diff --check` all passed.

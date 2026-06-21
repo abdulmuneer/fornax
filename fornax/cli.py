@@ -37,6 +37,10 @@ from .inventory import (
     collect_local_inventory,
     probe_declared_links,
 )
+from .continuous_batching import (
+    simulate_continuous_batching,
+    validate_continuous_batching,
+)
 from .contracts import load_target_contract
 from .io import load_inventory, load_model_target, read_json, write_json
 from .planner import plan_placement
@@ -388,6 +392,32 @@ def _cmd_scheduler_simulate(args: argparse.Namespace) -> int:
         f"backpressure={summary['backpressure_count']} "
         f"max_queue={summary['max_observed_queue_depth']} "
         f"max_inflight={summary['max_observed_inflight']}"
+    )
+    return 0
+
+
+def _cmd_batching_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_continuous_batching(
+            plan_id=args.plan_id,
+            max_queue_depth=args.max_queue_depth,
+            max_inflight=args.max_inflight,
+            microbatch_size=args.microbatch_size,
+            fairness_window_s=args.fairness_window_s,
+            transfer_s=args.transfer_s,
+        )
+    except ValueError as exc:
+        print(f"batching simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "batching simulate: "
+        f"requests={summary['request_count']} "
+        f"microbatches={summary['microbatch_count']} "
+        f"overlap={summary['overlap_observed']} "
+        f"bubble={summary['bubble_fraction']:.3f} "
+        f"max_wait={summary['max_wait_s']:.6f}s"
     )
     return 0
 
@@ -836,6 +866,26 @@ def _cmd_test_transport_contract(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_continuous_batching(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/continuous_batching"
+    result = validate_continuous_batching(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS continuous-batching: {fixture} "
+            f"microbatches={summary['microbatch_count']} "
+            f"overlap={summary['overlap_observed']} "
+            f"max_wait={summary['max_wait_s']:.6f}s"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL continuous-batching: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_scheduler_contract(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/scheduler_contract"
     result = validate_scheduler_contract(fixture)
@@ -897,6 +947,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_worker_contract(args)
     if args.test_name == "transport-contract":
         return _cmd_test_transport_contract(args)
+    if args.test_name == "continuous-batching":
+        return _cmd_test_continuous_batching(args)
     if args.test_name == "scheduler-contract":
         return _cmd_test_scheduler_contract(args)
     if args.test_name == "backend-coverage":
@@ -1141,6 +1193,19 @@ def build_parser() -> argparse.ArgumentParser:
     scheduler_simulate.add_argument("--out")
     scheduler_simulate.set_defaults(func=_cmd_scheduler_simulate)
 
+    batching = sub.add_parser("batching")
+    batching_sub = batching.add_subparsers(dest="batching_command", required=True)
+    batching_simulate = batching_sub.add_parser("simulate")
+    batching_simulate.add_argument("--out", required=True)
+    batching_simulate.add_argument("--plan-id", default="continuous-batching-plan")
+    batching_simulate.add_argument("--max-queue-depth", type=int, default=4)
+    batching_simulate.add_argument("--max-inflight", type=int, default=4)
+    batching_simulate.add_argument("--microbatch-size", type=int, default=2)
+    batching_simulate.add_argument("--fairness-window-s", type=float, default=0.050)
+    batching_simulate.add_argument("--transfer-s", type=float, default=0.002)
+    batching_simulate.set_defaults(func=_cmd_batching_simulate)
+
+
     benchmark = sub.add_parser("benchmark")
     benchmark.add_argument("--plan", required=True)
     benchmark.add_argument("--mode", default="tiny-moe-or-expert-mlp")
@@ -1235,6 +1300,7 @@ def build_parser() -> argparse.ArgumentParser:
             "observability",
             "worker-contract",
             "transport-contract",
+            "continuous-batching",
             "scheduler-contract",
             "backend-coverage",
             "benchmark-ledger",

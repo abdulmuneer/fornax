@@ -5,6 +5,10 @@ from typing import Any
 
 from .backend_coverage import validate_backend_coverage_contract
 from .benchmark_ledger import validate_benchmark_ledger
+from .continuous_batching import (
+    simulate_continuous_batching,
+    validate_continuous_batching_fixture,
+)
 from .engine_seam import validate_engine_seam_contract
 from .engine_simulation import (
     simulated_engine_contract,
@@ -156,6 +160,7 @@ def run_t1_simulated_validation(
     worker_path = bundle / "worker-contract.json"
     transport_path = bundle / "transport-contract.json"
     engine_path = bundle / "engine-simulation.json"
+    batching_path = bundle / "continuous-batching.json"
     results_path = bundle / "t1-simulated-validation.json"
 
     write_json(source_inventory_path_out, source_inventory)
@@ -199,10 +204,17 @@ def run_t1_simulated_validation(
         microbatch_size=microbatch_size,
         timeout_ms=timeout_ms,
     )
+    batching = simulate_continuous_batching(
+        plan_id=plan_id,
+        max_queue_depth=max_queue_depth + 2,
+        max_inflight=max(max_inflight, 4),
+        microbatch_size=microbatch_size,
+    )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
     write_json(engine_path, engine)
+    write_json(batching_path, batching)
 
     checks = [
         _check(
@@ -248,6 +260,12 @@ def run_t1_simulated_validation(
             str(engine_path),
         ),
         _check(
+            "continuous-batching",
+            "T1",
+            validate_continuous_batching_fixture(batching),
+            str(batching_path),
+        ),
+        _check(
             "scheduler-contract",
             "T1",
             validate_scheduler_contract(scheduler),
@@ -290,6 +308,7 @@ def run_t1_simulated_validation(
             "worker_contract": str(worker_path),
             "transport_contract": str(transport_path),
             "engine_simulation": str(engine_path),
+            "continuous_batching": str(batching_path),
             "validation": str(results_path),
         },
         "summary": {

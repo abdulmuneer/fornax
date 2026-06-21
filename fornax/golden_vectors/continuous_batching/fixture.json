@@ -1,0 +1,537 @@
+{
+  "events": [
+    {
+      "arrival_s": 0.0,
+      "kind": "request_admitted",
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 1,
+      "request_id": "cb-r0",
+      "timestamp_s": 0.0
+    },
+    {
+      "arrival_s": 0.0,
+      "kind": "request_admitted",
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 2,
+      "request_id": "cb-r1",
+      "timestamp_s": 0.0
+    },
+    {
+      "arrival_s": 0.0,
+      "kind": "request_admitted",
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 3,
+      "request_id": "cb-r2",
+      "timestamp_s": 0.0
+    },
+    {
+      "arrival_s": 0.0,
+      "kind": "request_admitted",
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 4,
+      "request_id": "cb-r3",
+      "timestamp_s": 0.0
+    },
+    {
+      "kind": "backpressure",
+      "max_queue_depth": 4,
+      "pending_request_count": 2,
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 4,
+      "timestamp_s": 0.0
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "fairness_window_s": 0.05,
+      "kind": "fairness_yield",
+      "oldest_wait_s": 0.0,
+      "plan_id": "continuous-batching-plan",
+      "policy": "fifo",
+      "request_ids": [
+        "cb-r0",
+        "cb-r1"
+      ],
+      "timestamp_s": 0.0
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "inflight_count": 1,
+      "kind": "microbatch_formed",
+      "microbatch_size": 2,
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 2,
+      "request_ids": [
+        "cb-r0",
+        "cb-r1"
+      ],
+      "timestamp_s": 0.0,
+      "wait_s": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "arrival_s": 0.0,
+      "kind": "request_admitted",
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 3,
+      "request_id": "cb-r4",
+      "timestamp_s": 0.0
+    },
+    {
+      "arrival_s": 0.0,
+      "kind": "request_admitted",
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 4,
+      "request_id": "cb-r5",
+      "timestamp_s": 0.0
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "fairness_window_s": 0.05,
+      "kind": "fairness_yield",
+      "oldest_wait_s": 0.0,
+      "plan_id": "continuous-batching-plan",
+      "policy": "fifo",
+      "request_ids": [
+        "cb-r2",
+        "cb-r3"
+      ],
+      "timestamp_s": 0.0
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "inflight_count": 2,
+      "kind": "microbatch_formed",
+      "microbatch_size": 2,
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 2,
+      "request_ids": [
+        "cb-r2",
+        "cb-r3"
+      ],
+      "timestamp_s": 0.0,
+      "wait_s": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "fairness_window_s": 0.05,
+      "kind": "fairness_yield",
+      "oldest_wait_s": 0.0,
+      "plan_id": "continuous-batching-plan",
+      "policy": "fifo",
+      "request_ids": [
+        "cb-r4",
+        "cb-r5"
+      ],
+      "timestamp_s": 0.0
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "inflight_count": 3,
+      "kind": "microbatch_formed",
+      "microbatch_size": 2,
+      "plan_id": "continuous-batching-plan",
+      "queue_depth": 0,
+      "request_ids": [
+        "cb-r4",
+        "cb-r5"
+      ],
+      "timestamp_s": 0.0,
+      "wait_s": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "idle_s": 0.0,
+      "kind": "bubble_sample",
+      "plan_id": "continuous-batching-plan",
+      "stage_index": 0,
+      "timestamp_s": 0.0
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "inflight_count": 1,
+      "kind": "stage_compute_start",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r0",
+        "cb-r1"
+      ],
+      "stage_index": 0,
+      "timestamp_s": 0.0
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "elapsed_s": 0.04,
+      "kind": "stage_compute_end",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r0",
+        "cb-r1"
+      ],
+      "stage_index": 0,
+      "timestamp_s": 0.04
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "kind": "activation_transfer_start",
+      "payload_id": "cb-mb-0-activation-0",
+      "plan_id": "continuous-batching-plan",
+      "source_stage": 0,
+      "target_stage": 1,
+      "timestamp_s": 0.04
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "elapsed_s": 0.002,
+      "kind": "activation_transfer_end",
+      "payload_id": "cb-mb-0-activation-0",
+      "plan_id": "continuous-batching-plan",
+      "source_stage": 0,
+      "target_stage": 1,
+      "timestamp_s": 0.042
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "idle_s": 0.042,
+      "kind": "bubble_sample",
+      "plan_id": "continuous-batching-plan",
+      "stage_index": 1,
+      "timestamp_s": 0.042
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "inflight_count": 1,
+      "kind": "stage_compute_start",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r0",
+        "cb-r1"
+      ],
+      "stage_index": 1,
+      "timestamp_s": 0.042
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "elapsed_s": 0.06,
+      "kind": "stage_compute_end",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r0",
+        "cb-r1"
+      ],
+      "stage_index": 1,
+      "timestamp_s": 0.102
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "kind": "token_emit",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r0",
+      "timestamp_s": 0.102,
+      "token_count": 4
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "generated_tokens": 4,
+      "kind": "request_complete",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r0",
+      "timestamp_s": 0.102
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "kind": "token_emit",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r1",
+      "timestamp_s": 0.102,
+      "token_count": 3
+    },
+    {
+      "batch_id": "cb-mb-0",
+      "generated_tokens": 3,
+      "kind": "request_complete",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r1",
+      "timestamp_s": 0.102
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "idle_s": 0.0,
+      "kind": "bubble_sample",
+      "plan_id": "continuous-batching-plan",
+      "stage_index": 0,
+      "timestamp_s": 0.04
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "inflight_count": 2,
+      "kind": "stage_compute_start",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r2",
+        "cb-r3"
+      ],
+      "stage_index": 0,
+      "timestamp_s": 0.04
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "elapsed_s": 0.03,
+      "kind": "stage_compute_end",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r2",
+        "cb-r3"
+      ],
+      "stage_index": 0,
+      "timestamp_s": 0.07
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "kind": "activation_transfer_start",
+      "payload_id": "cb-mb-1-activation-0",
+      "plan_id": "continuous-batching-plan",
+      "source_stage": 0,
+      "target_stage": 1,
+      "timestamp_s": 0.07
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "elapsed_s": 0.002,
+      "kind": "activation_transfer_end",
+      "payload_id": "cb-mb-1-activation-0",
+      "plan_id": "continuous-batching-plan",
+      "source_stage": 0,
+      "target_stage": 1,
+      "timestamp_s": 0.072
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "idle_s": 0.0,
+      "kind": "bubble_sample",
+      "plan_id": "continuous-batching-plan",
+      "stage_index": 1,
+      "timestamp_s": 0.102
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "inflight_count": 2,
+      "kind": "stage_compute_start",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r2",
+        "cb-r3"
+      ],
+      "stage_index": 1,
+      "timestamp_s": 0.102
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "elapsed_s": 0.045,
+      "kind": "stage_compute_end",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r2",
+        "cb-r3"
+      ],
+      "stage_index": 1,
+      "timestamp_s": 0.147
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "kind": "token_emit",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r2",
+      "timestamp_s": 0.147,
+      "token_count": 3
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "generated_tokens": 3,
+      "kind": "request_complete",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r2",
+      "timestamp_s": 0.147
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "kind": "token_emit",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r3",
+      "timestamp_s": 0.147,
+      "token_count": 2
+    },
+    {
+      "batch_id": "cb-mb-1",
+      "generated_tokens": 2,
+      "kind": "request_complete",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r3",
+      "timestamp_s": 0.147
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "idle_s": 0.0,
+      "kind": "bubble_sample",
+      "plan_id": "continuous-batching-plan",
+      "stage_index": 0,
+      "timestamp_s": 0.07
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "inflight_count": 3,
+      "kind": "stage_compute_start",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r4",
+        "cb-r5"
+      ],
+      "stage_index": 0,
+      "timestamp_s": 0.07
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "elapsed_s": 0.02,
+      "kind": "stage_compute_end",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r4",
+        "cb-r5"
+      ],
+      "stage_index": 0,
+      "timestamp_s": 0.09
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "kind": "activation_transfer_start",
+      "payload_id": "cb-mb-2-activation-0",
+      "plan_id": "continuous-batching-plan",
+      "source_stage": 0,
+      "target_stage": 1,
+      "timestamp_s": 0.09
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "elapsed_s": 0.002,
+      "kind": "activation_transfer_end",
+      "payload_id": "cb-mb-2-activation-0",
+      "plan_id": "continuous-batching-plan",
+      "source_stage": 0,
+      "target_stage": 1,
+      "timestamp_s": 0.092
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "idle_s": 0.0,
+      "kind": "bubble_sample",
+      "plan_id": "continuous-batching-plan",
+      "stage_index": 1,
+      "timestamp_s": 0.147
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "inflight_count": 3,
+      "kind": "stage_compute_start",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r4",
+        "cb-r5"
+      ],
+      "stage_index": 1,
+      "timestamp_s": 0.147
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "elapsed_s": 0.03,
+      "kind": "stage_compute_end",
+      "plan_id": "continuous-batching-plan",
+      "request_ids": [
+        "cb-r4",
+        "cb-r5"
+      ],
+      "stage_index": 1,
+      "timestamp_s": 0.177
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "kind": "token_emit",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r4",
+      "timestamp_s": 0.177,
+      "token_count": 2
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "generated_tokens": 2,
+      "kind": "request_complete",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r4",
+      "timestamp_s": 0.177
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "kind": "token_emit",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r5",
+      "timestamp_s": 0.177,
+      "token_count": 1
+    },
+    {
+      "batch_id": "cb-mb-2",
+      "generated_tokens": 1,
+      "kind": "request_complete",
+      "plan_id": "continuous-batching-plan",
+      "request_id": "cb-r5",
+      "timestamp_s": 0.177
+    }
+  ],
+  "fairness_window_s": 0.05,
+  "max_inflight": 4,
+  "max_queue_depth": 4,
+  "microbatch_size": 2,
+  "mode": "t1-simulation",
+  "note": "T1 continuous-batching simulation; validates admission, FIFO fairness, 1F1B-style pipeline overlap, activation transfer, and bubble telemetry without real worker execution.",
+  "plan_id": "continuous-batching-plan",
+  "record_kind": "continuous-batching-simulation-contract",
+  "request_count": 6,
+  "stage_count": 2,
+  "summary": {
+    "admitted_request_order": [
+      "cb-r0",
+      "cb-r1",
+      "cb-r2",
+      "cb-r3",
+      "cb-r4",
+      "cb-r5"
+    ],
+    "backpressure_count": 1,
+    "bubble_fraction": 0.36440678,
+    "completed_count": 6,
+    "event_count": 49,
+    "fairness_yield_count": 3,
+    "formed_request_order": [
+      "cb-r0",
+      "cb-r1",
+      "cb-r2",
+      "cb-r3",
+      "cb-r4",
+      "cb-r5"
+    ],
+    "makespan_s": 0.177,
+    "max_observed_inflight": 3,
+    "max_observed_queue_depth": 4,
+    "max_wait_s": 0.0,
+    "microbatch_count": 3,
+    "overlap_observed": true,
+    "p95_wait_s": 0.0,
+    "request_count": 6
+  },
+  "version": 1
+}
