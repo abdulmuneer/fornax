@@ -334,6 +334,7 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
             scope=args.scope,
             include_calibration=args.include_calibration,
             calibration_torch_python=args.calibration_torch_python,
+            include_golden_plans=args.include_golden_plans,
             active_local_links=args.active_local_links,
             fabric_torch_python=args.fabric_torch_python,
             active_local_link_bytes=args.active_local_link_bytes,
@@ -589,6 +590,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--include-g1-drafts", action="store_true")
     preflight.add_argument("--include-calibration", action="store_true")
     preflight.add_argument("--calibration-torch-python")
+    preflight.add_argument("--include-golden-plans", action="store_true")
     preflight.add_argument("--active-local-links", action="store_true")
     preflight.add_argument("--fabric-torch-python")
     preflight.add_argument("--active-local-link-bytes", type=int, default=16 * 1024 * 1024)

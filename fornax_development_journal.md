@@ -785,3 +785,45 @@
   --plan-version v3`, `python3 -m fornax test golden-plans --out
   /tmp/fornax_golden_plans_sim_slice.json`, `make fornax-test`, and `make
   fornax-golden` all passed.
+
+
+### Preflight T0 golden evidence milestone
+
+- Added optional `fornax preflight --include-golden-plans` support so Phase-0
+  evidence bundles can carry `golden-plans.json` without a separate manual
+  attachment step.
+- The generated JSON uses the same T0 report shape as `fornax test golden-plans`,
+  allowing the existing G1 gate-review draft to consume preflight-produced T0
+  evidence directly.
+- Ran the new path on the two-GPU logical simulated cluster. The bundle at
+  `/tmp/fornax_preflight_sim_golden` includes `golden-plans.json` with 3/3
+  golden fixtures passing. The G1 review no longer reports `golden-plan tests T0
+  green` as missing; the remaining machine gap is the Apple rank-1 probe/role
+  decision, with human closure gaps for target/spec/staffing sign-off.
+- Review-lens pass:
+  - Program Management: approve. This moves S0-1/T0 evidence into the repeatable
+    preflight bundle used for G1 review while preserving the existing G1 closure
+    blockers.
+  - SRE/Operations: approve. Operators can now run a single preflight command for
+    inventory, fabric metadata, planning, simulation, benchmark, generated G1
+    drafts, and T0 golden evidence.
+  - Testing: approve. The default preflight path remains minimal; T0 attachment is
+    opt-in, covered by focused tests, and uses the same report schema as the
+    standalone golden command.
+- Verification: `python3 -m py_compile fornax/preflight.py fornax/cli.py
+  tests/test_fornax_planner.py`, focused G1/preflight tests, `python3 -m unittest
+  tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
+  fornax-test`, `make fornax-golden`, `python3 -m fornax inventory collect --out
+  /tmp/fornax_local_inventory_golden_preflight.json`, `python3 -m fornax inventory
+  simulate-cluster --source-inventory /tmp/fornax_local_inventory_golden_preflight.json
+  --out /tmp/fornax_sim_inventory_golden_preflight.json --gpu-count 2
+  --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor
+  0.65`, `python3 -m fornax preflight --target
+  fornax/golden_plans/v0_target_contract_fixture.md --inventory
+  /tmp/fornax_sim_inventory_golden_preflight.json --out-dir
+  /tmp/fornax_preflight_sim_golden --benchmark-iterations 1 --include-g1-drafts
+  --include-golden-plans --substrate-pinned-build max-26.4.0 --kickoff-date
+  2026-06-21 --ker-status unavailable --scope pending`, and `python3 -m fornax
+  program g1-review --bundle /tmp/fornax_preflight_sim_golden --out
+  /tmp/fornax_preflight_sim_golden/g1-review.md --date 2026-06-21 --plan-version
+  v3` all passed.

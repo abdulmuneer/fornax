@@ -9,6 +9,7 @@ from .benchmark import DEFAULT_MODE, benchmark_from_plan
 from .calibration import run_local_calibration
 from .contracts import load_target_contract
 from .doctor import inspect_phase0_bundle
+from .golden import run_golden_plans
 from .inventory import collect_local_inventory, probe_declared_links
 from .io import load_inventory, write_json
 from .network_security_spec import render_network_security_spec_draft
@@ -100,6 +101,22 @@ def _write_g1_drafts(
     return artifacts
 
 
+def _golden_plans_report() -> dict[str, Any]:
+    results = run_golden_plans()
+    passed = sum(1 for result in results if result.passed)
+    return {
+        "test_tier": "T0",
+        "command": "fornax test golden-plans",
+        "passed": passed == len(results),
+        "passed_count": passed,
+        "total_count": len(results),
+        "results": [
+            {"name": result.name, "passed": result.passed, "message": result.message}
+            for result in results
+        ],
+    }
+
+
 def run_phase0_preflight(
     *,
     target_path: str | Path,
@@ -115,6 +132,7 @@ def run_phase0_preflight(
     scope: str = "pending",
     include_calibration: bool = False,
     calibration_torch_python: str | None = None,
+    include_golden_plans: bool = False,
     active_local_links: bool = False,
     fabric_torch_python: str | None = None,
     active_local_link_bytes: int = 16 * 1024 * 1024,
@@ -136,6 +154,7 @@ def run_phase0_preflight(
     benchmark_path = bundle / "benchmark.json"
     doctor_path = bundle / "doctor.json"
     calibration_path = bundle / "calibration.json"
+    golden_plans_path = bundle / "golden-plans.json"
     generated_g1_artifacts: dict[str, str] = {}
 
     write_json(inventory_path, inventory_data)
@@ -197,6 +216,9 @@ def run_phase0_preflight(
         calibration = run_local_calibration(torch_python=calibration_torch_python)
         write_json(calibration_path, calibration)
 
+    if include_golden_plans:
+        write_json(golden_plans_path, _golden_plans_report())
+
     doctor = inspect_phase0_bundle(bundle)
     write_json(doctor_path, doctor)
     return {
@@ -212,6 +234,7 @@ def run_phase0_preflight(
             "benchmark": str(benchmark_path),
             "doctor": str(doctor_path),
             **({"calibration": str(calibration_path)} if include_calibration else {}),
+            **({"golden_plans": str(golden_plans_path)} if include_golden_plans else {}),
             **generated_g1_artifacts,
         },
         "doctor": doctor,

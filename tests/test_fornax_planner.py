@@ -1001,10 +1001,17 @@ class FornaxPlannerTest(unittest.TestCase):
                 out_dir=bundle,
                 benchmark_iterations=1,
                 inventory_data=inventory,
+                include_golden_plans=True,
             )
             doctor = inspect_phase0_bundle(bundle)
+            review = render_g1_gate_review_draft(
+                bundle, review_date="2026-06-21", plan_version="v3"
+            )
             self.assertTrue(result["ok"], result["doctor"])
             self.assertTrue(doctor["ok"], doctor)
+            self.assertTrue((bundle / "golden-plans.json").exists())
+            self.assertIn("golden_plans", result["artifacts"])
+            self.assertNotIn("golden-plan tests T0 green", review["machine_missing_criteria"])
             self.assertEqual(
                 "logical_multi_host",
                 doctor["artifacts"]["inventory.json"]["simulation_mode"],
@@ -1042,6 +1049,7 @@ class FornaxPlannerTest(unittest.TestCase):
                 include_g1_drafts=True,
                 include_calibration=True,
                 calibration_torch_python=str(fake_python),
+                include_golden_plans=True,
                 substrate_pinned_build="max-26.4.0",
                 kickoff_date="2026-06-20",
                 ker_status="unavailable",
@@ -1073,6 +1081,7 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertTrue((bundle / "apple-expert-mlp-probe.json").exists())
             self.assertTrue((bundle / "roadmap-staffing-rebaseline.md").exists())
             self.assertTrue((bundle / "calibration.json").exists())
+            self.assertTrue((bundle / "golden-plans.json").exists())
             self.assertTrue(doctor["artifacts"]["calibration.json"]["measured"])
             warnings = doctor["warnings"]
             self.assertNotIn("missing G1 gate artifact: runtime_format_spec", warnings)
