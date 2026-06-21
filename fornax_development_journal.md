@@ -1500,3 +1500,56 @@
   showing 15/15 passed, `python3 -m unittest tests.test_fornax_planner`,
   `python3 -m compileall -q fornax tests`, `make fornax-golden`, `make
   fornax-test`, and `git diff --check` all passed.
+
+### T2 single-node expert-MLP accelerator probe milestone
+
+- Added `fornax.accelerator_probe` and the CLI command `fornax accelerator
+  expert-mlp-probe` for a measured single-node expert-MLP microprobe. The probe
+  supports a dependency-free CPU reference backend and a torch backend that can
+  run in an external CUDA-capable Python, matching the `/mnt/dataprocessing/venvs`
+  setup from the referenced venv notes.
+- Added `fornax test expert-mlp-probe --fixture ...` so generated probe artifacts
+  are machine-validated before they are cited as evidence. The validator enforces
+  measured status, correctness pass against the CPU reference, token/expert-call
+  accounting, hardware/runtime metadata, and rejects false T2 accelerator claims
+  when the device is not CUDA-backed.
+- Ran the lab probe on this machine's H100 using
+  `/mnt/dataprocessing/venvs/asr-data-prep/bin/python`: artifact
+  `/tmp/fornax_expert_mlp_h100_probe_20260621.json` records
+  `tier=T2-single-node-accelerator`, `accelerator_measured=true`, device
+  `cuda:0`, hardware `NVIDIA H100 80GB HBM3`, torch `2.12.0+cu130`, CUDA `13.0`,
+  `tokens_s=590.6496632577714`, `expert_calls_s=1181.2993265155428`, and
+  `max_abs_error=0.012801170349121094` with `correctness_passed=true`.
+- This is deliberately not part of `make fornax-golden`: it is lab hardware
+  evidence and should be run explicitly. It reduces the T2 hardware gap for the
+  expert-MLP operation, but it does not claim MAX graph integration, Apple
+  expert-worker readiness, target-model layer/logit parity, or T3 multi-node
+  correctness.
+- Review-lens pass:
+  - Hardware Acceleration: approve with comments. The command now measures a real
+    H100 expert-MLP shaped path and records device/runtime metadata; benchmark
+    shape is still tiny and Python-loop orchestration leaves plenty of overhead.
+  - LLM/Model Architecture: approve with comments. Correctness is checked against
+    a deterministic CPU expert-MLP reference, but this is operation parity rather
+    than target MoE layer/logit parity.
+  - Low-level Software: approve. The validator prevents false accelerator
+    evidence, records dtype/tolerance, and keeps CPU fallback separate from CUDA
+    evidence.
+  - Testing/Quality: approve. Regression tests cover CPU reference validity,
+    false accelerator claims, and failed correctness rejection; the real H100 run
+    is validated through the CLI artifact rather than required in CI.
+- Verification: `python3 -m py_compile fornax/accelerator_probe.py fornax/cli.py
+  tests/test_fornax_planner.py`, focused expert-MLP probe tests, `python3 -m
+  fornax accelerator expert-mlp-probe --backend cpu-stdlib --out
+  /tmp/fornax_expert_mlp_cpu_probe_20260621.json --iterations 1 --batch-tokens 2
+  --hidden-dim 4 --intermediate-dim 6 --experts 3 --top-k 2`, `python3 -m fornax
+  test expert-mlp-probe --fixture /tmp/fornax_expert_mlp_cpu_probe_20260621.json`,
+  `python3 -m fornax accelerator expert-mlp-probe --backend torch --torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --device cuda:0 --dtype
+  float16 --out /tmp/fornax_expert_mlp_h100_probe_20260621.json --iterations 25
+  --warmup 3 --batch-tokens 8 --hidden-dim 64 --intermediate-dim 128 --experts 4
+  --top-k 2 --tolerance 0.25 --timeout-s 180`, `python3 -m fornax test
+  expert-mlp-probe --fixture /tmp/fornax_expert_mlp_h100_probe_20260621.json`,
+  `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q
+  fornax tests`, `make fornax-golden`, `make fornax-test`, and `git diff --check`
+  all passed.

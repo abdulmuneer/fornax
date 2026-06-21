@@ -5,6 +5,10 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .accelerator_probe import (
+    run_expert_mlp_probe,
+    validate_expert_mlp_probe,
+)
 from .apple_probe import (
     apple_probe_template,
     render_apple_role_decision_draft,
@@ -75,6 +79,44 @@ from .t1_simulated_validation import run_t1_simulated_validation
 from .transport import simulated_transport_contract, validate_transport_contract
 from .validation import validate_target_contract
 from .workers import simulated_worker_contract, validate_worker_contract
+
+
+def _cmd_accelerator_expert_mlp_probe(args: argparse.Namespace) -> int:
+    try:
+        result = run_expert_mlp_probe(
+            backend=args.backend,
+            torch_python=args.torch_python,
+            device=args.device,
+            dtype=args.dtype,
+            iterations=args.iterations,
+            warmup=args.warmup,
+            batch_tokens=args.batch_tokens,
+            hidden_dim=args.hidden_dim,
+            intermediate_dim=args.intermediate_dim,
+            experts=args.experts,
+            top_k=args.top_k,
+            tolerance=args.tolerance,
+            timeout_s=args.timeout_s,
+        )
+    except ValueError as exc:
+        print(f"accelerator expert-mlp-probe: {exc}")
+        return 2
+    write_json(args.out, result)
+    if not result.get("measured"):
+        print(
+            "expert-MLP probe unavailable: "
+            f"backend={result.get('backend')} error={result.get('error')}"
+        )
+        return 2
+    summary = validate_expert_mlp_probe(args.out)["summary"]
+    suffix = " accelerator" if summary.get("accelerator_measured") else " reference"
+    print(
+        "expert-MLP probe:"
+        f"{suffix} backend={summary.get('backend')} device={summary.get('device')} "
+        f"tokens_s={summary.get('tokens_s'):.3f} "
+        f"max_abs_error={summary.get('max_abs_error')}"
+    )
+    return 0
 
 
 def _cmd_apple_probe_template(args: argparse.Namespace) -> int:
@@ -1013,6 +1055,29 @@ def _cmd_test_scheduler_contract(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_expert_mlp_probe(args: argparse.Namespace) -> int:
+    if not args.fixture:
+        print("FAIL expert-mlp-probe: --fixture is required")
+        return 1
+    result = validate_expert_mlp_probe(args.fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS expert-mlp-probe: {args.fixture} "
+            f"backend={summary['backend']} "
+            f"accelerator={summary['accelerator_measured']} "
+            f"device={summary['device']} "
+            f"tokens_s={summary['tokens_s']:.3f}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL expert-mlp-probe: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_benchmark_ledger(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/benchmark_ledger"
     result = validate_benchmark_ledger(fixture)
@@ -1068,12 +1133,35 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_backend_coverage(args)
     if args.test_name == "benchmark-ledger":
         return _cmd_test_benchmark_ledger(args)
+    if args.test_name == "expert-mlp-probe":
+        return _cmd_test_expert_mlp_probe(args)
     raise ValueError(args.test_name)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="fornax")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    accelerator = sub.add_parser("accelerator")
+    accelerator_sub = accelerator.add_subparsers(
+        dest="accelerator_command", required=True
+    )
+    expert_probe = accelerator_sub.add_parser("expert-mlp-probe")
+    expert_probe.add_argument("--out", required=True)
+    expert_probe.add_argument("--backend", choices=["cpu-stdlib", "torch"], default="torch")
+    expert_probe.add_argument("--torch-python")
+    expert_probe.add_argument("--device", default="cuda:0")
+    expert_probe.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float16")
+    expert_probe.add_argument("--iterations", type=int, default=25)
+    expert_probe.add_argument("--warmup", type=int, default=3)
+    expert_probe.add_argument("--batch-tokens", type=int, default=8)
+    expert_probe.add_argument("--hidden-dim", type=int, default=64)
+    expert_probe.add_argument("--intermediate-dim", type=int, default=128)
+    expert_probe.add_argument("--experts", type=int, default=4)
+    expert_probe.add_argument("--top-k", type=int, default=2)
+    expert_probe.add_argument("--tolerance", type=float, default=0.1)
+    expert_probe.add_argument("--timeout-s", type=float, default=180.0)
+    expert_probe.set_defaults(func=_cmd_accelerator_expert_mlp_probe)
 
     calibrate = sub.add_parser("calibrate")
     calibrate_sub = calibrate.add_subparsers(dest="calibrate_command", required=True)
@@ -1454,6 +1542,7 @@ def build_parser() -> argparse.ArgumentParser:
             "scheduler-contract",
             "backend-coverage",
             "benchmark-ledger",
+            "expert-mlp-probe",
         ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")

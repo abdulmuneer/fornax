@@ -4,6 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fornax.accelerator_probe import (
+    run_cpu_expert_mlp_probe,
+    validate_expert_mlp_probe_fixture,
+)
 from fornax.apple_probe import (
     apple_probe_template,
     render_apple_role_decision_draft,
@@ -470,6 +474,40 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertEqual("capacity-only", result["validation"]["recommended_role"])
         self.assertIn("Recommended Apple role: `capacity-only`", result["markdown"])
         self.assertIn("Rank 1 local probe", result["markdown"])
+
+
+    def test_cpu_expert_mlp_probe_validates_reference_not_accelerator(self) -> None:
+        artifact = run_cpu_expert_mlp_probe(
+            iterations=1,
+            batch_tokens=2,
+            hidden_dim=4,
+            intermediate_dim=6,
+            experts=3,
+            top_k=2,
+        )
+        result = validate_expert_mlp_probe_fixture(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(artifact["measured"])
+        self.assertFalse(artifact["accelerator_measured"])
+        self.assertIn("not accelerator evidence", "; ".join(result["warnings"]))
+
+    def test_expert_mlp_probe_rejects_false_accelerator_claim(self) -> None:
+        artifact = run_cpu_expert_mlp_probe(iterations=1, batch_tokens=1)
+        artifact["tier"] = "T2-single-node-accelerator"
+        artifact["accelerator_measured"] = True
+        result = validate_expert_mlp_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("hardware.device_type must be cuda", text)
+        self.assertIn("cpu-stdlib backend cannot be accelerator_measured", text)
+
+    def test_expert_mlp_probe_rejects_failed_correctness(self) -> None:
+        artifact = run_cpu_expert_mlp_probe(iterations=1, batch_tokens=1)
+        artifact["result"]["correctness_passed"] = False
+        artifact["result"]["max_abs_error"] = artifact["config"]["tolerance"] + 1.0
+        result = validate_expert_mlp_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        self.assertIn("correctness_passed", "; ".join(result["errors"]))
 
     def test_tiny_expert_mlp_benchmark_records_measurement(self) -> None:
         result = run_tiny_expert_mlp_benchmark(
