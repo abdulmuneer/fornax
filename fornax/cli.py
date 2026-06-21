@@ -57,6 +57,7 @@ from .substrate_adr import (
     render_substrate_adr_draft,
 )
 from .target_contract import render_target_contract_draft
+from .t1_simulated_validation import run_t1_simulated_validation
 from .transport import simulated_transport_contract, validate_transport_contract
 from .validation import validate_target_contract
 from .workers import simulated_worker_contract, validate_worker_contract
@@ -527,6 +528,38 @@ def _cmd_program_simulate_phase0(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 2
 
 
+def _cmd_program_simulate_t1(args: argparse.Namespace) -> int:
+    try:
+        result = run_t1_simulated_validation(
+            out_dir=args.out_dir,
+            source_inventory_path=args.source_inventory,
+            gpu_count=args.gpu_count,
+            profile=args.profile,
+            link_bandwidth_bytes_s=args.link_bandwidth_bytes_s,
+            link_latency_s=args.link_latency_s,
+            slow_node_factor=args.slow_node_factor,
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            plan_hash=args.plan_hash,
+            max_queue_depth=args.max_queue_depth,
+            max_inflight=args.max_inflight,
+            microbatch_size=args.microbatch_size,
+            timeout_ms=args.timeout_ms,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program simulate-t1: {exc}")
+        return 2
+    summary = result["summary"]
+    print(
+        "t1 simulated validation: "
+        f"bundle={result['bundle']}; "
+        f"checks={summary['passed_count']}/{summary['check_count']} passed; "
+        f"logical_hosts={summary.get('logical_host_count')}; "
+        "simulation evidence only"
+    )
+    return 0 if result["ok"] else 2
+
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     if args.requests and args.trace and args.requests != args.trace:
         print("preflight: pass only one of --requests or --trace")
@@ -969,6 +1002,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--benchmark-id", default="phase0-simulated-validation-tiny-expert-mlp"
     )
     simulate_phase0.set_defaults(func=_cmd_program_simulate_phase0)
+
+    simulate_t1 = program_sub.add_parser("simulate-t1")
+    simulate_t1.add_argument("--out-dir", required=True)
+    simulate_t1.add_argument("--source-inventory")
+    simulate_t1.add_argument("--gpu-count", type=int, default=2)
+    simulate_t1.add_argument(
+        "--profile", choices=SIMULATED_CLUSTER_PROFILES, default="two-gpu-heterogeneous"
+    )
+    simulate_t1.add_argument("--link-bandwidth-bytes-s", type=float, default=25.0e9)
+    simulate_t1.add_argument("--link-latency-s", type=float, default=0.00025)
+    simulate_t1.add_argument("--slow-node-factor", type=float, default=0.65)
+    simulate_t1.add_argument("--plan-id", default="t1-simulated-plan")
+    simulate_t1.add_argument("--request-id", default="req-t1-simulated")
+    simulate_t1.add_argument("--plan-hash", default="sha256:t1-simulated-plan")
+    simulate_t1.add_argument("--max-queue-depth", type=int, default=2)
+    simulate_t1.add_argument("--max-inflight", type=int, default=2)
+    simulate_t1.add_argument("--microbatch-size", type=int, default=2)
+    simulate_t1.add_argument("--timeout-ms", type=float, default=50.0)
+    simulate_t1.set_defaults(func=_cmd_program_simulate_t1)
+
 
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)

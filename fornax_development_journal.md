@@ -1286,3 +1286,45 @@
   /tmp/fornax_transport_contract_cli_20260621.json`, `python3 -m unittest
   tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
   fornax-golden`, `make fornax-test`, and `git diff --check` passed.
+
+### One-command T1 simulated validation milestone
+
+- Added `fornax.t1_simulated_validation` and `fornax program simulate-t1` to
+  validate the T1 development track over the two-local-GPU logical-host method.
+  The command writes `source-inventory.json`, `simulated-cluster-inventory.json`,
+  generated scheduler/worker/transport contract artifacts, and
+  `t1-simulated-validation.json` into one bundle.
+- The bundle validator checks 11 local T0/T1 items together: logical cluster,
+  golden plans, runtime format, network contract, engine seam, observability,
+  scheduler contract, worker contract, transport contract, backend coverage, and
+  benchmark ledger. This gives the program a single simulated-cluster milestone
+  command without claiming real T3/T4 distributed hardware closure.
+- The generated scheduler/worker/transport artifacts share the same plan ID,
+  request ID, plan hash, queue depth, and timeout settings, so the simulated
+  milestone validates cross-contract consistency rather than independent golden
+  fixtures only.
+- Review-lens pass:
+  - Program Management: approve. The command directly implements the milestone
+    strategy of using the two-H100 local box as a simulated heterogeneous
+    cluster, while preserving the G2/G3 requirement for real 2-3 node and
+    heterogeneous validation.
+  - System Engineering: approve with comments. The bundle now composes planner,
+    scheduler, worker, transport, observability, and seam contracts in one
+    reproducible path; real `FornaxEngine` execution remains a later phase.
+  - SRE/Operations: approve. The output is doctorable in shape, records all
+    artifacts under one bundle, and reports failed checks explicitly.
+  - Testing/Quality: approve. Regression coverage uses a synthetic two-GPU
+    source inventory, validates the full 11-check bundle, and rejects a
+    single-GPU source inventory.
+- Verification: `python3 -m py_compile fornax/t1_simulated_validation.py
+  fornax/cli.py tests/test_fornax_planner.py`, focused T1 simulated validation
+  unittests, `python3 -m fornax program simulate-t1 --out-dir
+  /tmp/fornax_t1_simulated_validation_cli_20260621 --source-inventory
+  /tmp/fornax_t1_source_inventory_20260621.json --gpu-count 2 --profile
+  two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000 --link-latency-s
+  0.0004 --slow-node-factor 0.65 --plan-id cli-t1-plan --request-id
+  cli-t1-request --plan-hash sha256:cli-t1-plan --max-queue-depth 2
+  --max-inflight 2 --microbatch-size 2 --timeout-ms 50`, artifact summary
+  inspection showing 11/11 passed, `python3 -m unittest tests.test_fornax_planner`,
+  `python3 -m compileall -q fornax tests`, `make fornax-golden`, `make
+  fornax-test`, and `git diff --check` all passed.

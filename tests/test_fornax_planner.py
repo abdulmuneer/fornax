@@ -51,6 +51,7 @@ from fornax.network_contract import (
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 from fornax.phase0_status import render_phase0_status_report
 from fornax.phase0_simulated_validation import run_phase0_simulated_validation
+from fornax.t1_simulated_validation import run_t1_simulated_validation
 from fornax.preflight import run_phase0_preflight
 from fornax.program_rebaseline import render_program_rebaseline_draft
 from fornax.runtime_format_spec import render_runtime_format_spec_draft
@@ -139,6 +140,51 @@ def measured_apple_probe(tokens_s: float = 12.0, threshold: float = 10.0) -> dic
             "thermal_notes": "steady state",
         },
         "decision": {"requested_role": "expert-worker", "demote_role": "capacity-only"},
+    }
+
+
+def two_gpu_source_inventory() -> dict:
+    return {
+        "nodes": [
+            {
+                "id": "gpu0",
+                "host_id": "unit-host",
+                "vendor": "nvidia",
+                "runtime": "max",
+                "device": "cuda:0",
+                "name": "Unit H100",
+                "mem_free_bytes": 64_000_000_000,
+                "mem_total_bytes": 80_000_000_000,
+                "compute_class": 400_000_000_000_000.0,
+                "mem_bandwidth_bytes_s": 2_500_000_000_000.0,
+                "supports_stage": True,
+                "supports_expert_worker": True,
+                "supports_kv": True,
+                "supported_dtypes": ["fp16", "bf16"],
+            },
+            {
+                "id": "gpu1",
+                "host_id": "unit-host",
+                "vendor": "nvidia",
+                "runtime": "max",
+                "device": "cuda:1",
+                "name": "Unit H100",
+                "mem_free_bytes": 64_000_000_000,
+                "mem_total_bytes": 80_000_000_000,
+                "compute_class": 400_000_000_000_000.0,
+                "mem_bandwidth_bytes_s": 2_500_000_000_000.0,
+                "supports_stage": True,
+                "supports_expert_worker": True,
+                "supports_kv": True,
+                "supported_dtypes": ["fp16", "bf16"],
+            },
+        ],
+        "links": [],
+        "host_id": "unit-host",
+        "source": "unit-test",
+        "measured_fields": ["nvidia.memory_free_mib"],
+        "estimated_fields": ["compute_class", "mem_bandwidth_bytes_s"],
+        "collection_errors": [],
     }
 
 
@@ -625,6 +671,52 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("payload_kind is not supported", "; ".join(result["errors"]))
 
+
+
+    def test_program_simulate_t1_builds_full_logical_cluster_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source_path = root / "source-inventory.json"
+            write_json(source_path, two_gpu_source_inventory())
+            result = run_t1_simulated_validation(
+                out_dir=root / "bundle",
+                source_inventory_path=source_path,
+                gpu_count=2,
+                profile="two-gpu-heterogeneous",
+                link_bandwidth_bytes_s=12_500_000_000.0,
+                link_latency_s=0.0004,
+                slow_node_factor=0.65,
+            )
+            bundle = Path(result["bundle"])
+            transport = read_json(bundle / "transport-contract.json")
+            validation = read_json(bundle / "t1-simulated-validation.json")
+        self.assertTrue(result["ok"], result["summary"])
+        self.assertEqual(11, result["summary"]["check_count"])
+        self.assertEqual(11, result["summary"]["passed_count"])
+        self.assertEqual(2, result["summary"]["logical_host_count"])
+        self.assertEqual("logical_multi_host", result["simulation"]["mode"])
+        self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
+        self.assertEqual({"0", "1"}, {
+            endpoint["worker_environment"]["CUDA_VISIBLE_DEVICES"]
+            for endpoint in transport["endpoints"]
+        })
+        self.assertIn("transport-contract", {check["name"] for check in validation["checks"]})
+        self.assertIn("scheduler-contract", {check["name"] for check in validation["checks"]})
+        self.assertIn("worker-contract", {check["name"] for check in validation["checks"]})
+
+    def test_program_simulate_t1_rejects_single_gpu_source_inventory(self) -> None:
+        source = two_gpu_source_inventory()
+        source["nodes"] = source["nodes"][:1]
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source_path = root / "source-inventory.json"
+            write_json(source_path, source)
+            with self.assertRaisesRegex(ValueError, "NVIDIA GPU"):
+                run_t1_simulated_validation(
+                    out_dir=root / "bundle",
+                    source_inventory_path=source_path,
+                    gpu_count=2,
+                )
 
     def test_transport_contract_fixture_passes(self) -> None:
         result = validate_transport_contract("fornax/golden_vectors/transport_contract")
