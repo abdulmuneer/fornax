@@ -98,6 +98,10 @@ from fornax.runtime_format import (
 from fornax.simulate import simulation_result, summarize_request_trace
 from fornax.substrate_adr import render_substrate_adr_draft
 from fornax.target_contract import render_target_contract_draft
+from fornax.throughput_scaling import (
+    simulate_throughput_scaling,
+    validate_throughput_scaling_fixture,
+)
 from fornax.transport import (
     simulated_transport_contract,
     validate_transport_contract,
@@ -638,6 +642,52 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("sequences_match", text)
         self.assertIn("generated_sequences must match", text)
 
+
+    def test_throughput_scaling_simulation_validates_metric_contract(self) -> None:
+        artifact = simulate_throughput_scaling()
+        result = validate_throughput_scaling_fixture(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(artifact["summary"]["target_met"])
+        self.assertLessEqual(
+            artifact["summary"]["observed_saturation_concurrency"],
+            artifact["contracted_min_concurrency"],
+        )
+        self.assertGreaterEqual(
+            artifact["summary"]["throughput_efficiency_at_contract"],
+            artifact["throughput_efficiency_floor"],
+        )
+        self.assertIn("simulation evidence", "; ".join(result["warnings"]))
+
+    def test_throughput_scaling_rejects_planner_error_out_of_bound(self) -> None:
+        artifact = simulate_throughput_scaling()
+        artifact["rows"][0]["predicted_tokens_s"] *= 2.0
+        artifact["rows"][0]["planner_error_fraction"] = 1.0
+        artifact["summary"]["max_abs_planner_error_fraction"] = 1.0
+        artifact["summary"]["planner_accuracy_passed"] = False
+        artifact["summary"]["target_met"] = False
+        result = validate_throughput_scaling_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("planner_error_fraction does not match", text)
+        self.assertIn("summary.target_met must be true", text)
+
+    def test_throughput_scaling_rejects_non_monotonic_sweep(self) -> None:
+        artifact = simulate_throughput_scaling()
+        artifact["rows"][2]["measured_tokens_s"] = artifact["rows"][1]["measured_tokens_s"] / 2.0
+        artifact["summary"]["monotonic_scaling"] = False
+        artifact["summary"]["target_met"] = False
+        result = validate_throughput_scaling_fixture(artifact)
+        self.assertFalse(result["ok"])
+        self.assertIn("summary.target_met must be true", "; ".join(result["errors"]))
+
+    def test_throughput_scaling_rejects_late_saturation(self) -> None:
+        artifact = simulate_throughput_scaling(contracted_min_concurrency=8, saturation_concurrency=16)
+        result = validate_throughput_scaling_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("summary.target_met must be true", text)
+        self.assertFalse(artifact["summary"]["saturation_within_contract"])
+
     def test_tiny_expert_mlp_benchmark_records_measurement(self) -> None:
         result = run_tiny_expert_mlp_benchmark(
             iterations=1, batch_tokens=2, hidden_dim=4, intermediate_dim=6
@@ -879,8 +929,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(16, result["summary"]["check_count"])
-        self.assertEqual(16, result["summary"]["passed_count"])
+        self.assertEqual(17, result["summary"]["check_count"])
+        self.assertEqual(17, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -891,6 +941,7 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("continuous-batching", {check["name"] for check in validation["checks"]})
         self.assertIn("pipeline-correctness", {check["name"] for check in validation["checks"]})
+        self.assertIn("throughput-scaling", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
         self.assertIn("model-support", {check["name"] for check in validation["checks"]})
         self.assertIn("transport-contract", {check["name"] for check in validation["checks"]})

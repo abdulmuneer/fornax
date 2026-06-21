@@ -83,6 +83,11 @@ from .substrate_adr import (
 )
 from .target_contract import render_target_contract_draft
 from .t1_simulated_validation import run_t1_simulated_validation
+from .throughput_scaling import (
+    parse_concurrency_levels,
+    simulate_throughput_scaling,
+    validate_throughput_scaling,
+)
 from .transport import simulated_transport_contract, validate_transport_contract
 from .validation import validate_target_contract
 from .workers import simulated_worker_contract, validate_worker_contract
@@ -565,6 +570,36 @@ def _cmd_batching_simulate(args: argparse.Namespace) -> int:
         f"overlap={summary['overlap_observed']} "
         f"bubble={summary['bubble_fraction']:.3f} "
         f"max_wait={summary['max_wait_s']:.6f}s"
+    )
+    return 0
+
+
+def _cmd_throughput_scaling_simulate(args: argparse.Namespace) -> int:
+    try:
+        levels = parse_concurrency_levels(args.concurrency_levels)
+        result = simulate_throughput_scaling(
+            plan_id=args.plan_id,
+            concurrency_levels=levels,
+            contracted_min_concurrency=args.contracted_min_concurrency,
+            saturation_concurrency=args.saturation_concurrency,
+            planner_bound_fraction=args.planner_bound_fraction,
+            throughput_efficiency_floor=args.throughput_efficiency_floor,
+            sum_node_ideal_tokens_s=args.sum_node_ideal_tokens_s,
+            saturated_pipeline_tokens_s=args.saturated_pipeline_tokens_s,
+            planner_bias_fraction=args.planner_bias_fraction,
+            jitter_fraction=args.jitter_fraction,
+        )
+    except ValueError as exc:
+        print(f"throughput scaling simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "throughput scaling simulate: "
+        f"rows={summary['row_count']} "
+        f"saturates_at={summary['observed_saturation_concurrency']} "
+        f"planner_error={summary['max_abs_planner_error_fraction']:.3f} "
+        f"efficiency={summary['throughput_efficiency_at_contract']:.3f}"
     )
     return 0
 
@@ -1198,6 +1233,27 @@ def _cmd_test_activation_transfer_probe(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_throughput_scaling(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/throughput_scaling"
+    result = validate_throughput_scaling(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS throughput-scaling: {fixture} "
+            f"rows={summary['row_count']} "
+            f"saturates_at={summary['observed_saturation_concurrency']} "
+            f"planner_error={summary['max_abs_planner_error_fraction']:.3f} "
+            f"efficiency={summary['throughput_efficiency_at_contract']:.3f}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL throughput-scaling: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_pipeline_correctness_probe(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/pipeline_correctness"
     result = validate_pipeline_correctness_probe(fixture)
@@ -1280,6 +1336,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_activation_transfer_probe(args)
     if args.test_name == "pipeline-correctness-probe":
         return _cmd_test_pipeline_correctness_probe(args)
+    if args.test_name == "throughput-scaling":
+        return _cmd_test_throughput_scaling(args)
     raise ValueError(args.test_name)
 
 
@@ -1616,6 +1674,22 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_probe.add_argument("--timeout-s", type=float, default=180.0)
     pipeline_probe.set_defaults(func=_cmd_pipeline_correctness_probe)
 
+    throughput = sub.add_parser("throughput")
+    throughput_sub = throughput.add_subparsers(dest="throughput_command", required=True)
+    throughput_scaling = throughput_sub.add_parser("scaling-simulate")
+    throughput_scaling.add_argument("--out", required=True)
+    throughput_scaling.add_argument("--plan-id", default="throughput-scaling-plan")
+    throughput_scaling.add_argument("--concurrency-levels", default="1,2,4,8,16,32")
+    throughput_scaling.add_argument("--contracted-min-concurrency", type=int, default=16)
+    throughput_scaling.add_argument("--saturation-concurrency", type=int, default=8)
+    throughput_scaling.add_argument("--planner-bound-fraction", type=float, default=0.20)
+    throughput_scaling.add_argument("--throughput-efficiency-floor", type=float, default=0.60)
+    throughput_scaling.add_argument("--sum-node-ideal-tokens-s", type=float, default=45.0)
+    throughput_scaling.add_argument("--saturated-pipeline-tokens-s", type=float, default=30.0)
+    throughput_scaling.add_argument("--planner-bias-fraction", type=float, default=0.08)
+    throughput_scaling.add_argument("--jitter-fraction", type=float, default=0.015)
+    throughput_scaling.set_defaults(func=_cmd_throughput_scaling_simulate)
+
     benchmark = sub.add_parser("benchmark")
     benchmark.add_argument("--plan", required=True)
     benchmark.add_argument("--mode", default="tiny-moe-or-expert-mlp")
@@ -1726,6 +1800,7 @@ def build_parser() -> argparse.ArgumentParser:
             "expert-mlp-probe",
             "activation-transfer-probe",
             "pipeline-correctness-probe",
+            "throughput-scaling",
         ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")

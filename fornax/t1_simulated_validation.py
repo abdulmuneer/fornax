@@ -29,6 +29,10 @@ from .pipeline_probe import (
     validate_pipeline_correctness_probe_fixture,
 )
 from .runtime_format import validate_runtime_format_golden
+from .throughput_scaling import (
+    simulate_throughput_scaling,
+    validate_throughput_scaling_fixture,
+)
 from .scheduler import simulate_scheduler, validate_scheduler_contract
 from .transport import (
     simulated_transport_contract,
@@ -171,6 +175,7 @@ def run_t1_simulated_validation(
     engine_path = bundle / "engine-simulation.json"
     batching_path = bundle / "continuous-batching.json"
     pipeline_path = bundle / "pipeline-correctness.json"
+    throughput_path = bundle / "throughput-scaling.json"
     moe_path = bundle / "moe-runtime.json"
     model_support_path = bundle / "model-support-matrix.json"
     results_path = bundle / "t1-simulated-validation.json"
@@ -239,12 +244,18 @@ def run_t1_simulated_validation(
         new_tokens=3,
         tolerance=0.0,
     )
+    throughput = simulate_throughput_scaling(
+        plan_id=f"{plan_id}-throughput",
+        contracted_min_concurrency=16,
+        saturation_concurrency=8,
+    )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
     write_json(engine_path, engine)
     write_json(batching_path, batching)
     write_json(pipeline_path, pipeline)
+    write_json(throughput_path, throughput)
     write_json(moe_path, moe)
     write_json(model_support_path, model_support)
 
@@ -304,6 +315,12 @@ def run_t1_simulated_validation(
             str(pipeline_path),
         ),
         _check(
+            "throughput-scaling",
+            "T1",
+            validate_throughput_scaling_fixture(throughput),
+            str(throughput_path),
+        ),
+        _check(
             "moe-runtime",
             "T1",
             validate_moe_contract_fixture(moe),
@@ -360,6 +377,7 @@ def run_t1_simulated_validation(
             "engine_simulation": str(engine_path),
             "continuous_batching": str(batching_path),
             "pipeline_correctness": str(pipeline_path),
+            "throughput_scaling": str(throughput_path),
             "moe_runtime": str(moe_path),
             "model_support_matrix": str(model_support_path),
             "validation": str(results_path),

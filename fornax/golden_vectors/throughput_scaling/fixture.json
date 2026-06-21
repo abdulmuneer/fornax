@@ -1,0 +1,96 @@
+{
+  "concurrency_levels": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32
+  ],
+  "contracted_min_concurrency": 16,
+  "measured": true,
+  "measurement_kind": "deterministic-simulation",
+  "mode": "t1-simulation",
+  "note": "T1 throughput-scaling simulation: validates concurrency scaling, planner-accuracy bounds, and provisional throughput-efficiency math. Not T3 hardware evidence.",
+  "plan_id": "golden-throughput-scaling",
+  "planner_bound_fraction": 0.2,
+  "record_kind": "throughput-scaling-simulation-contract",
+  "rows": [
+    {
+      "bubble_fraction": 0.875,
+      "concurrency": 1,
+      "measured_tokens_s": 3.75,
+      "pipeline_utilization_fraction": 0.125,
+      "planner_error_fraction": 0.08,
+      "predicted_tokens_s": 4.05,
+      "simulation_source": "deterministic_t1_concurrency_sweep",
+      "throughput_efficiency_fraction": 0.083333333
+    },
+    {
+      "bubble_fraction": 0.75,
+      "concurrency": 2,
+      "measured_tokens_s": 7.3875,
+      "pipeline_utilization_fraction": 0.25,
+      "planner_error_fraction": 0.08,
+      "predicted_tokens_s": 7.9785,
+      "simulation_source": "deterministic_t1_concurrency_sweep",
+      "throughput_efficiency_fraction": 0.164166667
+    },
+    {
+      "bubble_fraction": 0.5,
+      "concurrency": 4,
+      "measured_tokens_s": 15.0,
+      "pipeline_utilization_fraction": 0.5,
+      "planner_error_fraction": 0.08,
+      "predicted_tokens_s": 16.2,
+      "simulation_source": "deterministic_t1_concurrency_sweep",
+      "throughput_efficiency_fraction": 0.333333333
+    },
+    {
+      "bubble_fraction": 0.0,
+      "concurrency": 8,
+      "measured_tokens_s": 30.0,
+      "pipeline_utilization_fraction": 1.0,
+      "planner_error_fraction": 0.08,
+      "predicted_tokens_s": 32.4,
+      "simulation_source": "deterministic_t1_concurrency_sweep",
+      "throughput_efficiency_fraction": 0.666666667
+    },
+    {
+      "bubble_fraction": 0.0,
+      "concurrency": 16,
+      "measured_tokens_s": 30.0,
+      "pipeline_utilization_fraction": 1.0,
+      "planner_error_fraction": 0.08,
+      "predicted_tokens_s": 32.4,
+      "simulation_source": "deterministic_t1_concurrency_sweep",
+      "throughput_efficiency_fraction": 0.666666667
+    },
+    {
+      "bubble_fraction": 0.0,
+      "concurrency": 32,
+      "measured_tokens_s": 30.0,
+      "pipeline_utilization_fraction": 1.0,
+      "planner_error_fraction": 0.08,
+      "predicted_tokens_s": 32.4,
+      "simulation_source": "deterministic_t1_concurrency_sweep",
+      "throughput_efficiency_fraction": 0.666666667
+    }
+  ],
+  "sum_node_ideal_tokens_s": 45.0,
+  "summary": {
+    "contracted_measured_tokens_s": 30.0,
+    "contracted_predicted_tokens_s": 32.4,
+    "max_abs_planner_error_fraction": 0.08,
+    "monotonic_scaling": true,
+    "observed_saturation_concurrency": 8,
+    "planner_accuracy_passed": true,
+    "row_count": 6,
+    "saturation_within_contract": true,
+    "target_met": true,
+    "throughput_efficiency_at_contract": 0.666666667,
+    "throughput_efficiency_passed": true
+  },
+  "throughput_efficiency_floor": 0.6,
+  "version": 1
+}

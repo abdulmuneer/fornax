@@ -1683,3 +1683,61 @@
   sha256:cli-t1-pipeline-plan --max-queue-depth 2 --max-inflight 2
   --microbatch-size 2 --timeout-ms 50` showing 16/16 checks passed, and
   `git diff --check` all passed.
+
+
+### T1 throughput-scaling metric contract milestone
+
+- Added `fornax.throughput_scaling` for a deterministic concurrency-sweep
+  contract covering the Phase 2/G2 metric language: aggregate throughput should
+  scale with concurrency, saturate no later than the contracted minimum
+  concurrency, satisfy the provisional throughput-efficiency floor, and match the
+  planner within the provisional bound.
+- Added `fornax throughput scaling-simulate --out ...` and `fornax test
+  throughput-scaling`; added the golden fixture
+  `fornax/golden_vectors/throughput_scaling/fixture.json`; expanded `make
+  fornax-golden` and `fornax program simulate-t1` so throughput scaling is part
+  of the regular simulated-cluster evidence path. The one-command T1 bundle now
+  validates 17 checks including `throughput-scaling`.
+- The fixture sweeps concurrency `[1, 2, 4, 8, 16, 32]`, uses contracted minimum
+  concurrency `16`, observes saturation at `8`, records max planner error
+  `0.08` against the `0.20` provisional bound, and records throughput efficiency
+  at contract `0.666666667` against the `0.60` provisional floor. The validator
+  recomputes monotonicity, saturation, planner error, throughput efficiency, and
+  target-met status from rows so summary fields cannot drift.
+- This closes another simulation-method gap for development planning, but it is
+  deliberately `measurement_kind=deterministic-simulation`; it does not claim
+  real T3/T4 hardware throughput, live arrivals, real model scheduling, or
+  product workload/persona validation.
+- Review-lens pass:
+  - Analytical Performance: approve with comments. The artifact now expresses the
+    provisional efficiency, planner-accuracy, and saturation gates as
+    machine-checkable math; real measured throughput remains future T3/T4 work.
+  - Program Management: approve. The milestone directly reduces R-8/R-10 status
+    ambiguity by separating simulated metric closure from real persona/hardware
+    evidence.
+  - Distributed Runtime/Scheduler: approve with comments. The sweep aligns with
+    the continuous-batching and pipeline-overlap model, but live admission and
+    worker scheduling remain separate runtime evidence.
+  - Testing/Quality: approve. Regression tests cover valid metric contracts,
+    planner-error failures, non-monotonic sweeps, late saturation, and T1 bundle
+    integration.
+- Verification: `python3 -m py_compile fornax/throughput_scaling.py fornax/cli.py
+  fornax/t1_simulated_validation.py tests/test_fornax_planner.py`, `python3 -m
+  fornax throughput scaling-simulate --out
+  fornax/golden_vectors/throughput_scaling/fixture.json --plan-id
+  golden-throughput-scaling --concurrency-levels 1,2,4,8,16,32
+  --contracted-min-concurrency 16 --saturation-concurrency 8
+  --planner-bound-fraction 0.20 --throughput-efficiency-floor 0.60
+  --sum-node-ideal-tokens-s 45 --saturated-pipeline-tokens-s 30
+  --planner-bias-fraction 0.08 --jitter-fraction 0.015`, `python3 -m fornax
+  test throughput-scaling`, focused throughput-scaling and T1 integration tests,
+  `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q
+  fornax tests`, `make fornax-golden`, `make fornax-test`, `python3 -m fornax
+  program simulate-t1 --out-dir
+  /tmp/fornax_t1_throughput_scaling_validation_cli_20260621 --gpu-count 2
+  --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000
+  --link-latency-s 0.0004 --slow-node-factor 0.65 --plan-id
+  cli-t1-throughput-plan --request-id cli-t1-throughput-request --plan-hash
+  sha256:cli-t1-throughput-plan --max-queue-depth 2 --max-inflight 2
+  --microbatch-size 2 --timeout-ms 50` showing 17/17 checks passed, and
+  `git diff --check` all passed.
