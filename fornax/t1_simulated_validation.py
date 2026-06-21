@@ -18,6 +18,10 @@ from .golden import run_golden_plans
 from .inventory import build_logical_cluster_inventory, collect_local_inventory
 from .io import read_json, write_json
 from .moe import simulated_moe_contract, validate_moe_contract_fixture
+from .model_support import (
+    simulated_model_support_matrix,
+    validate_model_support_matrix_fixture,
+)
 from .network_contract import validate_network_contract
 from .observability import validate_observability_contract
 from .runtime_format import validate_runtime_format_golden
@@ -163,6 +167,7 @@ def run_t1_simulated_validation(
     engine_path = bundle / "engine-simulation.json"
     batching_path = bundle / "continuous-batching.json"
     moe_path = bundle / "moe-runtime.json"
+    model_support_path = bundle / "model-support-matrix.json"
     results_path = bundle / "t1-simulated-validation.json"
 
     write_json(source_inventory_path_out, source_inventory)
@@ -217,12 +222,17 @@ def run_t1_simulated_validation(
         request_id=request_id,
         plan_hash=plan_hash,
     )
+    model_support = simulated_model_support_matrix(
+        matrix_id=f"{plan_id}-model-support",
+        target_model_id="qwen3-moe-class-target",
+    )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
     write_json(engine_path, engine)
     write_json(batching_path, batching)
     write_json(moe_path, moe)
+    write_json(model_support_path, model_support)
 
     checks = [
         _check(
@@ -280,6 +290,12 @@ def run_t1_simulated_validation(
             str(moe_path),
         ),
         _check(
+            "model-support",
+            "T1",
+            validate_model_support_matrix_fixture(model_support),
+            str(model_support_path),
+        ),
+        _check(
             "scheduler-contract",
             "T1",
             validate_scheduler_contract(scheduler),
@@ -324,6 +340,7 @@ def run_t1_simulated_validation(
             "engine_simulation": str(engine_path),
             "continuous_batching": str(batching_path),
             "moe_runtime": str(moe_path),
+            "model_support_matrix": str(model_support_path),
             "validation": str(results_path),
         },
         "summary": {

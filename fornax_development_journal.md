@@ -1444,3 +1444,59 @@
   - Analytical Performance: approve with comments. Remote hit rate and wait budget are present as simulated telemetry, not measured performance evidence.
   - Testing/Quality: approve. Regression tests cover fixture validity, generated routing/dispatch/gather, plan-hash mismatch, remote wait over budget, missing gather, invalid top-k weights, and migration below threshold.
 - Verification: `python3 -m py_compile fornax/moe.py fornax/t1_simulated_validation.py fornax/cli.py tests/test_fornax_planner.py`, focused MoE runtime tests, `python3 -m fornax moe simulate --out fornax/golden_vectors/moe_runtime/fixture.json`, `python3 -m fornax test moe-runtime`, `python3 -m fornax test moe-runtime --fixture /tmp/fornax_moe_runtime_cli_20260621.json`, focused T1 simulated validation tests, `python3 -m fornax program simulate-t1 --out-dir /tmp/fornax_t1_moe_runtime_validation_cli_20260621 --source-inventory /tmp/fornax_t1_source_inventory_20260621.json --gpu-count 2 --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor 0.65 --plan-id cli-t1-moe-plan --request-id cli-t1-moe-request --plan-hash sha256:cli-t1-moe-plan --max-queue-depth 2 --max-inflight 2 --microbatch-size 2 --timeout-ms 50`, artifact summary showing 14/14 passed, `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make fornax-golden`, `make fornax-test`, and `git diff --check` all passed.
+
+### T1 model-support matrix milestone
+
+- Added `fornax.model_support` for a model-support matrix contract covering the
+  Phase 2.5 / H2 seam: architecture, tokenizer, chat template, quantization,
+  context length, MoE routing, stop behavior, streaming, tool calling, and
+  structured output. The matrix separates a supported model-free fixture row from
+  the planned target-candidate row so T1 can validate semantics without claiming
+  real target-model parity.
+- Added `fornax model-support simulate --out ...`, `fornax test model-support`,
+  and `fornax spec model-support`; added the golden fixture
+  `fornax/golden_vectors/model_support/fixture.json`; expanded `make
+  fornax-golden` and `fornax program simulate-t1` so model support is included
+  in the regular simulated-cluster evidence path.
+- Updated the one-command T1 bundle to write `model-support-matrix.json` and
+  validate 15 checks: logical cluster, golden plans, runtime format, network
+  contract, engine seam, observability, engine simulation, continuous batching,
+  MoE runtime, model support, scheduler contract, worker contract, transport
+  contract, backend coverage, and benchmark ledger.
+- The validator enforces required capability coverage, one supported reference
+  fixture row, one target-candidate row, resolved tokenizer/template hashes for
+  supported rows, explicit required-before-T2 hash gaps for target rows, serving
+  semantic coverage for stop/streaming/tools/structured output, and no false
+  parity-pass claim without measured evidence.
+- Review-lens pass:
+  - LLM/Model Architecture: approve with comments. Tokenizer, chat-template,
+    stop, streaming, tool-call, structured-output, and MoE routing ownership are
+    now explicit; real target tokenizer/template hashes and layer/logit parity
+    remain T2/T3 requirements.
+  - High-level Software/API: approve. The CLI exposes both machine validation and
+    a markdown matrix report, making the support boundary reviewable without
+    digging through runtime internals.
+  - System Engineering: approve. The matrix links H2 serving semantics back to
+    the engine seam, MoE runtime, runtime-format, and target-contract artifacts.
+  - Testing/Quality: approve. Regression tests cover fixture validity, generated
+    target-gap semantics, report rendering, missing required capabilities,
+    unresolved supported-tokenizer hashes, missing tool support, and false parity
+    claims.
+- Verification: `python3 -m py_compile fornax/model_support.py fornax/cli.py
+  fornax/t1_simulated_validation.py tests/test_fornax_planner.py`, focused
+  model-support tests, focused T1 simulated validation tests, `python3 -m fornax
+  model-support simulate --out fornax/golden_vectors/model_support/fixture.json`,
+  `python3 -m fornax test model-support`, `python3 -m fornax test model-support
+  --fixture /tmp/fornax_model_support_cli_20260621.json`, `python3 -m fornax spec
+  model-support --fixture fornax/golden_vectors/model_support --out
+  /tmp/fornax_model_support_matrix_20260621.md`, `python3 -m fornax program
+  simulate-t1 --out-dir /tmp/fornax_t1_model_support_validation_cli_20260621
+  --source-inventory /tmp/fornax_t1_source_inventory_20260621.json --gpu-count 2
+  --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000
+  --link-latency-s 0.0004 --slow-node-factor 0.65 --plan-id
+  cli-t1-model-support-plan --request-id cli-t1-model-support-request
+  --plan-hash sha256:cli-t1-model-support-plan --max-queue-depth 2
+  --max-inflight 2 --microbatch-size 2 --timeout-ms 50`, artifact summary
+  showing 15/15 passed, `python3 -m unittest tests.test_fornax_planner`,
+  `python3 -m compileall -q fornax tests`, `make fornax-golden`, `make
+  fornax-test`, and `git diff --check` all passed.

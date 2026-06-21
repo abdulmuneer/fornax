@@ -54,6 +54,12 @@ from fornax.moe import (
     validate_moe_contract,
     validate_moe_contract_fixture,
 )
+from fornax.model_support import (
+    render_model_support_matrix_report,
+    simulated_model_support_matrix,
+    validate_model_support_matrix,
+    validate_model_support_matrix_fixture,
+)
 from fornax.network_security_spec import render_network_security_spec_draft
 from fornax.observability import (
     validate_observability_contract,
@@ -706,8 +712,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(14, result["summary"]["check_count"])
-        self.assertEqual(14, result["summary"]["passed_count"])
+        self.assertEqual(15, result["summary"]["check_count"])
+        self.assertEqual(15, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -718,6 +724,7 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("continuous-batching", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
+        self.assertIn("model-support", {check["name"] for check in validation["checks"]})
         self.assertIn("transport-contract", {check["name"] for check in validation["checks"]})
         self.assertIn("scheduler-contract", {check["name"] for check in validation["checks"]})
         self.assertIn("worker-contract", {check["name"] for check in validation["checks"]})
@@ -948,6 +955,77 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_moe_contract_fixture(contract)
         self.assertFalse(result["ok"])
         self.assertIn("hotness must be", "; ".join(result["errors"]))
+
+
+    def test_model_support_fixture_passes(self) -> None:
+        result = validate_model_support_matrix("fornax/golden_vectors/model_support")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(2, result["summary"]["model_count"])
+        self.assertEqual(1, result["summary"]["supported_model_count"])
+        self.assertIn("tokenizer", result["summary"]["required_capabilities_seen"])
+        self.assertIn("required_before_t2", result["summary"]["parity_statuses"])
+
+    def test_simulated_model_support_matrix_records_target_gap(self) -> None:
+        matrix = simulated_model_support_matrix(
+            matrix_id="unit-model-support",
+            target_model_id="unit-qwen3-target",
+        )
+        result = validate_model_support_matrix_fixture(matrix)
+        self.assertTrue(result["ok"], result["errors"])
+        target = next(row for row in matrix["models"] if row["role"] == "target_candidate")
+        self.assertEqual("planned", target["support_level"])
+        self.assertEqual("required_before_t2", target["tokenizer"]["hash_status"])
+        self.assertEqual("required_before_t2", target["parity"]["status"])
+
+    def test_model_support_report_renders_matrix(self) -> None:
+        report = render_model_support_matrix_report("fornax/golden_vectors/model_support")
+        self.assertTrue(report["ok"], report["validation"]["errors"])
+        markdown = report["markdown"]
+        self.assertIn("# Model Support Matrix", markdown)
+        self.assertIn("fornax-tiny-moe-fixture", markdown)
+        self.assertIn("qwen3-moe-class-target", markdown)
+        self.assertIn("required_before_t2", markdown)
+
+    def test_model_support_rejects_missing_required_capability(self) -> None:
+        matrix = simulated_model_support_matrix()
+        matrix["required_capabilities"].remove("tool_calling")
+        result = validate_model_support_matrix_fixture(matrix)
+        self.assertFalse(result["ok"])
+        self.assertIn("required_capabilities missing", "; ".join(result["errors"]))
+        self.assertIn("tool_calling", "; ".join(result["errors"]))
+
+    def test_model_support_rejects_unresolved_supported_tokenizer_hash(self) -> None:
+        matrix = simulated_model_support_matrix()
+        fixture = matrix["models"][0]
+        fixture["tokenizer"]["hash_status"] = "required_before_t2"
+        fixture["tokenizer"].pop("hash", None)
+        fixture["tokenizer"]["hash_required_before"] = "later"
+        result = validate_model_support_matrix_fixture(matrix)
+        self.assertFalse(result["ok"])
+        self.assertIn("hash_status must be resolved", "; ".join(result["errors"]))
+
+    def test_model_support_rejects_supported_model_without_tool_support(self) -> None:
+        matrix = simulated_model_support_matrix()
+        fixture = matrix["models"][0]
+        fixture["serving_semantics"]["tool_calling"]["status"] = "planned"
+        result = validate_model_support_matrix_fixture(matrix)
+        self.assertFalse(result["ok"])
+        self.assertIn("tool_calling.status", "; ".join(result["errors"]))
+
+    def test_model_support_rejects_false_parity_claim(self) -> None:
+        matrix = simulated_model_support_matrix()
+        target = matrix["models"][1]
+        target["parity"]["status"] = "passed"
+        target["parity"]["evidence"] = {
+            "kind": "spec",
+            "source": "unit-test",
+            "note": "not measured",
+        }
+        result = validate_model_support_matrix_fixture(matrix)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("evidence must be measured", text)
+        self.assertIn("cannot be passed", text)
 
     def test_continuous_batching_fixture_passes(self) -> None:
         result = validate_continuous_batching("fornax/golden_vectors/continuous_batching")

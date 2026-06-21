@@ -51,6 +51,11 @@ from .program_rebaseline import (
     render_program_rebaseline_draft,
 )
 from .moe import simulated_moe_contract, validate_moe_contract
+from .model_support import (
+    render_model_support_matrix_report,
+    simulated_model_support_matrix,
+    validate_model_support_matrix,
+)
 from .network_contract import validate_network_contract
 from .network_security_spec import render_network_security_spec_draft
 from .observability import validate_observability_contract
@@ -424,6 +429,28 @@ def _cmd_moe_simulate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model_support_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulated_model_support_matrix(
+            matrix_id=args.matrix_id,
+            target_model_id=args.target_model_id,
+            target_contract=args.target_contract,
+        )
+    except ValueError as exc:
+        print(f"model-support simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "model-support simulate: "
+        f"models={summary['model_count']} "
+        f"supported={summary['supported_model_count']} "
+        f"planned={summary['planned_model_count']} "
+        f"capabilities={summary['required_capability_count']}"
+    )
+    return 0
+
+
 def _cmd_batching_simulate(args: argparse.Namespace) -> int:
     try:
         result = simulate_continuous_batching(
@@ -714,6 +741,18 @@ def _cmd_spec_network_security(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 2
 
 
+def _cmd_spec_model_support(args: argparse.Namespace) -> int:
+    try:
+        result = render_model_support_matrix_report(args.fixture)
+    except (OSError, ValueError) as exc:
+        print(f"spec model-support: {exc}")
+        return 2
+    Path(args.out).write_text(result["markdown"], encoding="utf-8")
+    status = "valid" if result["ok"] else "invalid"
+    print(f"wrote model support matrix draft: {args.out} ({status})")
+    return 0 if result["ok"] else 2
+
+
 def _cmd_spec_backend_coverage(args: argparse.Namespace) -> int:
     try:
         result = render_backend_coverage_report(args.fixture)
@@ -915,6 +954,27 @@ def _cmd_test_moe_runtime(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_model_support(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/model_support"
+    result = validate_model_support_matrix(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS model-support: {fixture} "
+            f"models={summary['model_count']} "
+            f"supported={summary['supported_model_count']} "
+            f"planned={summary['planned_model_count']} "
+            f"capabilities={summary['required_capability_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL model-support: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_continuous_batching(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/continuous_batching"
     result = validate_continuous_batching(fixture)
@@ -998,6 +1058,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_transport_contract(args)
     if args.test_name == "moe-runtime":
         return _cmd_test_moe_runtime(args)
+    if args.test_name == "model-support":
+        return _cmd_test_model_support(args)
     if args.test_name == "continuous-batching":
         return _cmd_test_continuous_batching(args)
     if args.test_name == "scheduler-contract":
@@ -1256,6 +1318,22 @@ def build_parser() -> argparse.ArgumentParser:
     moe_simulate.add_argument("--migration-hotness-threshold", type=float, default=0.50)
     moe_simulate.set_defaults(func=_cmd_moe_simulate)
 
+    model_support = sub.add_parser("model-support")
+    model_support_sub = model_support.add_subparsers(
+        dest="model_support_command", required=True
+    )
+    model_support_simulate = model_support_sub.add_parser("simulate")
+    model_support_simulate.add_argument("--out", required=True)
+    model_support_simulate.add_argument("--matrix-id", default="fornax-model-support-t1")
+    model_support_simulate.add_argument(
+        "--target-model-id", default="qwen3-moe-class-target"
+    )
+    model_support_simulate.add_argument(
+        "--target-contract",
+        default="fornax/golden_plans/v0_target_contract_fixture.md",
+    )
+    model_support_simulate.set_defaults(func=_cmd_model_support_simulate)
+
     batching = sub.add_parser("batching")
     batching_sub = batching.add_subparsers(dest="batching_command", required=True)
     batching_simulate = batching_sub.add_parser("simulate")
@@ -1334,6 +1412,13 @@ def build_parser() -> argparse.ArgumentParser:
     spec_network.add_argument("--out", required=True)
     spec_network.set_defaults(func=_cmd_spec_network_security)
 
+    spec_model_support = spec_sub.add_parser("model-support")
+    spec_model_support.add_argument(
+        "--fixture", default="fornax/golden_vectors/model_support"
+    )
+    spec_model_support.add_argument("--out", required=True)
+    spec_model_support.set_defaults(func=_cmd_spec_model_support)
+
     spec_backend = spec_sub.add_parser("backend-coverage")
     spec_backend.add_argument(
         "--fixture", default="fornax/golden_vectors/backend_coverage"
@@ -1364,6 +1449,7 @@ def build_parser() -> argparse.ArgumentParser:
             "worker-contract",
             "transport-contract",
             "moe-runtime",
+            "model-support",
             "continuous-batching",
             "scheduler-contract",
             "backend-coverage",

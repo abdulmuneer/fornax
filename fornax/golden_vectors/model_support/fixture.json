@@ -1,0 +1,357 @@
+{
+  "contract_kind": "model-support-matrix",
+  "matrix_id": "fornax-model-support-t1",
+  "mode": "t1-simulation",
+  "models": [
+    {
+      "architecture": {
+        "active_experts": 2,
+        "evidence": {
+          "kind": "fixture",
+          "note": "Tiny model-free MoE fixture used to validate support semantics.",
+          "source": "fornax.golden_vectors.model_support"
+        },
+        "kind": "decoder_only_sparse_moe",
+        "moe": true,
+        "num_experts": 4,
+        "num_layers": 2,
+        "status": "supported"
+      },
+      "chat_template": {
+        "evidence": {
+          "kind": "fixture",
+          "note": "Engine seam fixture covers roles, tools, response format, streaming, and cancellation.",
+          "source": "fornax/golden_vectors/engine_seam/fixture.json"
+        },
+        "hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "hash_status": "resolved",
+        "owner": "fornax.model_support",
+        "roles": [
+          "system",
+          "user",
+          "assistant",
+          "tool"
+        ],
+        "source": "fixture://fornax-tiny-moe-chat-template",
+        "status": "supported",
+        "tool_call_format": "openai_compatible_json",
+        "version": "fixture-v1"
+      },
+      "context_length": {
+        "evidence": {
+          "kind": "fixture",
+          "note": "Fixture context is synthetic; real target context must be supplied by G1/G2 evidence.",
+          "source": "fornax/golden_plans/v0_target_contract_fixture.md"
+        },
+        "max_batch_tokens": 128,
+        "max_context_tokens": 64,
+        "owner": "target_contract",
+        "status": "supported"
+      },
+      "model_id": "fornax-tiny-moe-fixture",
+      "moe_routing": {
+        "evidence": {
+          "kind": "fixture",
+          "note": "MoE runtime fixture validates top-k, expert buckets, dispatch, gather, and traces.",
+          "source": "fornax/golden_vectors/moe_runtime/fixture.json"
+        },
+        "expert_trace_required": true,
+        "router": "top_k",
+        "routing_weighting": "softmax",
+        "status": "supported",
+        "top_k": 2
+      },
+      "parity": {
+        "evidence": {
+          "kind": "fixture",
+          "note": "Model-free support contract only; real layer/logit parity remains required.",
+          "source": "fornax.golden_vectors.model_support"
+        },
+        "layer_logit_parity": "not_applicable_to_model_free_fixture",
+        "reference_path": "fornax.model_support.fixture",
+        "required_before_tier": "T2/T3",
+        "status": "fixture_only"
+      },
+      "quantization": {
+        "activation_dtypes": [
+          "fp16"
+        ],
+        "evidence": {
+          "kind": "fixture",
+          "note": "Runtime-format golden vector validates dtype and tensor layout shape.",
+          "source": "fornax/golden_vectors/runtime_format/manifest.json"
+        },
+        "kv_dtypes": [
+          "fp16"
+        ],
+        "status": "supported",
+        "weight_dtypes": [
+          "fp16"
+        ]
+      },
+      "role": "reference_fixture",
+      "serving_semantics": {
+        "stop_behavior": {
+          "evidence": {
+            "kind": "fixture",
+            "note": "Engine seam fixture validates stop sequence propagation.",
+            "source": "fornax/golden_vectors/engine_seam/fixture.json"
+          },
+          "status": "supported",
+          "stop_sequences": [
+            "</s>"
+          ],
+          "stop_token_ids": [
+            2
+          ]
+        },
+        "streaming": {
+          "events": [
+            "start",
+            "token",
+            "finish",
+            "error",
+            "cancelled"
+          ],
+          "evidence": {
+            "kind": "fixture",
+            "note": "Engine seam fixture validates stream start/token/finish events.",
+            "source": "fornax/golden_vectors/engine_seam/fixture.json"
+          },
+          "status": "supported"
+        },
+        "structured_output": {
+          "evidence": {
+            "kind": "fixture",
+            "note": "Engine seam fixture validates structured-output object shape.",
+            "source": "fornax/golden_vectors/engine_seam/fixture.json"
+          },
+          "formats": [
+            "json_object",
+            "json_schema"
+          ],
+          "status": "supported"
+        },
+        "tool_calling": {
+          "evidence": {
+            "kind": "fixture",
+            "note": "Engine seam fixture validates tool-call result shape.",
+            "source": "fornax/golden_vectors/engine_seam/fixture.json"
+          },
+          "format": "openai_compatible_function_call",
+          "status": "supported"
+        }
+      },
+      "support_level": "supported",
+      "tokenizer": {
+        "bos_token": "<s>",
+        "eos_token": "</s>",
+        "evidence": {
+          "kind": "fixture",
+          "note": "Engine seam fixture records tokenizer hash and request/result propagation.",
+          "source": "fornax/golden_vectors/engine_seam/fixture.json"
+        },
+        "hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "hash_status": "resolved",
+        "owner": "fornax.model_support",
+        "source": "fixture://fornax-tiny-moe-tokenizer",
+        "special_tokens": [
+          "<s>",
+          "</s>",
+          "<tool_call>"
+        ],
+        "status": "supported",
+        "version": "fixture-v1"
+      }
+    },
+    {
+      "architecture": {
+        "active_experts": null,
+        "evidence": {
+          "blocking_tier": "T2/T3",
+          "kind": "required",
+          "requirement": "Resolve exact target architecture from the signed v0 target contract before T2 parity.",
+          "source": "docs/fornax/project-plan-v3.md#phase-2-5"
+        },
+        "kind": "decoder_only_sparse_moe",
+        "moe": true,
+        "num_experts": null,
+        "num_layers": null,
+        "status": "planned"
+      },
+      "chat_template": {
+        "evidence": {
+          "blocking_tier": "T2/T3",
+          "kind": "required",
+          "requirement": "Record canonical chat-template source and sha256 hash before target serving claims.",
+          "source": "docs/fornax/project-plan-v3.md#phase-2-5"
+        },
+        "hash_required_before": "T2 single-node accelerator parity",
+        "hash_status": "required_before_t2",
+        "owner": "fornax.model_support",
+        "roles": [
+          "system",
+          "user",
+          "assistant",
+          "tool"
+        ],
+        "source": "model_artifact_required",
+        "status": "planned",
+        "tool_call_format": "openai_compatible_json_required",
+        "version": "unresolved"
+      },
+      "context_length": {
+        "evidence": {
+          "blocking_tier": "T2/T3",
+          "kind": "required",
+          "requirement": "Signed target contract must replace fixture prompt/gen lengths with real target context.",
+          "source": "fornax/golden_plans/v0_target_contract_fixture.md"
+        },
+        "max_batch_tokens": 96,
+        "max_context_tokens": 24,
+        "owner": "target_contract",
+        "status": "planned"
+      },
+      "model_id": "qwen3-moe-class-target",
+      "moe_routing": {
+        "evidence": {
+          "blocking_tier": "T2/T3",
+          "kind": "required",
+          "requirement": "Attach target-model routing traces and layer/logit parity before Phase 2.5 exit.",
+          "source": "fornax/golden_vectors/moe_runtime/fixture.json"
+        },
+        "expert_trace_required": true,
+        "router": "top_k",
+        "routing_weighting": "model_artifact_required",
+        "status": "planned",
+        "top_k": 2
+      },
+      "parity": {
+        "evidence": {
+          "blocking_tier": "T2/T3",
+          "kind": "required",
+          "requirement": "Layer/logit parity against the reference path is the Phase 2.5 exit criterion.",
+          "source": "docs/fornax/project-plan-v3.md#phase-2-5"
+        },
+        "layer_logit_parity": "required_before_phase_2_5_exit",
+        "reference_path": "slow_reference_target_model_required",
+        "required_before_tier": "T2/T3",
+        "status": "required_before_t2"
+      },
+      "quantization": {
+        "activation_dtypes": [
+          "fp16",
+          "bf16"
+        ],
+        "evidence": {
+          "blocking_tier": "T2/T3",
+          "kind": "required",
+          "requirement": "Signed target contract must declare quantization and dtype choices.",
+          "source": "fornax/golden_plans/v0_target_contract_fixture.md"
+        },
+        "kv_dtypes": [
+          "fp16",
+          "bf16"
+        ],
+        "status": "planned",
+        "weight_dtypes": [
+          "q4"
+        ]
+      },
+      "role": "target_candidate",
+      "serving_semantics": {
+        "stop_behavior": {
+          "evidence": {
+            "blocking_tier": "T2/T3",
+            "kind": "required",
+            "requirement": "Target model stop strings and stop token IDs must be recorded before T2.",
+            "source": "fornax/golden_vectors/engine_seam/fixture.json"
+          },
+          "status": "planned",
+          "stop_sequences": [],
+          "stop_token_ids": []
+        },
+        "streaming": {
+          "events": [
+            "start",
+            "token",
+            "finish",
+            "error",
+            "cancelled"
+          ],
+          "evidence": {
+            "blocking_tier": "T2/T3",
+            "kind": "required",
+            "requirement": "Target streaming chunk boundaries must match Engine seam acceptance tests.",
+            "source": "fornax/golden_vectors/engine_seam/fixture.json"
+          },
+          "status": "planned"
+        },
+        "structured_output": {
+          "evidence": {
+            "blocking_tier": "T2/T3",
+            "kind": "required",
+            "requirement": "Structured-output behavior must be validated for the target template.",
+            "source": "fornax/golden_vectors/engine_seam/fixture.json"
+          },
+          "formats": [
+            "json_object",
+            "json_schema"
+          ],
+          "status": "planned"
+        },
+        "tool_calling": {
+          "evidence": {
+            "blocking_tier": "T2/T3",
+            "kind": "required",
+            "requirement": "Tool-call pass-through must be validated for the target template.",
+            "source": "fornax/golden_vectors/engine_seam/fixture.json"
+          },
+          "format": "openai_compatible_function_call",
+          "status": "planned"
+        }
+      },
+      "support_level": "planned",
+      "tokenizer": {
+        "bos_token": null,
+        "eos_token": null,
+        "evidence": {
+          "blocking_tier": "T2/T3",
+          "kind": "required",
+          "requirement": "Record canonical tokenizer version and sha256 hash before executing target model requests.",
+          "source": "docs/fornax/project-plan-v3.md#phase-2-5"
+        },
+        "hash_required_before": "T2 single-node accelerator parity",
+        "hash_status": "required_before_t2",
+        "owner": "fornax.model_support",
+        "source": "model_artifact_required",
+        "special_tokens": [],
+        "status": "planned",
+        "version": "unresolved"
+      }
+    }
+  ],
+  "note": "T1 model-support matrix contract; validates ownership and evidence shape for architecture, tokenizer, chat template, quantization, context, MoE routing, stop behavior, streaming, tools, and structured output without claiming real target-model parity.",
+  "owner": "fornax.serving",
+  "required_capabilities": [
+    "architecture",
+    "tokenizer",
+    "chat_template",
+    "quantization",
+    "context_length",
+    "moe_routing",
+    "stop_behavior",
+    "streaming",
+    "tool_calling",
+    "structured_output"
+  ],
+  "summary": {
+    "model_count": 2,
+    "planned_model_count": 1,
+    "required_capability_count": 10,
+    "supported_model_count": 1,
+    "target_model_id": "qwen3-moe-class-target"
+  },
+  "target_contract": "fornax/golden_plans/v0_target_contract_fixture.md",
+  "version": 1
+}
