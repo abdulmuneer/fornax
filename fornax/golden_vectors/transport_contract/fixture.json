@@ -1,0 +1,452 @@
+{
+  "endpoints": [
+    {
+      "endpoint_id": "stage-0",
+      "logical_host_id": "sim-host-0",
+      "node_id": "sim-gpu0",
+      "physical_device": "cuda:0",
+      "role": "stage_worker",
+      "supported_payloads": [
+        "activation",
+        "kv_page",
+        "expert_batch",
+        "expert_result"
+      ],
+      "worker_environment": {
+        "CUDA_VISIBLE_DEVICES": "0"
+      },
+      "worker_id": "stage-0"
+    },
+    {
+      "endpoint_id": "stage-1",
+      "logical_host_id": "sim-host-1",
+      "node_id": "sim-gpu1",
+      "physical_device": "cuda:1",
+      "role": "stage_worker",
+      "supported_payloads": [
+        "activation",
+        "kv_page"
+      ],
+      "worker_environment": {
+        "CUDA_VISIBLE_DEVICES": "1"
+      },
+      "worker_id": "stage-1"
+    },
+    {
+      "endpoint_id": "expert-0",
+      "logical_host_id": "sim-host-1",
+      "node_id": "sim-gpu1",
+      "physical_device": "cuda:1",
+      "role": "expert_worker",
+      "supported_payloads": [
+        "expert_batch",
+        "expert_result"
+      ],
+      "worker_environment": {
+        "CUDA_VISIBLE_DEVICES": "1"
+      },
+      "worker_id": "expert-0"
+    }
+  ],
+  "events": [
+    {
+      "endpoint_id": "stage-0",
+      "kind": "endpoint_registered",
+      "logical_host_id": "sim-host-0",
+      "node_id": "sim-gpu0",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.0
+    },
+    {
+      "endpoint_id": "stage-1",
+      "kind": "endpoint_registered",
+      "logical_host_id": "sim-host-1",
+      "node_id": "sim-gpu1",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.0
+    },
+    {
+      "endpoint_id": "expert-0",
+      "kind": "endpoint_registered",
+      "logical_host_id": "sim-host-1",
+      "node_id": "sim-gpu1",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.0
+    },
+    {
+      "allowed_payloads": [
+        "activation",
+        "kv_page"
+      ],
+      "channel_id": "stage0-stage1",
+      "destination_endpoint_id": "stage-1",
+      "kind": "channel_open",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "source_endpoint_id": "stage-0",
+      "timestamp_s": 0.001
+    },
+    {
+      "allowed_payloads": [
+        "expert_batch"
+      ],
+      "channel_id": "stage0-expert0",
+      "destination_endpoint_id": "expert-0",
+      "kind": "channel_open",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "source_endpoint_id": "stage-0",
+      "timestamp_s": 0.001
+    },
+    {
+      "allowed_payloads": [
+        "expert_result"
+      ],
+      "channel_id": "expert0-stage0",
+      "destination_endpoint_id": "stage-0",
+      "kind": "channel_open",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "source_endpoint_id": "expert-0",
+      "timestamp_s": 0.001
+    },
+    {
+      "bytes": 16,
+      "channel_id": "stage0-stage1",
+      "destination_endpoint_id": "stage-1",
+      "kind": "payload_enqueue",
+      "payload_id": "activation-0",
+      "payload_kind": "activation",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "queue_depth": 1,
+      "request_id": "req-transport-contract",
+      "runtime_payload_ref": "activation",
+      "source_endpoint_id": "stage-0",
+      "timestamp_s": 0.002
+    },
+    {
+      "channel_id": "stage0-stage1",
+      "kind": "payload_send_start",
+      "payload_id": "activation-0",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.003
+    },
+    {
+      "bytes": 16,
+      "channel_id": "stage0-stage1",
+      "elapsed_ms": 0.4,
+      "kind": "payload_send_end",
+      "payload_id": "activation-0",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.0034
+    },
+    {
+      "channel_id": "stage0-stage1",
+      "kind": "payload_receive",
+      "payload_id": "activation-0",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "queue_depth": 1,
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.004
+    },
+    {
+      "channel_id": "stage0-stage1",
+      "kind": "payload_ack",
+      "payload_id": "activation-0",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.0045
+    },
+    {
+      "bytes": 64,
+      "channel_id": "stage0-expert0",
+      "destination_endpoint_id": "expert-0",
+      "kind": "payload_enqueue",
+      "payload_id": "expert-batch-0",
+      "payload_kind": "expert_batch",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "queue_depth": 1,
+      "request_id": "req-transport-contract",
+      "runtime_payload_ref": "expert_batch",
+      "source_endpoint_id": "stage-0",
+      "timestamp_s": 0.005
+    },
+    {
+      "channel_id": "stage0-expert0",
+      "kind": "payload_send_start",
+      "payload_id": "expert-batch-0",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.006
+    },
+    {
+      "bytes": 64,
+      "channel_id": "stage0-expert0",
+      "elapsed_ms": 0.6,
+      "kind": "payload_send_end",
+      "payload_id": "expert-batch-0",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.0066
+    },
+    {
+      "channel_id": "stage0-expert0",
+      "kind": "payload_receive",
+      "payload_id": "expert-batch-0",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "queue_depth": 1,
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.007
+    },
+    {
+      "channel_id": "stage0-expert0",
+      "kind": "payload_ack",
+      "payload_id": "expert-batch-0",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.0075
+    },
+    {
+      "bytes": 128,
+      "channel_id": "stage0-stage1",
+      "destination_endpoint_id": "stage-1",
+      "kind": "payload_enqueue",
+      "payload_id": "kv-page-timeout",
+      "payload_kind": "kv_page",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "queue_depth": 1,
+      "request_id": "req-transport-contract",
+      "runtime_payload_ref": "kv_page",
+      "source_endpoint_id": "stage-0",
+      "timestamp_s": 0.008
+    },
+    {
+      "channel_id": "stage0-stage1",
+      "kind": "payload_send_start",
+      "payload_id": "kv-page-timeout",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.009
+    },
+    {
+      "channel_id": "stage0-stage1",
+      "elapsed_ms": 55.0,
+      "kind": "timeout",
+      "payload_id": "kv-page-timeout",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "reason": "simulated destination stall",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.06
+    },
+    {
+      "bytes": 32,
+      "channel_id": "expert0-stage0",
+      "destination_endpoint_id": "stage-0",
+      "kind": "payload_enqueue",
+      "payload_id": "expert-result-cancel",
+      "payload_kind": "expert_result",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "queue_depth": 1,
+      "request_id": "req-transport-contract",
+      "source_endpoint_id": "expert-0",
+      "timestamp_s": 0.061
+    },
+    {
+      "channel_id": "expert0-stage0",
+      "kind": "cancel",
+      "payload_id": "expert-result-cancel",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "reason": "simulated scheduler cancellation",
+      "released": true,
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.062
+    },
+    {
+      "channel_id": "stage0-stage1",
+      "endpoint_id": "stage-1",
+      "kind": "backpressure",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "queue_depth": 2,
+      "reason": "destination queue at max_queue_depth",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.063
+    },
+    {
+      "channel_id": "stage0-stage1",
+      "endpoint_id": "stage-1",
+      "expected_plan_hash": "sha256:transport-contract-plan",
+      "kind": "plan_integrity_reject",
+      "plan_id": "transport-contract-plan",
+      "reason": "plan hash mismatch",
+      "rejected_plan_hash": "sha256:stale-transport-plan",
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.064
+    },
+    {
+      "endpoint_id": "stage-0",
+      "kind": "cleanup",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "released_payload_ids": [
+        "activation-0",
+        "expert-batch-0",
+        "expert-result-cancel"
+      ],
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.065
+    },
+    {
+      "endpoint_id": "stage-1",
+      "kind": "cleanup",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "released_payload_ids": [
+        "activation-0",
+        "kv-page-timeout"
+      ],
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.065
+    },
+    {
+      "endpoint_id": "expert-0",
+      "kind": "cleanup",
+      "plan_hash": "sha256:transport-contract-plan",
+      "plan_id": "transport-contract-plan",
+      "released_payload_ids": [
+        "expert-batch-0",
+        "expert-result-cancel"
+      ],
+      "request_id": "req-transport-contract",
+      "timestamp_s": 0.065
+    }
+  ],
+  "links": [
+    {
+      "a": "sim-gpu0",
+      "b": "sim-gpu1",
+      "bandwidth_bytes_s": 25000000000.0,
+      "latency_s": 0.00025,
+      "measurement": {
+        "measured": false,
+        "simulated": true,
+        "source": "fornax.transport.simulated_transport_contract"
+      }
+    }
+  ],
+  "max_queue_depth": 2,
+  "mode": "t1-simulation",
+  "note": "T1 simulated transport contract; validates activation/KV/expert payload lifecycle across two local GPUs treated as separate logical hosts. This is development evidence only, not real heterogeneous cluster closure evidence.",
+  "plan_hash": "sha256:transport-contract-plan",
+  "plan_id": "transport-contract-plan",
+  "record_kind": "transport-simulation-contract",
+  "request_id": "req-transport-contract",
+  "runtime_payload": {
+    "activation": {
+      "dtype": "fp16",
+      "layout": "contiguous_row_major",
+      "shape": [
+        2,
+        4
+      ],
+      "values": [
+        0.0,
+        0.1,
+        0.2,
+        0.3,
+        1.0,
+        1.1,
+        1.2,
+        1.3
+      ]
+    },
+    "expert_batch": {
+      "expert_ids": [
+        3,
+        7
+      ],
+      "gather_order": [
+        0,
+        1
+      ],
+      "hidden_shape": [
+        2,
+        4
+      ],
+      "layer_id": 1,
+      "token_indices": [
+        0,
+        1
+      ],
+      "topk_weights": [
+        0.75,
+        0.25
+      ]
+    },
+    "kv_page": {
+      "dtype": "fp16",
+      "owner_stage": 0,
+      "page_size": 4,
+      "shape": [
+        4,
+        2,
+        4
+      ],
+      "token_count": 2
+    },
+    "tolerances": {
+      "fp16": {
+        "atol": 0.001,
+        "rtol": 0.001
+      }
+    },
+    "version": 1
+  },
+  "simulation": {
+    "logical_host_count": 2,
+    "method": "two_gpu_logical_hosts",
+    "mode": "logical_multi_host",
+    "physical_gpu_count": 2,
+    "profile": "two-gpu-heterogeneous",
+    "warning": "Simulation evidence only; this logical cluster does not close real multi-host hardware gates."
+  },
+  "summary": {
+    "ack_count": 2,
+    "backpressure_count": 1,
+    "cancel_count": 1,
+    "channel_count": 3,
+    "cleanup_count": 3,
+    "endpoint_count": 3,
+    "event_count": 26,
+    "logical_host_count": 2,
+    "payload_count": 4,
+    "plan_integrity_reject_count": 1,
+    "timeout_count": 1
+  },
+  "timeout_ms": 50.0,
+  "transport_protocol": "simulated-logical-host",
+  "version": 1
+}

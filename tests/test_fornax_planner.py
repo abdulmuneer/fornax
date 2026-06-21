@@ -66,6 +66,11 @@ from fornax.runtime_format import (
 from fornax.simulate import simulation_result, summarize_request_trace
 from fornax.substrate_adr import render_substrate_adr_draft
 from fornax.target_contract import render_target_contract_draft
+from fornax.transport import (
+    simulated_transport_contract,
+    validate_transport_contract,
+    validate_transport_contract_fixture,
+)
 from fornax.validation import validate_target_contract
 from fornax.workers import (
     simulated_worker_contract,
@@ -619,6 +624,88 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_worker_contract_fixture(contract)
         self.assertFalse(result["ok"])
         self.assertIn("payload_kind is not supported", "; ".join(result["errors"]))
+
+
+    def test_transport_contract_fixture_passes(self) -> None:
+        result = validate_transport_contract("fornax/golden_vectors/transport_contract")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(2, result["summary"]["logical_host_count"])
+        self.assertEqual(3, result["summary"]["endpoint_count"])
+        self.assertEqual(4, result["summary"]["payload_count"])
+        self.assertEqual(1, result["summary"]["timeout_count"])
+        self.assertEqual(1, result["summary"]["cancel_count"])
+
+    def test_simulated_transport_contract_uses_two_gpu_logical_hosts(self) -> None:
+        contract = simulated_transport_contract(
+            plan_id="unit-transport-plan",
+            request_id="unit-request",
+            plan_hash="sha256:unit-transport-plan",
+            max_queue_depth=2,
+            timeout_ms=50.0,
+        )
+        result = validate_transport_contract_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        logical_hosts = {endpoint["logical_host_id"] for endpoint in contract["endpoints"]}
+        cuda_bindings = {
+            endpoint["worker_environment"]["CUDA_VISIBLE_DEVICES"]
+            for endpoint in contract["endpoints"]
+        }
+        self.assertEqual({"sim-host-0", "sim-host-1"}, logical_hosts)
+        self.assertEqual({"0", "1"}, cuda_bindings)
+        self.assertEqual("two_gpu_logical_hosts", contract["simulation"]["method"])
+
+    def test_transport_contract_rejects_plan_hash_mismatch(self) -> None:
+        contract = simulated_transport_contract()
+        for event in contract["events"]:
+            if event["kind"] == "payload_enqueue":
+                event["plan_hash"] = "sha256:wrong-plan"
+                break
+        result = validate_transport_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("plan_hash must match", "; ".join(result["errors"]))
+
+    def test_transport_contract_rejects_queue_overflow(self) -> None:
+        contract = simulated_transport_contract(max_queue_depth=2)
+        for event in contract["events"]:
+            if event["kind"] == "backpressure":
+                event["queue_depth"] = 3
+                break
+        result = validate_transport_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("queue_depth exceeds", "; ".join(result["errors"]))
+
+    def test_transport_contract_rejects_unacked_payload(self) -> None:
+        contract = simulated_transport_contract()
+        contract["events"] = [
+            event
+            for event in contract["events"]
+            if not (
+                event["kind"] == "payload_ack"
+                and event.get("payload_id") == "activation-0"
+            )
+        ]
+        contract["summary"]["event_count"] = len(contract["events"])
+        contract["summary"]["ack_count"] = 1
+        result = validate_transport_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("activation-0 has no terminal", "; ".join(result["errors"]))
+
+    def test_transport_contract_rejects_short_timeout(self) -> None:
+        contract = simulated_transport_contract(timeout_ms=50.0)
+        for event in contract["events"]:
+            if event["kind"] == "timeout":
+                event["elapsed_ms"] = 10.0
+                break
+        result = validate_transport_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("elapsed_ms must be >= timeout_ms", "; ".join(result["errors"]))
+
+    def test_transport_contract_rejects_missing_gpu_binding(self) -> None:
+        contract = simulated_transport_contract()
+        contract["endpoints"][0]["worker_environment"] = {}
+        result = validate_transport_contract_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("CUDA_VISIBLE_DEVICES", "; ".join(result["errors"]))
 
     def test_scheduler_contract_fixture_passes(self) -> None:
         result = validate_scheduler_contract("fornax/golden_vectors/scheduler_contract")

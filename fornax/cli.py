@@ -57,6 +57,7 @@ from .substrate_adr import (
     render_substrate_adr_draft,
 )
 from .target_contract import render_target_contract_draft
+from .transport import simulated_transport_contract, validate_transport_contract
 from .validation import validate_target_contract
 from .workers import simulated_worker_contract, validate_worker_contract
 
@@ -302,6 +303,32 @@ def _cmd_workers_simulate(args: argparse.Namespace) -> int:
         f"events={summary['event_count']} "
         f"plan_rejects={summary['plan_integrity_reject_count']} "
         f"cleanup={summary['cleanup_count']}"
+    )
+    return 0
+
+
+def _cmd_transport_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulated_transport_contract(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            plan_hash=args.plan_hash,
+            max_queue_depth=args.max_queue_depth,
+            timeout_ms=args.timeout_ms,
+        )
+    except ValueError as exc:
+        print(f"transport simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "transport simulate: "
+        f"logical_hosts={summary['logical_host_count']} "
+        f"endpoints={summary['endpoint_count']} "
+        f"payloads={summary['payload_count']} "
+        f"acks={summary['ack_count']} "
+        f"timeouts={summary['timeout_count']} "
+        f"cancels={summary['cancel_count']}"
     )
     return 0
 
@@ -702,6 +729,28 @@ def _cmd_test_worker_contract(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_transport_contract(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/transport_contract"
+    result = validate_transport_contract(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS transport-contract: {fixture} "
+            f"logical_hosts={summary['logical_host_count']} "
+            f"endpoints={summary['endpoint_count']} "
+            f"payloads={summary['payload_count']} "
+            f"timeouts={summary['timeout_count']} "
+            f"cancels={summary['cancel_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL transport-contract: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_scheduler_contract(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/scheduler_contract"
     result = validate_scheduler_contract(fixture)
@@ -759,6 +808,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_observability(args)
     if args.test_name == "worker-contract":
         return _cmd_test_worker_contract(args)
+    if args.test_name == "transport-contract":
+        return _cmd_test_transport_contract(args)
     if args.test_name == "scheduler-contract":
         return _cmd_test_scheduler_contract(args)
     if args.test_name == "backend-coverage":
@@ -943,6 +994,20 @@ def build_parser() -> argparse.ArgumentParser:
     workers_simulate.add_argument("--max-queue-depth", type=int, default=2)
     workers_simulate.set_defaults(func=_cmd_workers_simulate)
 
+    transport = sub.add_parser("transport")
+    transport_sub = transport.add_subparsers(dest="transport_command", required=True)
+    transport_simulate = transport_sub.add_parser("simulate")
+    transport_simulate.add_argument("--out", required=True)
+    transport_simulate.add_argument("--plan-id", default="transport-contract-plan")
+    transport_simulate.add_argument("--request-id", default="req-transport-contract")
+    transport_simulate.add_argument(
+        "--plan-hash", default="sha256:transport-contract-plan"
+    )
+    transport_simulate.add_argument("--max-queue-depth", type=int, default=2)
+    transport_simulate.add_argument("--timeout-ms", type=float, default=50.0)
+    transport_simulate.set_defaults(func=_cmd_transport_simulate)
+
+
     scheduler = sub.add_parser("scheduler")
     scheduler_sub = scheduler.add_subparsers(dest="scheduler_command", required=True)
     scheduler_simulate = scheduler_sub.add_parser("simulate")
@@ -1047,6 +1112,7 @@ def build_parser() -> argparse.ArgumentParser:
             "engine-seam",
             "observability",
             "worker-contract",
+            "transport-contract",
             "scheduler-contract",
             "backend-coverage",
             "benchmark-ledger",

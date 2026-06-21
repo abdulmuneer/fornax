@@ -1242,3 +1242,47 @@
   /tmp/fornax_worker_contract_cli_20260621.json`, `python3 -m unittest
   tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
   fornax-golden`, `make fornax-test`, and `git diff --check` all passed.
+
+### T1 simulated transport contract milestone
+
+- Adopted the two-local-GPU simulation method for T1 transport development:
+  `sim-gpu0` and `sim-gpu1` are modeled as separate logical hosts with explicit
+  `CUDA_VISIBLE_DEVICES` worker bindings. This unblocks milestone validation on
+  the local development machine while preserving the later requirement to rerun
+  on a real heterogeneous cluster.
+- Added `fornax.transport` for a model-free transport contract over those
+  logical hosts: endpoint registration, channel open, activation/KV/expert
+  payload enqueue/send/receive/ack lifecycle, timeout, cancel, backpressure,
+  plan-integrity reject, and per-endpoint cleanup.
+- Added `fornax transport simulate --out ...` and `fornax test
+  transport-contract`; added the golden fixture
+  `fornax/golden_vectors/transport_contract/fixture.json`; expanded
+  `make fornax-golden` to validate the transport contract with the rest of the
+  T0/T1 contract sweep.
+- The validator enforces runtime-format payload validity, two logical GPU hosts,
+  endpoint GPU bindings, channel endpoint consistency, plan/request/hash
+  propagation, bounded queue depth, timeout thresholds, terminal payload states,
+  cleanup coverage, and summary/event consistency.
+- Review-lens pass:
+  - Networking/System: approve with comments. The transport contract now
+    validates the simulated distributed data-plane semantics, but real TCP/shm,
+    RDMA, and cross-host fabric are still future hardware-tier work.
+  - Distributed Systems/Scheduler: approve. Payload lifecycle and terminal
+    states are explicit enough for scheduler/worker milestones to rely on this
+    simulated cluster without blocking on physical heterogeneity.
+  - SRE/Operations: approve with comments. The artifact is deterministic and
+    CLI-reproducible; it clearly labels simulation-only evidence and keeps the
+    real cluster validation gap visible.
+  - Testing/Quality: approve. Focused tests cover fixture validity, generated
+    logical-host bindings, plan-hash mismatch, queue overflow, missing terminal
+    ack, short timeout, and missing GPU binding rejection.
+- Verification: `python3 -m py_compile fornax/transport.py fornax/cli.py
+  tests/test_fornax_planner.py`, `python3 -m fornax test transport-contract`,
+  focused transport-contract unittests, `python3 -m fornax transport simulate
+  --out /tmp/fornax_transport_contract_cli_20260621.json --plan-id
+  cli-transport-plan --request-id cli-request --plan-hash
+  sha256:cli-transport-plan --max-queue-depth 2 --timeout-ms 50`, `python3 -m
+  fornax test transport-contract --fixture
+  /tmp/fornax_transport_contract_cli_20260621.json`, `python3 -m unittest
+  tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
+  fornax-golden`, `make fornax-test`, and `git diff --check` passed.
