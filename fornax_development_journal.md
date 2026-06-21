@@ -1000,3 +1000,37 @@
   inspection, `python3 -m unittest tests.test_fornax_planner`, `python3 -m
   compileall -q fornax tests`, `make fornax-test`, and `make fornax-golden` all
   passed.
+
+### Engine seam contract milestone
+
+- Added `fornax.engine_seam` and the golden fixture
+  `fornax/golden_vectors/engine_seam/fixture.json` for the plan v3 §5.7
+  Ignis↔Fornax LLM semantic seam. This is a Phase-0/T1 contract validator, not a
+  Phase-1 `FornaxBackend` implementation.
+- The fixture and validator cover `EngineRequest` fields for messages, tools,
+  response format, stop sequences, sampling params, max tokens, stream mode,
+  cancellation propagation, template version/hash, and tokenizer version/hash.
+  `EngineResult` and stream checks cover token chunks, finish reasons, tool calls,
+  structured output, usage accounting, error results, cancellation cleanup, and
+  hash propagation.
+- Added `fornax test engine-seam`; expanded `make fornax-golden` so the local
+  golden target now runs planner golden plans plus runtime-format, network
+  contract, and engine-seam contract checks.
+- Review-lens pass:
+  - Software Engineering: approve. The seam validator is isolated as a small
+    model-free module, has regression tests for success and failure paths, and
+    avoids importing runtime/backend concerns into Phase 0.
+  - System Engineering: approve with comments. The contract makes the
+    request/result/error/cancellation lifecycle explicit before backend work, but
+    real observability threading and backend integration remain future milestones.
+  - LLM Expertise: approve with comments. The milestone prevents tokenizer, chat
+    template, streaming, tool-call, structured-output, and cancellation semantics
+    from being assumed; model-family acceptance tests still need real backend
+    coverage after G1.
+  - Testing/Quality: approve. `make fornax-golden` now exercises all current
+    Phase-0/T1 golden contracts from one command.
+- Verification: `python3 -m py_compile fornax/engine_seam.py fornax/cli.py
+  tests/test_fornax_planner.py`, focused engine-seam tests, `python3 -m fornax
+  test network-contract`, `python3 -m fornax test engine-seam`, `python3 -m
+  unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`,
+  `make fornax-golden`, and `make fornax-test` all passed.

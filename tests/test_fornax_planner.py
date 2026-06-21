@@ -15,9 +15,13 @@ from fornax.benchmark import benchmark_from_plan, run_tiny_expert_mlp_benchmark
 from fornax.calibration import run_cpu_memory_copy_probe, run_local_calibration
 from fornax.contracts import TargetContractError, load_target_contract
 from fornax.doctor import inspect_phase0_bundle
+from fornax.engine_seam import (
+    validate_engine_seam_contract,
+    validate_engine_seam_fixture,
+)
 from fornax.golden import run_golden_plans
 from fornax.g1_review import render_g1_gate_review_draft
-from fornax.io import load_inventory, write_json
+from fornax.io import load_inventory, read_json, write_json
 from fornax.inventory import build_logical_cluster_inventory
 from fornax.inventory.local import (
     collect_local_inventory,
@@ -369,6 +373,29 @@ class FornaxPlannerTest(unittest.TestCase):
     def test_benchmark_from_plan_rejects_infeasible_plan(self) -> None:
         with self.assertRaisesRegex(ValueError, "infeasible plan"):
             benchmark_from_plan({"feasible": False, "infeasible_reason": "no fit"})
+
+    def test_engine_seam_fixture_passes(self) -> None:
+        result = validate_engine_seam_contract("fornax/golden_vectors/engine_seam")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(result["summary"]["template_hash_recorded"])
+        self.assertTrue(result["summary"]["tokenizer_hash_recorded"])
+        self.assertGreaterEqual(result["summary"]["stream_event_count"], 3)
+
+    def test_engine_seam_rejects_hash_mismatch(self) -> None:
+        fixture = read_json("fornax/golden_vectors/engine_seam/fixture.json")
+        fixture["result"]["tokenizer_hash"] = (
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        )
+        result = validate_engine_seam_fixture(fixture)
+        self.assertFalse(result["ok"])
+        self.assertIn("result.tokenizer_hash", "; ".join(result["errors"]))
+
+    def test_engine_seam_rejects_speculative_decoding_without_opt_in(self) -> None:
+        fixture = read_json("fornax/golden_vectors/engine_seam/fixture.json")
+        fixture["speculative_decoding"]["enabled"] = True
+        result = validate_engine_seam_fixture(fixture)
+        self.assertFalse(result["ok"])
+        self.assertIn("speculative decoding is out of v0", "; ".join(result["errors"]))
 
     def test_network_contract_fixture_passes(self) -> None:
         result = validate_network_contract(

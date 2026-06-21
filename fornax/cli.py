@@ -15,6 +15,7 @@ from .apple_probe import (
 from .benchmark import benchmark_from_plan
 from .calibration import run_local_calibration
 from .doctor import inspect_phase0_bundle
+from .engine_seam import validate_engine_seam_contract
 from .golden import run_golden_plans
 from .g1_review import render_g1_gate_review_draft
 from .inventory import (
@@ -536,7 +537,8 @@ def _cmd_test_runtime_format(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_network_contract(args: argparse.Namespace) -> int:
-    result = validate_network_contract(args.fixture, mode=args.mode)
+    fixture = args.fixture or "fornax/golden_vectors/network_contract"
+    result = validate_network_contract(fixture, mode=args.mode)
     if result["ok"]:
         suffix = ""
         if result["warnings"]:
@@ -547,6 +549,19 @@ def _cmd_test_network_contract(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_engine_seam(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/engine_seam"
+    result = validate_engine_seam_contract(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        print(f"PASS engine-seam: {result['fixture']}{suffix}")
+        return 0
+    print("FAIL engine-seam: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test(args: argparse.Namespace) -> int:
     if args.test_name == "golden-plans":
         return _cmd_test_golden(args)
@@ -554,6 +569,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_runtime_format(args)
     if args.test_name == "network-contract":
         return _cmd_test_network_contract(args)
+    if args.test_name == "engine-seam":
+        return _cmd_test_engine_seam(args)
     raise ValueError(args.test_name)
 
 
@@ -781,10 +798,13 @@ def build_parser() -> argparse.ArgumentParser:
     spec_substrate.set_defaults(func=_cmd_spec_substrate_adr)
 
     tests = sub.add_parser("test")
-    tests.add_argument("test_name", choices=["golden-plans", "runtime-format", "network-contract"])
+    tests.add_argument(
+        "test_name",
+        choices=["golden-plans", "runtime-format", "network-contract", "engine-seam"],
+    )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")
     tests.add_argument("--mode", default="simulated")
-    tests.add_argument("--fixture", default="fornax/golden_vectors/network_contract")
+    tests.add_argument("--fixture")
     tests.add_argument("--out")
     tests.set_defaults(func=_cmd_test)
     return parser

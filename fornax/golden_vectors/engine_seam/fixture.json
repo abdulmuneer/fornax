@@ -1,0 +1,161 @@
+{
+  "contract_kind": "engine-seam",
+  "version": 1,
+  "speculative_decoding": {
+    "enabled": false,
+    "target_contract_opt_in": false
+  },
+  "request": {
+    "request_id": "req-engine-seam-001",
+    "plan_id": "plan-phase0-fixture",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Return structured JSON and call tools when needed."
+      },
+      {
+        "role": "user",
+        "content": "Look up alpha and return a score."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "lookup_score",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ]
+          }
+        }
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "score_response",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "score"
+          ]
+        }
+      }
+    },
+    "stop": [
+      "</final>"
+    ],
+    "sampling": {
+      "temperature": 0.2,
+      "top_p": 0.95,
+      "seed": 7
+    },
+    "max_tokens": 64,
+    "stream": true,
+    "cancellation": {
+      "supported": true,
+      "propagates_to": [
+        "scheduler",
+        "workers",
+        "kv_state"
+      ]
+    },
+    "template": {
+      "name": "qwen3-chat",
+      "version": "phase0-fixture-2026-06-21",
+      "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "tokenizer": {
+      "name": "qwen3-tokenizer",
+      "version": "phase0-fixture-2026-06-21",
+      "hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "result": {
+    "request_id": "req-engine-seam-001",
+    "finish_reason": "tool_calls",
+    "content": "",
+    "tool_calls": [
+      {
+        "id": "call-001",
+        "name": "lookup_score",
+        "arguments": {
+          "key": "alpha"
+        }
+      }
+    ],
+    "structured_output": {
+      "score": 0.82
+    },
+    "usage": {
+      "prompt_tokens": 42,
+      "completion_tokens": 9,
+      "total_tokens": 51
+    },
+    "template_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tokenizer_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "stream_events": [
+    {
+      "kind": "start",
+      "request_id": "req-engine-seam-001",
+      "plan_id": "plan-phase0-fixture"
+    },
+    {
+      "kind": "token",
+      "request_id": "req-engine-seam-001",
+      "token_id": 1001,
+      "token_text": "{"
+    },
+    {
+      "kind": "tool_call_delta",
+      "request_id": "req-engine-seam-001",
+      "tool_call_id": "call-001",
+      "delta": {
+        "name": "lookup_score"
+      }
+    },
+    {
+      "kind": "structured_delta",
+      "request_id": "req-engine-seam-001",
+      "delta": {
+        "score": 0.82
+      }
+    },
+    {
+      "kind": "finish",
+      "request_id": "req-engine-seam-001",
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "cancellation_result": {
+    "request_id": "req-engine-seam-cancel",
+    "finish_reason": "cancelled",
+    "cancelled": true,
+    "cleanup": {
+      "scheduler_released": true,
+      "workers_released": true,
+      "kv_released": true
+    }
+  },
+  "error_result": {
+    "request_id": "req-engine-seam-error",
+    "finish_reason": "error",
+    "error": {
+      "code": "template_mismatch",
+      "message": "Template hash did not match the target contract."
+    }
+  }
+}
