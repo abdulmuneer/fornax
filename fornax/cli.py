@@ -64,6 +64,11 @@ from .model_support import (
 )
 from .network_contract import validate_network_contract
 from .network_security_spec import render_network_security_spec_draft
+from .pipeline_probe import (
+    parse_prompts_json,
+    run_pipeline_correctness_probe,
+    validate_pipeline_correctness_probe,
+)
 from .observability import validate_observability_contract
 from .phase0_status import render_phase0_status_report
 from .phase0_simulated_validation import run_phase0_simulated_validation
@@ -560,6 +565,52 @@ def _cmd_batching_simulate(args: argparse.Namespace) -> int:
         f"overlap={summary['overlap_observed']} "
         f"bubble={summary['bubble_fraction']:.3f} "
         f"max_wait={summary['max_wait_s']:.6f}s"
+    )
+    return 0
+
+
+def _cmd_pipeline_correctness_probe(args: argparse.Namespace) -> int:
+    try:
+        prompts = parse_prompts_json(args.prompts_json, args.vocab_size)
+        result = run_pipeline_correctness_probe(
+            backend=args.backend,
+            torch_python=args.torch_python,
+            source_device=args.source_device,
+            destination_device=args.destination_device,
+            dtype=args.dtype,
+            iterations=args.iterations,
+            warmup=args.warmup,
+            vocab_size=args.vocab_size,
+            hidden_dim=args.hidden_dim,
+            new_tokens=args.new_tokens,
+            prompts=prompts,
+            tolerance=args.tolerance,
+            logical_source_host=args.logical_source_host,
+            logical_destination_host=args.logical_destination_host,
+            timeout_s=args.timeout_s,
+        )
+    except ValueError as exc:
+        print(f"pipeline correctness-probe: {exc}")
+        return 2
+    write_json(args.out, result)
+    if not result.get("measured"):
+        print(
+            "pipeline correctness probe unavailable: "
+            f"backend={result.get('backend')} error={result.get('error')}"
+        )
+        return 2
+    validation = validate_pipeline_correctness_probe(args.out)
+    if not validation["ok"]:
+        print("pipeline correctness probe invalid: " + "; ".join(validation["errors"]))
+        return 2
+    summary = validation["summary"]
+    suffix = " accelerator" if summary.get("accelerator_measured") else " reference"
+    print(
+        "pipeline correctness probe:"
+        f"{suffix} backend={summary.get('backend')} "
+        f"{summary.get('source_device')}->{summary.get('destination_device')} "
+        f"tokens_generated={summary.get('tokens_generated')} "
+        f"max_abs_error={summary.get('max_abs_error')}"
     )
     return 0
 
@@ -1147,6 +1198,27 @@ def _cmd_test_activation_transfer_probe(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_pipeline_correctness_probe(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/pipeline_correctness"
+    result = validate_pipeline_correctness_probe(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS pipeline-correctness-probe: {fixture} "
+            f"backend={summary['backend']} "
+            f"accelerator={summary['accelerator_measured']} "
+            f"devices={summary['source_device']}->{summary['destination_device']} "
+            f"tokens_generated={summary['tokens_generated']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL pipeline-correctness-probe: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_benchmark_ledger(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/benchmark_ledger"
     result = validate_benchmark_ledger(fixture)
@@ -1206,6 +1278,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_expert_mlp_probe(args)
     if args.test_name == "activation-transfer-probe":
         return _cmd_test_activation_transfer_probe(args)
+    if args.test_name == "pipeline-correctness-probe":
+        return _cmd_test_pipeline_correctness_probe(args)
     raise ValueError(args.test_name)
 
 
@@ -1521,6 +1595,26 @@ def build_parser() -> argparse.ArgumentParser:
     batching_simulate.add_argument("--transfer-s", type=float, default=0.002)
     batching_simulate.set_defaults(func=_cmd_batching_simulate)
 
+    pipeline = sub.add_parser("pipeline")
+    pipeline_sub = pipeline.add_subparsers(dest="pipeline_command", required=True)
+    pipeline_probe = pipeline_sub.add_parser("correctness-probe")
+    pipeline_probe.add_argument("--out", required=True)
+    pipeline_probe.add_argument("--backend", choices=["cpu-stdlib", "torch"], default="cpu-stdlib")
+    pipeline_probe.add_argument("--torch-python")
+    pipeline_probe.add_argument("--source-device", default="cuda:0")
+    pipeline_probe.add_argument("--destination-device", default="cuda:1")
+    pipeline_probe.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    pipeline_probe.add_argument("--iterations", type=int, default=5)
+    pipeline_probe.add_argument("--warmup", type=int, default=1)
+    pipeline_probe.add_argument("--vocab-size", type=int, default=17)
+    pipeline_probe.add_argument("--hidden-dim", type=int, default=16)
+    pipeline_probe.add_argument("--new-tokens", type=int, default=4)
+    pipeline_probe.add_argument("--prompts-json")
+    pipeline_probe.add_argument("--tolerance", type=float, default=0.0)
+    pipeline_probe.add_argument("--logical-source-host", default="logical-host-0")
+    pipeline_probe.add_argument("--logical-destination-host", default="logical-host-1")
+    pipeline_probe.add_argument("--timeout-s", type=float, default=180.0)
+    pipeline_probe.set_defaults(func=_cmd_pipeline_correctness_probe)
 
     benchmark = sub.add_parser("benchmark")
     benchmark.add_argument("--plan", required=True)
@@ -1631,6 +1725,7 @@ def build_parser() -> argparse.ArgumentParser:
             "benchmark-ledger",
             "expert-mlp-probe",
             "activation-transfer-probe",
+            "pipeline-correctness-probe",
         ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")

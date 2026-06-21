@@ -1609,3 +1609,77 @@
   /tmp/fornax_activation_transfer_h100_pair_20260621.json`, `python3 -m
   unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`,
   `make fornax-golden`, `make fornax-test`, and `git diff --check` all passed.
+
+
+### T3 same-host pipeline-correctness simulation probe milestone
+
+- Added `fornax.pipeline_probe` for deterministic split-pipeline correctness. The
+  probe runs a tiny two-stage language-model-shaped path, transfers the stage-0
+  activation to stage 1, generates tokens, and validates generated-sequence plus
+  final-logit parity against a monolithic reference path.
+- Added `fornax pipeline correctness-probe --out ...` and `fornax test
+  pipeline-correctness-probe`; added the CPU reference golden fixture
+  `fornax/golden_vectors/pipeline_correctness/fixture.json`; expanded `make
+  fornax-golden` and `fornax program simulate-t1` so pipeline correctness is now
+  part of the regular simulated-cluster evidence path. The one-command T1 bundle
+  now validates 16 checks including `pipeline-correctness`.
+- The validator enforces measured status, generated-token parity, final-logit
+  tolerance, token/activation accounting, distinct logical hosts, source and
+  destination hardware metadata, and rejects false
+  `T3-same-host-two-gpu-simulation` claims unless the artifact is a distinct
+  CUDA source/destination pair. CPU artifacts remain valid only as reference
+  plumbing and CI-safe golden evidence.
+- Ran the lab probe on the same-host H100 logical pair with
+  `/mnt/dataprocessing/venvs/asr-data-prep/bin/python`: artifact
+  `/tmp/fornax_pipeline_correctness_h100_pair_20260621.json` records
+  `source_device=cuda:0`, `destination_device=cuda:1`, dtype `float32`,
+  `tokens_generated=160`, `tokens_s=1584.8816475543983`,
+  `activation_bytes_transferred=20480`,
+  `max_abs_error=2.384185791015625e-07`, `sequences_match=true`,
+  `correctness_passed=true`, generated sequences `[[1, 2, 3, 4, 6, 9, 13], [4,
+  5, 6, 7, 9, 12, 16]]`, H100 source/destination names, torch
+  `2.12.0+cu130`, CUDA `13.0`, and peer access true in both directions.
+- This narrows the Phase 1/G2 correctness gap for the approved simulation method:
+  we now have both measured same-host activation transfer and measured same-host
+  split-pipeline generation parity. It still does not close real multi-host T3
+  pipeline correctness, real model/tokenizer parity, aggregate concurrency
+  scaling, or MoE layer/logit parity.
+- Review-lens pass:
+  - LLM/Model Architecture: approve with comments. The probe checks generated-token
+    and logit parity for a deterministic small model, but real tokenizer/template
+    and target-model layer parity remain future work.
+  - Distributed Runtime/Scheduler: approve with comments. The artifact exercises
+    a stage boundary and activation handoff aligned with the logical-host model;
+    it is not yet a live worker process pipeline or full 1F1B scheduler path.
+  - Hardware/Networking: approve with comments. The H100 run records real
+    same-host CUDA placement and peer access; real inter-host network transport
+    remains separate T3 evidence.
+  - Low-level Software: approve. The validator prevents false accelerator claims,
+    same-device claims, sequence mismatches, and activation-accounting drift.
+  - Testing/Quality: approve. Regression tests cover CPU reference validity, false
+    T3 claims without CUDA, same CUDA source/destination rejection, generation
+    mismatch rejection, and T1 bundle integration.
+- Verification: `python3 -m py_compile fornax/pipeline_probe.py fornax/cli.py
+  fornax/t1_simulated_validation.py tests/test_fornax_planner.py`, `python3 -m
+  fornax pipeline correctness-probe --backend cpu-stdlib --out
+  fornax/golden_vectors/pipeline_correctness/fixture.json --iterations 2
+  --warmup 1 --vocab-size 17 --hidden-dim 16 --new-tokens 3 --tolerance 0.0`,
+  `python3 -m fornax test pipeline-correctness-probe`, focused pipeline
+  correctness and T1 integration tests, `python3 -m fornax pipeline
+  correctness-probe --backend torch --torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --out
+  /tmp/fornax_pipeline_correctness_h100_pair_20260621.json --source-device
+  cuda:0 --destination-device cuda:1 --dtype float32 --iterations 20 --warmup 3
+  --vocab-size 17 --hidden-dim 32 --new-tokens 4 --tolerance 0.0001
+  --timeout-s 180`, `python3 -m fornax test pipeline-correctness-probe
+  --fixture /tmp/fornax_pipeline_correctness_h100_pair_20260621.json`,
+  `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q
+  fornax tests`, `make fornax-golden`, `make fornax-test`, `python3 -m fornax
+  program simulate-t1 --out-dir
+  /tmp/fornax_t1_pipeline_correctness_validation_cli_20260621 --gpu-count 2
+  --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000
+  --link-latency-s 0.0004 --slow-node-factor 0.65 --plan-id
+  cli-t1-pipeline-plan --request-id cli-t1-pipeline-request --plan-hash
+  sha256:cli-t1-pipeline-plan --max-queue-depth 2 --max-inflight 2
+  --microbatch-size 2 --timeout-ms 50` showing 16/16 checks passed, and
+  `git diff --check` all passed.

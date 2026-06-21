@@ -24,6 +24,10 @@ from .model_support import (
 )
 from .network_contract import validate_network_contract
 from .observability import validate_observability_contract
+from .pipeline_probe import (
+    run_cpu_pipeline_correctness_probe,
+    validate_pipeline_correctness_probe_fixture,
+)
 from .runtime_format import validate_runtime_format_golden
 from .scheduler import simulate_scheduler, validate_scheduler_contract
 from .transport import (
@@ -166,6 +170,7 @@ def run_t1_simulated_validation(
     transport_path = bundle / "transport-contract.json"
     engine_path = bundle / "engine-simulation.json"
     batching_path = bundle / "continuous-batching.json"
+    pipeline_path = bundle / "pipeline-correctness.json"
     moe_path = bundle / "moe-runtime.json"
     model_support_path = bundle / "model-support-matrix.json"
     results_path = bundle / "t1-simulated-validation.json"
@@ -226,11 +231,20 @@ def run_t1_simulated_validation(
         matrix_id=f"{plan_id}-model-support",
         target_model_id="qwen3-moe-class-target",
     )
+    pipeline = run_cpu_pipeline_correctness_probe(
+        iterations=2,
+        warmup=1,
+        vocab_size=17,
+        hidden_dim=16,
+        new_tokens=3,
+        tolerance=0.0,
+    )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
     write_json(engine_path, engine)
     write_json(batching_path, batching)
+    write_json(pipeline_path, pipeline)
     write_json(moe_path, moe)
     write_json(model_support_path, model_support)
 
@@ -282,6 +296,12 @@ def run_t1_simulated_validation(
             "T1",
             validate_continuous_batching_fixture(batching),
             str(batching_path),
+        ),
+        _check(
+            "pipeline-correctness",
+            "T1",
+            validate_pipeline_correctness_probe_fixture(pipeline),
+            str(pipeline_path),
         ),
         _check(
             "moe-runtime",
@@ -339,6 +359,7 @@ def run_t1_simulated_validation(
             "transport_contract": str(transport_path),
             "engine_simulation": str(engine_path),
             "continuous_batching": str(batching_path),
+            "pipeline_correctness": str(pipeline_path),
             "moe_runtime": str(moe_path),
             "model_support_matrix": str(model_support_path),
             "validation": str(results_path),

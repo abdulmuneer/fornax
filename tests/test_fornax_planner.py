@@ -67,6 +67,10 @@ from fornax.model_support import (
     validate_model_support_matrix_fixture,
 )
 from fornax.network_security_spec import render_network_security_spec_draft
+from fornax.pipeline_probe import (
+    run_cpu_pipeline_correctness_probe,
+    validate_pipeline_correctness_probe_fixture,
+)
 from fornax.observability import (
     validate_observability_contract,
     validate_observability_fixture,
@@ -571,6 +575,69 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("correctness_passed", "; ".join(result["errors"]))
 
+
+    def test_cpu_pipeline_correctness_probe_validates_reference_not_accelerator(self) -> None:
+        artifact = run_cpu_pipeline_correctness_probe(iterations=1, new_tokens=2)
+        result = validate_pipeline_correctness_probe_fixture(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(artifact["result"]["sequences_match"])
+        self.assertFalse(artifact["accelerator_measured"])
+        self.assertIn("not accelerator evidence", "; ".join(result["warnings"]))
+
+    def test_pipeline_correctness_probe_rejects_false_t3_claim_without_cuda(self) -> None:
+        artifact = run_cpu_pipeline_correctness_probe(iterations=1, new_tokens=2)
+        artifact["tier"] = "T3-same-host-two-gpu-simulation"
+        artifact["accelerator_measured"] = True
+        result = validate_pipeline_correctness_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("hardware.device_type must be cuda-pipeline", text)
+        self.assertIn("config.source_device must be cuda:<index>", text)
+        self.assertIn("cpu-stdlib backend cannot be accelerator_measured", text)
+
+    def test_pipeline_correctness_probe_rejects_same_cuda_pair_claim(self) -> None:
+        artifact = run_cpu_pipeline_correctness_probe(iterations=1, new_tokens=2)
+        artifact["tier"] = "T3-same-host-two-gpu-simulation"
+        artifact["backend"] = "torch"
+        artifact["accelerator_measured"] = True
+        artifact["source"] = "fornax.pipeline_probe.torch_pipeline_correctness"
+        artifact["config"].update(
+            {
+                "source_device": "cuda:0",
+                "destination_device": "cuda:0",
+                "dtype": "float32",
+            }
+        )
+        artifact["environment"]["torch_version"] = "test-torch"
+        artifact["hardware"] = {
+            "device_type": "cuda-pipeline",
+            "source_device": "cuda:0",
+            "destination_device": "cuda:0",
+            "source_name": "test-gpu",
+            "destination_name": "test-gpu",
+            "source_total_memory_bytes": 1024,
+            "destination_total_memory_bytes": 1024,
+            "same_physical_host": True,
+            "logical_hosts": ["logical-host-0", "logical-host-1"],
+        }
+        result = validate_pipeline_correctness_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "config.source_device and config.destination_device must differ",
+            "; ".join(result["errors"]),
+        )
+
+    def test_pipeline_correctness_probe_rejects_generation_mismatch(self) -> None:
+        artifact = run_cpu_pipeline_correctness_probe(iterations=1, new_tokens=2)
+        artifact["result"]["generated_sequences"][0][-1] += 1
+        artifact["result"]["sequences_match"] = False
+        artifact["result"]["correctness_passed"] = False
+        result = validate_pipeline_correctness_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("sequences_match", text)
+        self.assertIn("generated_sequences must match", text)
+
     def test_tiny_expert_mlp_benchmark_records_measurement(self) -> None:
         result = run_tiny_expert_mlp_benchmark(
             iterations=1, batch_tokens=2, hidden_dim=4, intermediate_dim=6
@@ -812,8 +879,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(15, result["summary"]["check_count"])
-        self.assertEqual(15, result["summary"]["passed_count"])
+        self.assertEqual(16, result["summary"]["check_count"])
+        self.assertEqual(16, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -823,6 +890,7 @@ class FornaxPlannerTest(unittest.TestCase):
         })
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("continuous-batching", {check["name"] for check in validation["checks"]})
+        self.assertIn("pipeline-correctness", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
         self.assertIn("model-support", {check["name"] for check in validation["checks"]})
         self.assertIn("transport-contract", {check["name"] for check in validation["checks"]})

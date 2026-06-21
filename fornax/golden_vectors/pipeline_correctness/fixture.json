@@ -1,0 +1,107 @@
+{
+  "accelerator_measured": false,
+  "available": true,
+  "backend": "cpu-stdlib",
+  "config": {
+    "activation_payload_bytes": 256,
+    "destination_device": "cpu",
+    "dtype": "float64-reference",
+    "hidden_dim": 16,
+    "iterations": 2,
+    "logical_destination_host": "logical-host-1",
+    "logical_source_host": "logical-host-0",
+    "new_tokens": 3,
+    "prompt_count": 2,
+    "prompts": [
+      [
+        1,
+        2,
+        3
+      ],
+      [
+        4,
+        5,
+        6
+      ]
+    ],
+    "source_device": "cpu",
+    "tolerance": 0.0,
+    "vocab_size": 17,
+    "warmup": 1
+  },
+  "environment": {
+    "cpu_count": 208,
+    "machine": "x86_64",
+    "platform": "Linux-6.6.113+-x86_64-with-glibc2.39",
+    "python_executable": "/usr/bin/python3",
+    "python_version": "3.12.3"
+  },
+  "hardware": {
+    "destination_device": "cpu",
+    "destination_name": "x86_64",
+    "device_type": "cpu-pipeline",
+    "logical_hosts": [
+      "logical-host-0",
+      "logical-host-1"
+    ],
+    "same_physical_host": true,
+    "source_device": "cpu",
+    "source_name": "x86_64"
+  },
+  "measured": true,
+  "note": "CPU reference split-pipeline correctness probe. Validates generated-token and final-logit parity for a deterministic small model, but is not T3 accelerator evidence.",
+  "probe_kind": "pipeline-correctness-probe",
+  "result": {
+    "activation_bytes_transferred": 1536,
+    "activation_transfers": 6,
+    "correctness_passed": true,
+    "elapsed_ns": 769040,
+    "elapsed_s": 0.00076904,
+    "generated_sequences": [
+      [
+        1,
+        2,
+        3,
+        4,
+        6,
+        9
+      ],
+      [
+        4,
+        5,
+        6,
+        7,
+        9,
+        12
+      ]
+    ],
+    "logit_checksum": 202.37266554398983,
+    "max_abs_error": 0.0,
+    "reference_generated_sequences": [
+      [
+        1,
+        2,
+        3,
+        4,
+        6,
+        9
+      ],
+      [
+        4,
+        5,
+        6,
+        7,
+        9,
+        12
+      ]
+    ],
+    "reference_logit_checksum": 202.37266554398983,
+    "sequences_match": true,
+    "timing_method": "perf_counter_ns_cpu_split_pipeline",
+    "tokens_generated": 12,
+    "tokens_s": 15603.869759700405
+  },
+  "source": "fornax.pipeline_probe.cpu_pipeline_correctness.stdlib",
+  "tier": "T0/T1-reference",
+  "version": 1
+}
