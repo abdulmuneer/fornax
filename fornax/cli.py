@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from .accelerator_probe import (
+    run_activation_transfer_probe,
     run_expert_mlp_probe,
+    validate_activation_transfer_probe,
     validate_expert_mlp_probe,
 )
 from .apple_probe import (
@@ -115,6 +117,49 @@ def _cmd_accelerator_expert_mlp_probe(args: argparse.Namespace) -> int:
         f"{suffix} backend={summary.get('backend')} device={summary.get('device')} "
         f"tokens_s={summary.get('tokens_s'):.3f} "
         f"max_abs_error={summary.get('max_abs_error')}"
+    )
+    return 0
+
+
+
+def _cmd_accelerator_activation_transfer_probe(args: argparse.Namespace) -> int:
+    try:
+        result = run_activation_transfer_probe(
+            backend=args.backend,
+            torch_python=args.torch_python,
+            source_device=args.source_device,
+            destination_device=args.destination_device,
+            dtype=args.dtype,
+            iterations=args.iterations,
+            warmup=args.warmup,
+            payload_bytes=args.payload_mib * 1024 * 1024,
+            tolerance=args.tolerance,
+            logical_source_host=args.logical_source_host,
+            logical_destination_host=args.logical_destination_host,
+            timeout_s=args.timeout_s,
+        )
+    except ValueError as exc:
+        print(f"accelerator activation-transfer-probe: {exc}")
+        return 2
+    write_json(args.out, result)
+    if not result.get("measured"):
+        print(
+            "activation-transfer probe unavailable: "
+            f"backend={result.get('backend')} error={result.get('error')}"
+        )
+        return 2
+    validation = validate_activation_transfer_probe(args.out)
+    if not validation["ok"]:
+        print("activation-transfer probe invalid: " + "; ".join(validation["errors"]))
+        return 2
+    summary = validation["summary"]
+    suffix = " accelerator" if summary.get("accelerator_measured") else " reference"
+    print(
+        "activation-transfer probe:"
+        f"{suffix} backend={summary.get('backend')} "
+        f"{summary.get('source_device')}->{summary.get('destination_device')} "
+        f"bandwidth_gib_s={summary.get('bandwidth_gib_s'):.3f} "
+        f"latency_s={summary.get('latency_s_per_transfer'):.6f}"
     )
     return 0
 
@@ -1078,6 +1123,30 @@ def _cmd_test_expert_mlp_probe(args: argparse.Namespace) -> int:
     return 1
 
 
+
+def _cmd_test_activation_transfer_probe(args: argparse.Namespace) -> int:
+    if not args.fixture:
+        print("FAIL activation-transfer-probe: --fixture is required")
+        return 1
+    result = validate_activation_transfer_probe(args.fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS activation-transfer-probe: {args.fixture} "
+            f"backend={summary['backend']} "
+            f"accelerator={summary['accelerator_measured']} "
+            f"devices={summary['source_device']}->{summary['destination_device']} "
+            f"bandwidth_gib_s={summary['bandwidth_gib_s']:.3f}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL activation-transfer-probe: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_benchmark_ledger(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/benchmark_ledger"
     result = validate_benchmark_ledger(fixture)
@@ -1135,6 +1204,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_benchmark_ledger(args)
     if args.test_name == "expert-mlp-probe":
         return _cmd_test_expert_mlp_probe(args)
+    if args.test_name == "activation-transfer-probe":
+        return _cmd_test_activation_transfer_probe(args)
     raise ValueError(args.test_name)
 
 
@@ -1162,6 +1233,22 @@ def build_parser() -> argparse.ArgumentParser:
     expert_probe.add_argument("--tolerance", type=float, default=0.1)
     expert_probe.add_argument("--timeout-s", type=float, default=180.0)
     expert_probe.set_defaults(func=_cmd_accelerator_expert_mlp_probe)
+
+    transfer_probe = accelerator_sub.add_parser("activation-transfer-probe")
+    transfer_probe.add_argument("--out", required=True)
+    transfer_probe.add_argument("--backend", choices=["cpu-stdlib", "torch"], default="torch")
+    transfer_probe.add_argument("--torch-python")
+    transfer_probe.add_argument("--source-device", default="cuda:0")
+    transfer_probe.add_argument("--destination-device", default="cuda:1")
+    transfer_probe.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float16")
+    transfer_probe.add_argument("--iterations", type=int, default=20)
+    transfer_probe.add_argument("--warmup", type=int, default=3)
+    transfer_probe.add_argument("--payload-mib", type=int, default=16)
+    transfer_probe.add_argument("--tolerance", type=float, default=0.0)
+    transfer_probe.add_argument("--logical-source-host", default="logical-host-0")
+    transfer_probe.add_argument("--logical-destination-host", default="logical-host-1")
+    transfer_probe.add_argument("--timeout-s", type=float, default=180.0)
+    transfer_probe.set_defaults(func=_cmd_accelerator_activation_transfer_probe)
 
     calibrate = sub.add_parser("calibrate")
     calibrate_sub = calibrate.add_subparsers(dest="calibrate_command", required=True)
@@ -1543,6 +1630,7 @@ def build_parser() -> argparse.ArgumentParser:
             "backend-coverage",
             "benchmark-ledger",
             "expert-mlp-probe",
+            "activation-transfer-probe",
         ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")

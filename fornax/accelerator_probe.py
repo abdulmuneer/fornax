@@ -14,6 +14,7 @@ from .io import read_json
 
 
 PROBE_KIND = "expert-mlp-accelerator-probe"
+ACTIVATION_TRANSFER_PROBE_KIND = "activation-transfer-probe"
 BACKENDS = {"cpu-stdlib", "torch"}
 DTYPES = {"float32", "float16", "bfloat16"}
 
@@ -53,6 +54,21 @@ def _validate_config(
     if top_k > experts:
         raise ValueError("top_k cannot exceed experts")
     _positive_number("tolerance", tolerance)
+
+
+def _validate_transfer_config(
+    *,
+    iterations: int,
+    warmup: int,
+    payload_bytes: int,
+    tolerance: float,
+) -> None:
+    _positive_int("iterations", iterations)
+    if isinstance(warmup, bool) or not isinstance(warmup, int) or warmup < 0:
+        raise ValueError("warmup must be a non-negative integer")
+    _positive_int("payload_bytes", payload_bytes)
+    if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or tolerance < 0:
+        raise ValueError("tolerance must be a non-negative number")
 
 
 def _input_value(token: int, dim: int) -> float:
@@ -626,6 +642,457 @@ def run_expert_mlp_probe(
     )
 
 
+
+def _byte_checksum(payload: bytes) -> float:
+    sample = payload[:4096]
+    return float(sum((index + 1) * value for index, value in enumerate(sample)))
+
+
+def run_cpu_activation_transfer_probe(
+    *,
+    iterations: int = 10,
+    warmup: int = 1,
+    payload_bytes: int = 4096,
+    tolerance: float = 0.0,
+    logical_source_host: str = "logical-host-0",
+    logical_destination_host: str = "logical-host-1",
+) -> dict[str, Any]:
+    """Run a CPU byte-copy reference for activation-transfer validation plumbing."""
+
+    _validate_transfer_config(
+        iterations=iterations,
+        warmup=warmup,
+        payload_bytes=payload_bytes,
+        tolerance=tolerance,
+    )
+    if not logical_source_host or not logical_destination_host:
+        raise ValueError("logical host names must be non-empty")
+    source = bytes(index % 251 for index in range(payload_bytes))
+    destination = source
+    for _ in range(warmup):
+        destination = bytes(bytearray(source))
+    started_ns = time.perf_counter_ns()
+    for _ in range(iterations):
+        destination = bytes(bytearray(source))
+    elapsed_ns = time.perf_counter_ns() - started_ns
+    elapsed_s = elapsed_ns / 1_000_000_000.0
+    max_abs_error = 0.0 if destination == source else 1.0
+    bytes_transferred = iterations * payload_bytes
+    return {
+        "version": 1,
+        "probe_kind": ACTIVATION_TRANSFER_PROBE_KIND,
+        "tier": "T0/T1-reference",
+        "measured": True,
+        "accelerator_measured": False,
+        "backend": "cpu-stdlib",
+        "available": True,
+        "source": "fornax.accelerator_probe.cpu_activation_transfer.stdlib",
+        "config": {
+            "iterations": iterations,
+            "warmup": warmup,
+            "payload_bytes": payload_bytes,
+            "effective_payload_bytes": payload_bytes,
+            "source_device": "cpu",
+            "destination_device": "cpu",
+            "logical_source_host": logical_source_host,
+            "logical_destination_host": logical_destination_host,
+            "dtype": "bytes-reference",
+            "tolerance": tolerance,
+        },
+        "result": {
+            "elapsed_s": elapsed_s,
+            "elapsed_ns": elapsed_ns,
+            "transfers": iterations,
+            "bytes_transferred": bytes_transferred,
+            "bandwidth_bytes_s": bytes_transferred / elapsed_s if elapsed_s > 0 else None,
+            "bandwidth_gib_s": (bytes_transferred / elapsed_s) / (1024.0**3)
+            if elapsed_s > 0
+            else None,
+            "latency_s_per_transfer": elapsed_s / iterations,
+            "checksum": _byte_checksum(destination),
+            "reference_checksum": _byte_checksum(source),
+            "max_abs_error": max_abs_error,
+            "correctness_passed": max_abs_error <= tolerance,
+            "timing_method": "perf_counter_ns_cpu_byte_copy",
+        },
+        "environment": {
+            "python_executable": sys.executable,
+            "python_version": sys.version.split()[0],
+            "platform": platform.platform(),
+            "machine": platform.machine(),
+            "cpu_count": os.cpu_count(),
+        },
+        "hardware": {
+            "device_type": "cpu",
+            "source_device": "cpu",
+            "destination_device": "cpu",
+            "source_name": platform.processor() or platform.machine(),
+            "destination_name": platform.processor() or platform.machine(),
+            "same_physical_host": True,
+            "logical_hosts": [logical_source_host, logical_destination_host],
+        },
+        "note": (
+            "CPU reference activation-transfer probe for validation plumbing; "
+            "not accelerator, NVLink, or multi-host T3 evidence."
+        ),
+    }
+
+
+def _external_activation_transfer_torch_script() -> str:
+    return r"""
+import json
+import os
+import platform
+import re
+import sys
+import time
+
+iterations = int(sys.argv[1])
+warmup = int(sys.argv[2])
+payload_bytes = int(sys.argv[3])
+source_device_name = sys.argv[4]
+destination_device_name = sys.argv[5]
+dtype_name = sys.argv[6]
+tolerance = float(sys.argv[7])
+logical_source_host = sys.argv[8]
+logical_destination_host = sys.argv[9]
+
+probe_kind = "activation-transfer-probe"
+tier = "T3-same-host-two-gpu-simulation"
+
+
+def emit_unavailable(error):
+    print(json.dumps({
+        "version": 1,
+        "probe_kind": probe_kind,
+        "tier": tier,
+        "measured": False,
+        "accelerator_measured": False,
+        "backend": "torch",
+        "available": False,
+        "source": "fornax.accelerator_probe.torch_activation_transfer",
+        "error": error,
+        "environment": {"python_executable": sys.executable},
+    }))
+
+
+try:
+    import torch
+except Exception as exc:
+    emit_unavailable(f"torch import failed: {type(exc).__name__}: {exc}")
+    raise SystemExit(0)
+
+if dtype_name == "float32":
+    dtype = torch.float32
+elif dtype_name == "float16":
+    dtype = torch.float16
+elif dtype_name == "bfloat16":
+    dtype = torch.bfloat16
+else:
+    emit_unavailable(f"unsupported dtype: {dtype_name}")
+    raise SystemExit(0)
+
+if not torch.cuda.is_available():
+    emit_unavailable("torch.cuda.is_available() is false")
+    raise SystemExit(0)
+
+
+def cuda_index(name):
+    match = re.fullmatch(r"cuda:(\d+)", name)
+    if not match:
+        raise ValueError(f"device must be cuda:<index>: {name}")
+    return int(match.group(1))
+
+try:
+    source_index = cuda_index(source_device_name)
+    destination_index = cuda_index(destination_device_name)
+    if source_index == destination_index:
+        raise ValueError("source and destination CUDA devices must differ")
+    device_count = int(torch.cuda.device_count())
+    if source_index >= device_count or destination_index >= device_count:
+        raise ValueError(
+            f"device index out of range for cuda_device_count={device_count}: "
+            f"{source_index}->{destination_index}"
+        )
+    source_device = torch.device(source_device_name)
+    destination_device = torch.device(destination_device_name)
+except Exception as exc:
+    emit_unavailable(f"device setup failed: {type(exc).__name__}: {exc}")
+    raise SystemExit(0)
+
+element_size = int(torch.tensor([], dtype=dtype).element_size())
+elements = max(1, payload_bytes // element_size)
+effective_payload_bytes = int(elements * element_size)
+
+try:
+    p2p_source_to_destination = bool(
+        torch.cuda.can_device_access_peer(source_index, destination_index)
+    )
+    p2p_destination_to_source = bool(
+        torch.cuda.can_device_access_peer(destination_index, source_index)
+    )
+except Exception:
+    p2p_source_to_destination = None
+    p2p_destination_to_source = None
+
+with torch.no_grad():
+    torch.cuda.set_device(source_device)
+    pattern = torch.arange(elements, device=source_device, dtype=torch.float32)
+    pattern = torch.remainder(pattern, 251).to(dtype=dtype)
+    reference_cpu = pattern.detach().cpu().float()
+    destination_tensor = None
+    for _ in range(warmup):
+        destination_tensor = pattern.to(destination_device, non_blocking=False)
+    torch.cuda.synchronize(source_device)
+    torch.cuda.synchronize(destination_device)
+    started = time.perf_counter()
+    for _ in range(iterations):
+        destination_tensor = pattern.to(destination_device, non_blocking=False)
+    torch.cuda.synchronize(source_device)
+    torch.cuda.synchronize(destination_device)
+    elapsed_s = time.perf_counter() - started
+    if destination_tensor is None:
+        destination_tensor = pattern.to(destination_device, non_blocking=False)
+    destination_cpu = destination_tensor.detach().cpu().float()
+    max_abs_error = float((destination_cpu - reference_cpu).abs().max().item())
+    correctness_passed = bool(max_abs_error <= tolerance)
+    checksum = float(destination_cpu.sum().item())
+    reference_checksum = float(reference_cpu.sum().item())
+
+bytes_transferred = int(iterations * effective_payload_bytes)
+source_props = torch.cuda.get_device_properties(source_device)
+destination_props = torch.cuda.get_device_properties(destination_device)
+
+print(json.dumps({
+    "version": 1,
+    "probe_kind": probe_kind,
+    "tier": tier,
+    "measured": True,
+    "accelerator_measured": True,
+    "backend": "torch",
+    "available": True,
+    "source": "fornax.accelerator_probe.torch_activation_transfer",
+    "config": {
+        "iterations": iterations,
+        "warmup": warmup,
+        "payload_bytes": payload_bytes,
+        "effective_payload_bytes": effective_payload_bytes,
+        "source_device": source_device_name,
+        "destination_device": destination_device_name,
+        "logical_source_host": logical_source_host,
+        "logical_destination_host": logical_destination_host,
+        "dtype": dtype_name,
+        "tolerance": tolerance,
+    },
+    "result": {
+        "elapsed_s": elapsed_s,
+        "elapsed_ns": int(elapsed_s * 1000000000),
+        "transfers": iterations,
+        "bytes_transferred": bytes_transferred,
+        "bandwidth_bytes_s": bytes_transferred / elapsed_s if elapsed_s > 0 else None,
+        "bandwidth_gib_s": (bytes_transferred / elapsed_s) / (1024.0 ** 3) if elapsed_s > 0 else None,
+        "latency_s_per_transfer": elapsed_s / iterations,
+        "checksum": checksum,
+        "reference_checksum": reference_checksum,
+        "max_abs_error": max_abs_error,
+        "correctness_passed": correctness_passed,
+        "timing_method": "perf_counter_cuda_synchronize_wall_time",
+    },
+    "environment": {
+        "python_executable": sys.executable,
+        "python_version": sys.version.split()[0],
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "cpu_count": os.cpu_count(),
+        "torch_version": getattr(torch, "__version__", "unknown"),
+        "cuda_available": bool(torch.cuda.is_available()),
+        "cuda_device_count": int(torch.cuda.device_count()),
+        "cuda_version": getattr(torch.version, "cuda", None),
+    },
+    "hardware": {
+        "device_type": "cuda-pair",
+        "source_device": source_device_name,
+        "destination_device": destination_device_name,
+        "source_index": source_index,
+        "destination_index": destination_index,
+        "source_name": torch.cuda.get_device_name(source_device),
+        "destination_name": torch.cuda.get_device_name(destination_device),
+        "source_total_memory_bytes": int(source_props.total_memory),
+        "destination_total_memory_bytes": int(destination_props.total_memory),
+        "peer_access": {
+            "source_to_destination": p2p_source_to_destination,
+            "destination_to_source": p2p_destination_to_source,
+        },
+        "same_physical_host": True,
+        "logical_hosts": [logical_source_host, logical_destination_host],
+    },
+    "note": (
+        "Measured same-host two-GPU activation transfer. Treats local GPUs as "
+        "logical hosts for development simulation; not proof of a real multi-host "
+        "T3 cluster or end-to-end pipeline generation."
+    ),
+}))
+"""
+
+
+def run_torch_activation_transfer_probe(
+    *,
+    torch_python: str | None = None,
+    source_device: str = "cuda:0",
+    destination_device: str = "cuda:1",
+    dtype: str = "float16",
+    iterations: int = 20,
+    warmup: int = 3,
+    payload_bytes: int = 16 * 1024 * 1024,
+    tolerance: float = 0.0,
+    logical_source_host: str = "logical-host-0",
+    logical_destination_host: str = "logical-host-1",
+    timeout_s: float = 180.0,
+) -> dict[str, Any]:
+    """Run an activation-copy probe in a torch-capable Python process."""
+
+    _validate_transfer_config(
+        iterations=iterations,
+        warmup=warmup,
+        payload_bytes=payload_bytes,
+        tolerance=tolerance,
+    )
+    if dtype not in DTYPES:
+        raise ValueError(f"dtype must be one of {sorted(DTYPES)}")
+    if not logical_source_host or not logical_destination_host:
+        raise ValueError("logical host names must be non-empty")
+    _positive_number("timeout_s", timeout_s)
+    python = torch_python or sys.executable
+    try:
+        result = subprocess.run(
+            [
+                python,
+                "-c",
+                _external_activation_transfer_torch_script(),
+                str(iterations),
+                str(warmup),
+                str(payload_bytes),
+                source_device,
+                destination_device,
+                dtype,
+                str(tolerance),
+                logical_source_host,
+                logical_destination_host,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "version": 1,
+            "probe_kind": ACTIVATION_TRANSFER_PROBE_KIND,
+            "tier": "T3-same-host-two-gpu-simulation",
+            "measured": False,
+            "accelerator_measured": False,
+            "backend": "torch",
+            "available": False,
+            "source": "fornax.accelerator_probe.torch_activation_transfer",
+            "error": f"torch activation-transfer probe failed to launch: {type(exc).__name__}: {exc}",
+            "environment": {"python_executable": python},
+        }
+    stdout = result.stdout.strip()
+    if result.returncode != 0:
+        return {
+            "version": 1,
+            "probe_kind": ACTIVATION_TRANSFER_PROBE_KIND,
+            "tier": "T3-same-host-two-gpu-simulation",
+            "measured": False,
+            "accelerator_measured": False,
+            "backend": "torch",
+            "available": False,
+            "source": "fornax.accelerator_probe.torch_activation_transfer",
+            "returncode": result.returncode,
+            "stdout": stdout[-2000:],
+            "stderr": result.stderr.strip()[-2000:],
+            "error": "torch activation-transfer probe exited nonzero",
+            "environment": {"python_executable": python},
+        }
+    try:
+        data = json.loads(stdout.splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        return {
+            "version": 1,
+            "probe_kind": ACTIVATION_TRANSFER_PROBE_KIND,
+            "tier": "T3-same-host-two-gpu-simulation",
+            "measured": False,
+            "accelerator_measured": False,
+            "backend": "torch",
+            "available": False,
+            "source": "fornax.accelerator_probe.torch_activation_transfer",
+            "stdout": stdout[-2000:],
+            "stderr": result.stderr.strip()[-2000:],
+            "error": f"torch activation-transfer probe did not emit JSON: {exc}",
+            "environment": {"python_executable": python},
+        }
+    if not isinstance(data, dict):
+        return {
+            "version": 1,
+            "probe_kind": ACTIVATION_TRANSFER_PROBE_KIND,
+            "tier": "T3-same-host-two-gpu-simulation",
+            "measured": False,
+            "accelerator_measured": False,
+            "backend": "torch",
+            "available": False,
+            "source": "fornax.accelerator_probe.torch_activation_transfer",
+            "error": "torch activation-transfer probe JSON was not an object",
+            "environment": {"python_executable": python},
+        }
+    data.setdefault("source", "fornax.accelerator_probe.torch_activation_transfer")
+    data.setdefault("backend", "torch")
+    data.setdefault("environment", {})
+    if isinstance(data["environment"], dict):
+        data["environment"].setdefault("python_executable", python)
+    return data
+
+
+def run_activation_transfer_probe(
+    *,
+    backend: str = "torch",
+    torch_python: str | None = None,
+    source_device: str = "cuda:0",
+    destination_device: str = "cuda:1",
+    dtype: str = "float16",
+    iterations: int = 20,
+    warmup: int = 3,
+    payload_bytes: int = 16 * 1024 * 1024,
+    tolerance: float = 0.0,
+    logical_source_host: str = "logical-host-0",
+    logical_destination_host: str = "logical-host-1",
+    timeout_s: float = 180.0,
+) -> dict[str, Any]:
+    if backend not in BACKENDS:
+        raise ValueError(f"backend must be one of {sorted(BACKENDS)}")
+    if backend == "cpu-stdlib":
+        return run_cpu_activation_transfer_probe(
+            iterations=iterations,
+            warmup=warmup,
+            payload_bytes=payload_bytes,
+            tolerance=tolerance,
+            logical_source_host=logical_source_host,
+            logical_destination_host=logical_destination_host,
+        )
+    return run_torch_activation_transfer_probe(
+        torch_python=torch_python,
+        source_device=source_device,
+        destination_device=destination_device,
+        dtype=dtype,
+        iterations=iterations,
+        warmup=warmup,
+        payload_bytes=payload_bytes,
+        tolerance=tolerance,
+        logical_source_host=logical_source_host,
+        logical_destination_host=logical_destination_host,
+        timeout_s=timeout_s,
+    )
+
+
 def _non_empty_string(value: Any, field: str, errors: list[str]) -> str | None:
     if not isinstance(value, str) or not value:
         errors.append(f"{field} must be a non-empty string")
@@ -791,5 +1258,234 @@ def validate_expert_mlp_probe(path: str | Path) -> dict[str, Any]:
             "fixture": str(path),
         }
     result = validate_expert_mlp_probe_fixture(data)
+    result["fixture"] = str(path)
+    return result
+
+
+
+def _cuda_device_name(value: str | None) -> bool:
+    if not isinstance(value, str):
+        return False
+    return value.startswith("cuda:") and value[5:].isdigit()
+
+
+def validate_activation_transfer_probe_fixture(data: dict[str, Any]) -> dict[str, Any]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    if data.get("version") != 1:
+        errors.append("version must be 1")
+    if data.get("probe_kind") != ACTIVATION_TRANSFER_PROBE_KIND:
+        errors.append(f"probe_kind must be {ACTIVATION_TRANSFER_PROBE_KIND}")
+    tier = _non_empty_string(data.get("tier"), "tier", errors)
+    backend = _non_empty_string(data.get("backend"), "backend", errors)
+    if backend is not None and backend not in BACKENDS:
+        errors.append(f"backend must be one of {sorted(BACKENDS)}")
+    measured = data.get("measured")
+    if not isinstance(measured, bool):
+        errors.append("measured must be a boolean")
+    accelerator_measured = data.get("accelerator_measured")
+    if not isinstance(accelerator_measured, bool):
+        errors.append("accelerator_measured must be a boolean")
+    _non_empty_string(data.get("source"), "source", errors)
+
+    config = data.get("config")
+    if not isinstance(config, dict):
+        errors.append("config must be an object")
+        config = {}
+    iterations = _positive_int_field(config.get("iterations"), "config.iterations", errors)
+    payload_bytes = _positive_int_field(
+        config.get("payload_bytes"), "config.payload_bytes", errors
+    )
+    effective_payload_bytes = _positive_int_field(
+        config.get("effective_payload_bytes"),
+        "config.effective_payload_bytes",
+        errors,
+    )
+    _non_negative_number_field(config.get("tolerance"), "config.tolerance", errors)
+    dtype = _non_empty_string(config.get("dtype"), "config.dtype", errors)
+    if backend == "torch" and dtype is not None and dtype not in DTYPES:
+        errors.append(f"config.dtype must be one of {sorted(DTYPES)}")
+    source_device = _non_empty_string(
+        config.get("source_device"), "config.source_device", errors
+    )
+    destination_device = _non_empty_string(
+        config.get("destination_device"), "config.destination_device", errors
+    )
+    logical_source_host = _non_empty_string(
+        config.get("logical_source_host"), "config.logical_source_host", errors
+    )
+    logical_destination_host = _non_empty_string(
+        config.get("logical_destination_host"),
+        "config.logical_destination_host",
+        errors,
+    )
+    if logical_source_host == logical_destination_host and logical_source_host is not None:
+        errors.append("config.logical_source_host must differ from logical_destination_host")
+    if payload_bytes is not None and effective_payload_bytes is not None:
+        if effective_payload_bytes > payload_bytes:
+            errors.append("config.effective_payload_bytes cannot exceed config.payload_bytes")
+
+    result = data.get("result")
+    if not isinstance(result, dict):
+        if measured:
+            errors.append("result must be an object for measured probes")
+        result = {}
+    if measured:
+        transfers = _positive_int_field(result.get("transfers"), "result.transfers", errors)
+        bytes_transferred = _positive_int_field(
+            result.get("bytes_transferred"), "result.bytes_transferred", errors
+        )
+        _positive_number_field(result.get("elapsed_s"), "result.elapsed_s", errors)
+        _positive_number_field(
+            result.get("bandwidth_bytes_s"), "result.bandwidth_bytes_s", errors
+        )
+        _positive_number_field(
+            result.get("bandwidth_gib_s"), "result.bandwidth_gib_s", errors
+        )
+        _positive_number_field(
+            result.get("latency_s_per_transfer"),
+            "result.latency_s_per_transfer",
+            errors,
+        )
+        _number_field(result.get("checksum"), "result.checksum", errors)
+        _number_field(
+            result.get("reference_checksum"), "result.reference_checksum", errors
+        )
+        _non_negative_number_field(result.get("max_abs_error"), "result.max_abs_error", errors)
+        _non_empty_string(result.get("timing_method"), "result.timing_method", errors)
+        if result.get("correctness_passed") is not True:
+            errors.append("result.correctness_passed must be true for measured probe evidence")
+        if iterations is not None and transfers is not None and transfers != iterations:
+            errors.append("result.transfers must equal config.iterations")
+        if (
+            iterations is not None
+            and effective_payload_bytes is not None
+            and bytes_transferred is not None
+            and bytes_transferred != iterations * effective_payload_bytes
+        ):
+            errors.append(
+                "result.bytes_transferred must equal iterations * effective_payload_bytes"
+            )
+    else:
+        _non_empty_string(data.get("error"), "error", errors)
+
+    environment = data.get("environment")
+    if not isinstance(environment, dict):
+        errors.append("environment must be an object")
+        environment = {}
+    _non_empty_string(environment.get("python_executable"), "environment.python_executable", errors)
+    if backend == "torch" and measured:
+        _non_empty_string(environment.get("torch_version"), "environment.torch_version", errors)
+
+    hardware = data.get("hardware")
+    if measured:
+        if not isinstance(hardware, dict):
+            errors.append("hardware must be an object for measured probes")
+            hardware = {}
+        device_type = _non_empty_string(hardware.get("device_type"), "hardware.device_type", errors)
+        hardware_source_device = _non_empty_string(
+            hardware.get("source_device"), "hardware.source_device", errors
+        )
+        hardware_destination_device = _non_empty_string(
+            hardware.get("destination_device"), "hardware.destination_device", errors
+        )
+        _non_empty_string(hardware.get("source_name"), "hardware.source_name", errors)
+        _non_empty_string(
+            hardware.get("destination_name"), "hardware.destination_name", errors
+        )
+        if hardware.get("same_physical_host") is not True:
+            errors.append("hardware.same_physical_host must be true for this simulation probe")
+        logical_hosts = hardware.get("logical_hosts")
+        if not isinstance(logical_hosts, list) or len(logical_hosts) != 2:
+            errors.append("hardware.logical_hosts must contain two logical host names")
+        if source_device is not None and hardware_source_device != source_device:
+            errors.append("hardware.source_device must match config.source_device")
+        if destination_device is not None and hardware_destination_device != destination_device:
+            errors.append("hardware.destination_device must match config.destination_device")
+        if accelerator_measured:
+            if tier != "T3-same-host-two-gpu-simulation":
+                errors.append(
+                    "accelerator activation-transfer probes must use "
+                    "T3-same-host-two-gpu-simulation tier"
+                )
+            if device_type != "cuda-pair":
+                errors.append("hardware.device_type must be cuda-pair when accelerator_measured is true")
+            if not _cuda_device_name(source_device):
+                errors.append("config.source_device must be cuda:<index> for accelerator evidence")
+            if not _cuda_device_name(destination_device):
+                errors.append("config.destination_device must be cuda:<index> for accelerator evidence")
+            if source_device == destination_device and source_device is not None:
+                errors.append("config.source_device and config.destination_device must differ")
+            _positive_int_field(
+                hardware.get("source_total_memory_bytes"),
+                "hardware.source_total_memory_bytes",
+                errors,
+            )
+            _positive_int_field(
+                hardware.get("destination_total_memory_bytes"),
+                "hardware.destination_total_memory_bytes",
+                errors,
+            )
+        elif tier == "T3-same-host-two-gpu-simulation":
+            errors.append(
+                "T3-same-host-two-gpu-simulation probes must set accelerator_measured true"
+            )
+    if backend == "cpu-stdlib" and accelerator_measured:
+        errors.append("cpu-stdlib backend cannot be accelerator_measured")
+    if measured and not accelerator_measured:
+        warnings.append("probe is measured but not accelerator evidence")
+
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "summary": {
+            "tier": tier,
+            "backend": backend,
+            "measured": bool(measured),
+            "accelerator_measured": bool(accelerator_measured),
+            "source_device": source_device,
+            "destination_device": destination_device,
+            "source_name": hardware.get("source_name") if isinstance(hardware, dict) else None,
+            "destination_name": hardware.get("destination_name") if isinstance(hardware, dict) else None,
+            "bytes_transferred": result.get("bytes_transferred")
+            if isinstance(result, dict)
+            else None,
+            "bandwidth_bytes_s": result.get("bandwidth_bytes_s")
+            if isinstance(result, dict)
+            else None,
+            "bandwidth_gib_s": result.get("bandwidth_gib_s")
+            if isinstance(result, dict)
+            else None,
+            "latency_s_per_transfer": result.get("latency_s_per_transfer")
+            if isinstance(result, dict)
+            else None,
+            "max_abs_error": result.get("max_abs_error")
+            if isinstance(result, dict)
+            else None,
+        },
+    }
+
+
+def validate_activation_transfer_probe(path: str | Path) -> dict[str, Any]:
+    try:
+        data = read_json(path)
+    except Exception as exc:  # noqa: BLE001 - validator reports fixture parse failures.
+        return {
+            "ok": False,
+            "errors": [f"invalid activation-transfer probe artifact: {exc}"],
+            "warnings": [],
+            "summary": {},
+            "fixture": str(path),
+        }
+    if not isinstance(data, dict):
+        return {
+            "ok": False,
+            "errors": ["activation-transfer probe artifact must be a JSON object"],
+            "warnings": [],
+            "summary": {},
+            "fixture": str(path),
+        }
+    result = validate_activation_transfer_probe_fixture(data)
     result["fixture"] = str(path)
     return result

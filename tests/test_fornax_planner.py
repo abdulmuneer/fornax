@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 
 from fornax.accelerator_probe import (
+    run_cpu_activation_transfer_probe,
     run_cpu_expert_mlp_probe,
+    validate_activation_transfer_probe_fixture,
     validate_expert_mlp_probe_fixture,
 )
 from fornax.apple_probe import (
@@ -506,6 +508,66 @@ class FornaxPlannerTest(unittest.TestCase):
         artifact["result"]["correctness_passed"] = False
         artifact["result"]["max_abs_error"] = artifact["config"]["tolerance"] + 1.0
         result = validate_expert_mlp_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        self.assertIn("correctness_passed", "; ".join(result["errors"]))
+
+
+    def test_cpu_activation_transfer_probe_validates_reference_not_accelerator(self) -> None:
+        artifact = run_cpu_activation_transfer_probe(iterations=1, payload_bytes=32)
+        result = validate_activation_transfer_probe_fixture(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(artifact["measured"])
+        self.assertFalse(artifact["accelerator_measured"])
+        self.assertIn("not accelerator evidence", "; ".join(result["warnings"]))
+
+    def test_activation_transfer_probe_rejects_false_t3_claim_without_cuda_pair(self) -> None:
+        artifact = run_cpu_activation_transfer_probe(iterations=1, payload_bytes=32)
+        artifact["tier"] = "T3-same-host-two-gpu-simulation"
+        artifact["accelerator_measured"] = True
+        result = validate_activation_transfer_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("hardware.device_type must be cuda-pair", text)
+        self.assertIn("config.source_device must be cuda:<index>", text)
+        self.assertIn("cpu-stdlib backend cannot be accelerator_measured", text)
+
+    def test_activation_transfer_probe_rejects_same_cuda_pair_claim(self) -> None:
+        artifact = run_cpu_activation_transfer_probe(iterations=1, payload_bytes=32)
+        artifact["tier"] = "T3-same-host-two-gpu-simulation"
+        artifact["backend"] = "torch"
+        artifact["accelerator_measured"] = True
+        artifact["source"] = "fornax.accelerator_probe.torch_activation_transfer"
+        artifact["config"].update(
+            {
+                "source_device": "cuda:0",
+                "destination_device": "cuda:0",
+                "dtype": "float16",
+            }
+        )
+        artifact["environment"]["torch_version"] = "test-torch"
+        artifact["hardware"] = {
+            "device_type": "cuda-pair",
+            "source_device": "cuda:0",
+            "destination_device": "cuda:0",
+            "source_name": "test-gpu",
+            "destination_name": "test-gpu",
+            "source_total_memory_bytes": 1024,
+            "destination_total_memory_bytes": 1024,
+            "same_physical_host": True,
+            "logical_hosts": ["logical-host-0", "logical-host-1"],
+        }
+        result = validate_activation_transfer_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "config.source_device and config.destination_device must differ",
+            "; ".join(result["errors"]),
+        )
+
+    def test_activation_transfer_probe_rejects_failed_correctness(self) -> None:
+        artifact = run_cpu_activation_transfer_probe(iterations=1, payload_bytes=32)
+        artifact["result"]["correctness_passed"] = False
+        artifact["result"]["max_abs_error"] = artifact["config"]["tolerance"] + 1.0
+        result = validate_activation_transfer_probe_fixture(artifact)
         self.assertFalse(result["ok"])
         self.assertIn("correctness_passed", "; ".join(result["errors"]))
 

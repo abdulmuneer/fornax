@@ -1553,3 +1553,59 @@
   `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q
   fornax tests`, `make fornax-golden`, `make fornax-test`, and `git diff --check`
   all passed.
+
+
+### T3 same-host activation-transfer simulation probe milestone
+
+- Added an activation-transfer probe to `fornax.accelerator_probe` and the CLI
+  command `fornax accelerator activation-transfer-probe`. This uses the approved
+  two-local-GPU simulation method: GPU0 and GPU1 are treated as separate logical
+  hosts for development validation, while the artifact clearly records
+  `tier=T3-same-host-two-gpu-simulation` rather than claiming a real multi-host
+  cluster.
+- Added `fornax test activation-transfer-probe --fixture ...` so generated
+  transfer artifacts are machine-validated before being cited as milestone
+  evidence. The validator enforces measured status, transfer accounting,
+  bandwidth/latency presence, correctness pass, distinct logical hosts, and a
+  distinct CUDA source/destination pair for T3 same-host simulation evidence; CPU
+  copies remain valid only as reference plumbing.
+- Confirmed local topology with `nvidia-smi topo -m`: GPU0 and GPU1 are connected
+  by `NV18`. Ran the lab probe with
+  `/mnt/dataprocessing/venvs/asr-data-prep/bin/python`: artifact
+  `/tmp/fornax_activation_transfer_h100_pair_20260621.json` records
+  `source_device=cuda:0`, `destination_device=cuda:1`, dtype `float16`,
+  `effective_payload_bytes=16777216`, `bytes_transferred=335544320`,
+  `bandwidth_gib_s=41.76813073154531`,
+  `latency_s_per_transfer=0.00037408904172480105`, `max_abs_error=0.0`,
+  `correctness_passed=true`, H100 source/destination names, torch
+  `2.12.0+cu130`, CUDA `13.0`, and peer access true in both directions.
+- This is deliberately not part of `make fornax-golden`: it is local lab
+  hardware evidence. It supports the simulation path for Phase 1 transport
+  development and activation movement, but it does not close real multi-host T3
+  pipeline correctness, pipeline overlap, target-model generation correctness,
+  or heterogeneous-cluster validation.
+- Review-lens pass:
+  - Hardware/Networking: approve with comments. The probe measures actual H100 to
+    H100 activation movement over the local NVLink-connected pair; real networked
+    host transport remains future cluster evidence.
+  - Distributed Runtime/Scheduler: approve with comments. The source/destination
+    device pair and logical-host labels match the simulated cluster method, but
+    full pipeline scheduling and overlap are still separate milestones.
+  - Low-level Software: approve. The validator rejects false T3 simulation claims
+    without a distinct CUDA pair, rejects same-device claims, and records runtime
+    metadata needed for repeatability.
+  - Testing/Quality: approve. Regression tests cover CPU reference validity,
+    false T3 claims without CUDA, same CUDA source/destination rejection, and
+    failed correctness rejection; the real H100 run is validated through the CLI
+    artifact rather than required in CI.
+- Verification: `python3 -m py_compile fornax/accelerator_probe.py fornax/cli.py
+  tests/test_fornax_planner.py`, focused activation-transfer probe tests,
+  `python3 -m fornax accelerator activation-transfer-probe --out
+  /tmp/fornax_activation_transfer_h100_pair_20260621.json --torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --source-device cuda:0
+  --destination-device cuda:1 --dtype float16 --payload-mib 16 --iterations 20
+  --warmup 3 --timeout-s 180`, `python3 -m fornax test
+  activation-transfer-probe --fixture
+  /tmp/fornax_activation_transfer_h100_pair_20260621.json`, `python3 -m
+  unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`,
+  `make fornax-golden`, `make fornax-test`, and `git diff --check` all passed.
