@@ -54,6 +54,11 @@ from fornax.phase0_simulated_validation import run_phase0_simulated_validation
 from fornax.preflight import run_phase0_preflight
 from fornax.program_rebaseline import render_program_rebaseline_draft
 from fornax.runtime_format_spec import render_runtime_format_spec_draft
+from fornax.scheduler import (
+    simulate_scheduler,
+    simulate_scheduler_from_paths,
+    validate_scheduler_contract,
+)
 from fornax.runtime_format import (
     validate_runtime_format_golden,
     validate_runtime_format_manifest,
@@ -124,6 +129,22 @@ def measured_apple_probe(tokens_s: float = 12.0, threshold: float = 10.0) -> dic
             "thermal_notes": "steady state",
         },
         "decision": {"requested_role": "expert-worker", "demote_role": "capacity-only"},
+    }
+
+
+def scheduler_fixture_plan() -> dict:
+    return {
+        "feasible": True,
+        "stages": [
+            {"index": 0, "layers": [0], "replicas": ["sim-gpu0"], "mode": "stage"},
+            {"index": 1, "layers": [1], "replicas": ["sim-gpu1"], "mode": "stage"},
+        ],
+        "predicted": {
+            "throughput_tok_s": 10.0,
+            "per_request_latency_s": 0.1,
+            "bubble_fraction": 0.1,
+            "stage_effective_times_s": [0.01, 0.02],
+        },
     }
 
 
@@ -529,6 +550,70 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_observability_fixture(fixture)
         self.assertFalse(result["ok"])
         self.assertIn("plan_id must match", "; ".join(result["errors"]))
+
+    def test_scheduler_contract_fixture_passes(self) -> None:
+        result = validate_scheduler_contract("fornax/golden_vectors/scheduler_contract")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(4, result["summary"]["request_count"])
+        self.assertEqual(1, result["summary"]["backpressure_count"])
+        self.assertEqual(2, result["summary"]["max_observed_queue_depth"])
+        self.assertEqual(2, result["summary"]["max_observed_inflight"])
+
+    def test_scheduler_simulation_enforces_bounded_queue_and_microbatch(self) -> None:
+        result = simulate_scheduler(
+            scheduler_fixture_plan(),
+            [
+                {"id": "r0", "prompt_len": 8, "gen_len": 4},
+                {"id": "r1", "prompt_len": 8, "gen_len": 3},
+                {"id": "r2", "prompt_len": 8, "gen_len": 2},
+                {"id": "r3", "prompt_len": 8, "gen_len": 1},
+            ],
+            plan_id="unit-scheduler",
+            max_queue_depth=2,
+            max_inflight=2,
+            microbatch_size=2,
+        )
+        validation = validate_scheduler_contract(result)
+        self.assertTrue(validation["ok"], validation["errors"])
+        self.assertEqual(1, result["summary"]["backpressure_count"])
+        self.assertLessEqual(result["summary"]["max_observed_queue_depth"], 2)
+        self.assertLessEqual(result["summary"]["max_observed_inflight"], 2)
+        self.assertEqual(2, result["summary"]["microbatch_count"])
+
+    def test_scheduler_simulation_from_paths_accepts_trace_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            plan_path = root / "placement.json"
+            requests_path = root / "requests.json"
+            write_json(plan_path, scheduler_fixture_plan())
+            write_json(
+                requests_path,
+                {
+                    "requests": [
+                        {"request_id": "a", "prompt_tokens": 5, "max_new_tokens": 2},
+                        {"request_id": "b", "prompt_tokens": 5, "max_new_tokens": 2},
+                    ]
+                },
+            )
+            result = simulate_scheduler_from_paths(
+                plan_path,
+                requests_path,
+                plan_id="path-scheduler",
+                max_queue_depth=2,
+                max_inflight=2,
+                microbatch_size=2,
+            )
+        validation = validate_scheduler_contract(result)
+        self.assertTrue(validation["ok"], validation["errors"])
+        self.assertEqual(2, result["summary"]["completed_count"])
+
+    def test_scheduler_contract_rejects_queue_overflow(self) -> None:
+        fixture = read_json("fornax/golden_vectors/scheduler_contract/fixture.json")
+        fixture["events"][0]["queue_depth"] = fixture["max_queue_depth"] + 1
+        fixture["summary"]["max_observed_queue_depth"] = fixture["max_queue_depth"] + 1
+        result = validate_scheduler_contract(fixture)
+        self.assertFalse(result["ok"])
+        self.assertIn("queue_depth exceeds", "; ".join(result["errors"]))
 
     def test_network_contract_fixture_passes(self) -> None:
         result = validate_network_contract(

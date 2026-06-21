@@ -49,6 +49,7 @@ from .phase0_status import render_phase0_status_report
 from .phase0_simulated_validation import run_phase0_simulated_validation
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
+from .scheduler import simulate_scheduler_from_paths, validate_scheduler_contract
 from .simulate import simulation_result, summarize_request_trace
 from .substrate_adr import (
     APPLE_ROLE_VALUES,
@@ -277,6 +278,33 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
         f"latency={predicted['per_request_latency_s']:.6f}s "
         f"bubble={predicted['bubble_fraction']:.3f}"
         f"{suffix}"
+    )
+    return 0
+
+
+def _cmd_scheduler_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_scheduler_from_paths(
+            args.plan,
+            args.requests,
+            plan_id=args.plan_id,
+            max_queue_depth=args.max_queue_depth,
+            max_inflight=args.max_inflight,
+            microbatch_size=args.microbatch_size,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"scheduler simulate: {exc}")
+        return 2
+    if args.out:
+        write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "scheduler simulate: "
+        f"requests={summary['request_count']} "
+        f"microbatches={summary['microbatch_count']} "
+        f"backpressure={summary['backpressure_count']} "
+        f"max_queue={summary['max_observed_queue_depth']} "
+        f"max_inflight={summary['max_observed_inflight']}"
     )
     return 0
 
@@ -631,6 +659,24 @@ def _cmd_test_observability(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_scheduler_contract(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/scheduler_contract"
+    result = validate_scheduler_contract(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS scheduler-contract: {fixture} "
+            f"events={summary['event_count']} backpressure={summary['backpressure_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL scheduler-contract: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_benchmark_ledger(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/benchmark_ledger"
     result = validate_benchmark_ledger(fixture)
@@ -668,6 +714,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_engine_seam(args)
     if args.test_name == "observability":
         return _cmd_test_observability(args)
+    if args.test_name == "scheduler-contract":
+        return _cmd_test_scheduler_contract(args)
     if args.test_name == "backend-coverage":
         return _cmd_test_backend_coverage(args)
     if args.test_name == "benchmark-ledger":
@@ -840,6 +888,18 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument("--out")
     simulate.set_defaults(func=_cmd_simulate)
 
+    scheduler = sub.add_parser("scheduler")
+    scheduler_sub = scheduler.add_subparsers(dest="scheduler_command", required=True)
+    scheduler_simulate = scheduler_sub.add_parser("simulate")
+    scheduler_simulate.add_argument("--plan", required=True)
+    scheduler_simulate.add_argument("--requests", required=True)
+    scheduler_simulate.add_argument("--plan-id", default="plan-simulated-t1")
+    scheduler_simulate.add_argument("--max-queue-depth", type=int, default=4)
+    scheduler_simulate.add_argument("--max-inflight", type=int, default=4)
+    scheduler_simulate.add_argument("--microbatch-size", type=int, default=2)
+    scheduler_simulate.add_argument("--out")
+    scheduler_simulate.set_defaults(func=_cmd_scheduler_simulate)
+
     benchmark = sub.add_parser("benchmark")
     benchmark.add_argument("--plan", required=True)
     benchmark.add_argument("--mode", default="tiny-moe-or-expert-mlp")
@@ -931,6 +991,7 @@ def build_parser() -> argparse.ArgumentParser:
             "network-contract",
             "engine-seam",
             "observability",
+            "scheduler-contract",
             "backend-coverage",
             "benchmark-ledger",
         ],

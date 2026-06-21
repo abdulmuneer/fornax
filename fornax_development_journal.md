@@ -1155,3 +1155,47 @@
   `python3 -m fornax benchmark --ledger-out ...` smoke, `python3 -m unittest
   tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`, `make
   fornax-golden`, `make fornax-test`, and `git diff --check` all passed.
+
+### T1 scheduler simulation contract milestone
+
+- Added `fornax.scheduler` for model-free T1 scheduler simulation: bounded
+  admission queues, deterministic microbatch formation, per-stage start/end
+  timing events, completion/cancellation terminal events, and summary counts for
+  queue depth, inflight requests, microbatches, backpressure, and makespan.
+- Added `fornax scheduler simulate --plan placement.json --requests trace.json`
+  to produce a scheduler contract artifact without real workers or transport.
+  This stays on the simulation track and does not implement Phase-1 distributed
+  runtime execution.
+- Added `fornax test scheduler-contract` and the golden fixture
+  `fornax/golden_vectors/scheduler_contract/fixture.json`; expanded
+  `make fornax-golden` so T0/T1 local checks now include scheduler contract
+  validation alongside planner, runtime format, network, engine seam,
+  observability, backend coverage, and benchmark ledger checks.
+- The validator enforces root/event plan-ID consistency, required event coverage,
+  queue and inflight bounds, microbatch size limits, stage start/end pairing,
+  terminal events for enqueued requests, cancellation cleanup, and summary/event
+  consistency.
+- Review-lens pass:
+  - Distributed Systems/Scheduler: approve with comments. The contract exercises
+    admission, bounded queues, microbatching, and per-stage events, but real 1F1B
+    timing, fairness under arrivals, and worker transport remain later simulated
+    milestones.
+  - SRE/Operations: approve. The artifact is deterministic, CLI-reproducible,
+    and summarizes the operational signals needed for backpressure review.
+  - Low-level Software: approve with comments. State cleanup is explicit for
+    cancellation and invariants are validator-enforced; future worker contracts
+    still need memory/KV ownership checks.
+  - Testing/Quality: approve. Focused tests cover fixture validation,
+    bounded-queue backpressure, trace loading, and validator rejection of queue
+    overflow.
+- Verification: `python3 -m py_compile fornax/scheduler.py fornax/cli.py
+  tests/test_fornax_planner.py`, `python3 -m fornax test scheduler-contract`,
+  focused scheduler-contract unittests, `python3 -m fornax scheduler simulate
+  --plan /tmp/fornax_scheduler_plan_20260621.json --requests
+  /tmp/fornax_scheduler_requests_20260621.json --plan-id cli-scheduler-smoke
+  --max-queue-depth 2 --max-inflight 2 --microbatch-size 2 --out
+  /tmp/fornax_scheduler_contract_cli_20260621.json`, `python3 -m fornax test
+  scheduler-contract --fixture /tmp/fornax_scheduler_contract_cli_20260621.json`,
+  `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q
+  fornax tests`, `make fornax-golden`, `make fornax-test`, and `git diff --check`
+  all passed.
