@@ -28,6 +28,7 @@ from fornax.network_contract import (
     validate_network_contract_fixture,
 )
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
+from fornax.phase0_status import render_phase0_status_report
 from fornax.preflight import run_phase0_preflight
 from fornax.program_rebaseline import render_program_rebaseline_draft
 from fornax.runtime_format_spec import render_runtime_format_spec_draft
@@ -1028,6 +1029,43 @@ class FornaxPlannerTest(unittest.TestCase):
                 "links.json: no active fabric measurements recorded",
                 doctor["warnings"],
             )
+
+    def test_phase0_status_report_labels_simulated_evidence_and_open_gaps(self) -> None:
+        csv_text = (
+            "0, NVIDIA H100 80GB HBM3, 80000, 81559, 575.57.08\n"
+            "1, NVIDIA H100 80GB HBM3, 79000, 81559, 575.57.08\n"
+        )
+        source = collect_local_inventory(nvidia_smi_csv=csv_text)
+        inventory = build_logical_cluster_inventory(source)
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d) / "bundle"
+            run_phase0_preflight(
+                target_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                out_dir=bundle,
+                benchmark_iterations=1,
+                inventory_data=inventory,
+                include_g1_drafts=True,
+                include_golden_plans=True,
+                substrate_pinned_build="max-26.4.0",
+                kickoff_date="2026-06-21",
+                ker_status="unavailable",
+                scope="pending",
+            )
+            report = render_phase0_status_report(
+                bundle, report_date="2026-06-21", plan_version="v3"
+            )
+        by_id = {item["id"]: item for item in report["deliverables"]}
+        self.assertTrue(report["simulation"]["present"])
+        self.assertEqual("closed", by_id["S0-1"]["status"])
+        self.assertEqual("simulation_complete", by_id["S0-2"]["status"])
+        self.assertEqual("incomplete", by_id["S0-7"]["status"])
+        self.assertEqual("simulation_complete", by_id["S0-9"]["status"])
+        self.assertIn(
+            "Apple reversal trigger evaluated from rank-1 local probe",
+            report["g1"]["machine_missing_criteria"],
+        )
+        self.assertIn("R-10", report["markdown"])
+        self.assertIn("simulation_complete", report["markdown"])
 
     def test_phase0_preflight_can_include_g1_drafts(self) -> None:
         with tempfile.TemporaryDirectory() as d:

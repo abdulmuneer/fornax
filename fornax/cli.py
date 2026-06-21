@@ -32,6 +32,7 @@ from .program_rebaseline import (
 )
 from .network_contract import validate_network_contract
 from .network_security_spec import render_network_security_spec_draft
+from .phase0_status import render_phase0_status_report
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
 from .simulate import simulation_result, summarize_request_trace
@@ -309,6 +310,30 @@ def _cmd_program_g1_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_program_phase0_status(args: argparse.Namespace) -> int:
+    try:
+        result = render_phase0_status_report(
+            args.bundle,
+            report_date=args.date,
+            plan_version=args.plan_version,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program phase0-status: {exc}")
+        return 2
+    if args.out:
+        write_json(args.out, result)
+    if args.markdown_out:
+        Path(args.markdown_out).write_text(result["markdown"], encoding="utf-8")
+    summary = result["summary"]
+    print(
+        "phase0 status: "
+        f"{summary['machine_or_better']}/{summary['total']} "
+        "deliverables machine/simulation complete or closed; "
+        f"recommended={result['g1']['recommended_outcome']}"
+    )
+    return 2 if result.get("doctor_errors") else 0
+
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     if args.requests and args.trace and args.requests != args.trace:
         print("preflight: pass only one of --requests or --trace")
@@ -552,6 +577,14 @@ def build_parser() -> argparse.ArgumentParser:
     g1_review.add_argument("--date")
     g1_review.add_argument("--plan-version", default="v3")
     g1_review.set_defaults(func=_cmd_program_g1_review)
+
+    phase0_status = program_sub.add_parser("phase0-status")
+    phase0_status.add_argument("--bundle", required=True)
+    phase0_status.add_argument("--out")
+    phase0_status.add_argument("--markdown-out")
+    phase0_status.add_argument("--date")
+    phase0_status.add_argument("--plan-version", default="v3")
+    phase0_status.set_defaults(func=_cmd_program_phase0_status)
 
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)

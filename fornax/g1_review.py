@@ -43,6 +43,7 @@ def render_g1_gate_review_draft(
         "gate_ready": machine_complete and not closure_blockers,
         "recommended_outcome": recommended_outcome,
         "machine_missing_criteria": [row["criterion"] for row in machine_missing],
+        "evidence_rows": evidence_rows,
         "closure_blockers": closure_blockers,
         "doctor_errors": list(doctor.get("errors", [])),
         "doctor_warnings": warnings,

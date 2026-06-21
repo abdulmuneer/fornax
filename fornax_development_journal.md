@@ -827,3 +827,48 @@
   program g1-review --bundle /tmp/fornax_preflight_sim_golden --out
   /tmp/fornax_preflight_sim_golden/g1-review.md --date 2026-06-21 --plan-version
   v3` all passed.
+
+
+### Phase-0 milestone status report milestone
+
+- Added `fornax program phase0-status` to generate machine-readable JSON and a
+  Markdown weekly-status-style report from a Phase-0 evidence bundle.
+- The report maps S0-1 through S0-9 to status values: `closed`,
+  `machine_complete`, `simulation_complete`, and `incomplete`. This directly
+  addresses R-10 status drift by making simulated evidence explicit instead of
+  allowing it to look like real multi-host hardware closure.
+- Reused the existing G1 evidence rows and doctor artifacts so the status report,
+  G1 review draft, and preflight bundle share one interpretation of the evidence.
+- Ran the report against a two-H100 logical simulated cluster bundle at
+  `/tmp/fornax_preflight_phase0_status`. Current simulated-development posture:
+  8/9 S0 deliverables are machine/simulation complete or closed. S0-7 remains
+  incomplete because the Apple rank-1 probe validation and Apple role decision are
+  absent. S0-2 and S0-9 are intentionally labeled `simulation_complete`, not
+  physical hardware closure.
+- Review-lens pass:
+  - Program Management: approve. The report makes milestone posture readable by
+    S0 item, keeps DEC-005 as pending, and surfaces the next gating decision.
+  - Organizational/SRE: approve. It gives operators one command to produce the
+    weekly-status artifact from a bundle without oral context.
+  - Testing/Quality: approve with comments after fix. Review found that
+    simulation-sensitive deliverables could show no gap when their machine checks
+    passed; `simulation_complete` rows now carry an explicit simulation-only gap
+    where needed.
+- Verification: `python3 -m py_compile fornax/phase0_status.py fornax/g1_review.py
+  fornax/cli.py tests/test_fornax_planner.py`, focused Phase-0 status tests,
+  `python3 -m unittest tests.test_fornax_planner`, `python3 -m compileall -q
+  fornax tests`, `make fornax-test`, `make fornax-golden`, `python3 -m fornax
+  inventory collect --out /tmp/fornax_local_inventory_phase0_status.json`,
+  `python3 -m fornax inventory simulate-cluster --source-inventory
+  /tmp/fornax_local_inventory_phase0_status.json --out
+  /tmp/fornax_sim_inventory_phase0_status.json --gpu-count 2
+  --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor
+  0.65`, `python3 -m fornax preflight --target
+  fornax/golden_plans/v0_target_contract_fixture.md --inventory
+  /tmp/fornax_sim_inventory_phase0_status.json --out-dir
+  /tmp/fornax_preflight_phase0_status --benchmark-iterations 1 --include-g1-drafts
+  --include-golden-plans --substrate-pinned-build max-26.4.0 --kickoff-date
+  2026-06-21 --ker-status unavailable --scope pending`, and `python3 -m fornax
+  program phase0-status --bundle /tmp/fornax_preflight_phase0_status --out
+  /tmp/fornax_phase0_status.json --markdown-out /tmp/fornax_phase0_status.md
+  --date 2026-06-21 --plan-version v3` all passed.
