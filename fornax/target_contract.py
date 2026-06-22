@@ -170,6 +170,7 @@ def _machine_bundle_with_evidence(
         "planner_prediction": plan.predicted.to_dict() if plan.predicted else None,
         "placement_feasible": plan.feasible,
         "infeasible_reason": plan.infeasible_reason,
+        "placement_explanations": [x.to_dict() for x in plan.explanations],
         "memory_budget": validation.get("memory"),
         "validation_checks": validation.get("checks"),
         "valid": bool(validation.get("valid")),
@@ -223,6 +224,16 @@ def render_target_contract_draft(
         "placement": plan.to_dict(),
         "machine_bundle": machine,
     }
+
+
+def _placement_explanation_lines(plan: PlacementPlan) -> list[str]:
+    if not plan.explanations:
+        return ["- No placement explanations recorded."]
+    lines = ["| Node | Decision | Reason |", "|---|---|---|"]
+    for explanation in plan.explanations:
+        reason = explanation.reason.replace("|", "/")
+        lines.append(f"| `{explanation.node_id}` | {explanation.decision} | {reason} |")
+    return lines
 
 
 def _render_markdown(
@@ -298,6 +309,10 @@ def _render_markdown(
                 "- Remote expert wait s/token: "
                 f"{_format_float(predicted.get('remote_expert_wait_s_per_token'), 6)}"
             ),
+            "",
+            "## Placement Explanations",
+            "",
+            *_placement_explanation_lines(plan),
             "",
             "## Memory Budget",
             "",

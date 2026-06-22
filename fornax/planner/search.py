@@ -10,6 +10,7 @@ from .model import (
     Inventory,
     ModelSpec,
     Node,
+    PlacementExplanation,
     PlacementPlan,
     Predicted,
     Stage,
@@ -231,7 +232,143 @@ def _score(plan: PlacementPlan, objective: str) -> tuple[float, float, float]:
     return (p.throughput_tok_s, -p.bubble_fraction, -p.per_request_latency_s)
 
 
-def _materialize(model: ModelSpec, candidate: _CandidatePlan, target: Target) -> PlacementPlan:
+def _single_layer_stage_possible(
+    model: ModelSpec, inventory: Inventory, node: Node, target: Target
+) -> bool:
+    return any(
+        estimate_stage_cost(model, inventory, node, (layer_id,), target) is not None
+        for layer_id in range(len(model.layers))
+    )
+
+
+def _node_exclusion_reason(
+    model: ModelSpec, inventory: Inventory, target: Target, node: Node
+) -> str:
+    if not node.supports_stage:
+        return "excluded: node is not stage-capable"
+    if model.dtype_activation not in node.supported_dtypes:
+        return (
+            "excluded: node does not support activation dtype "
+            f"{model.dtype_activation}"
+        )
+    if not _single_layer_stage_possible(model, inventory, node, target):
+        return (
+            "excluded: insufficient memory, missing expert host/link, or remote "
+            "expert wait SLO for even one layer"
+        )
+    return "excluded: candidate placement scored lower than selected plan"
+
+
+def _placement_explanations(
+    model: ModelSpec,
+    inventory: Inventory,
+    target: Target,
+    candidate: _CandidatePlan,
+) -> tuple[PlacementExplanation, ...]:
+    explanations: list[PlacementExplanation] = []
+    selected_ids = {node_id for stage in candidate.stages for node_id, _ in stage.replica_times_s}
+    stage_nodes = [
+        node
+        for node in inventory.nodes
+        if node.supports_stage and model.dtype_activation in node.supported_dtypes
+    ]
+    fastest_compute = max((node.compute_class for node in stage_nodes), default=0.0)
+
+    for index, stage in enumerate(candidate.stages):
+        explanations.append(
+            PlacementExplanation(
+                node_id=stage.node.id,
+                decision="selected",
+                stage_index=index,
+                layers=stage.layers,
+                reason=(
+                    f"selected as primary for stage {index}; mode={stage.cost.mode}; "
+                    f"effective_time_s={stage.effective_time_s:.9f}"
+                ),
+                metrics={
+                    "primary_time_s": stage.primary_time_s,
+                    "effective_time_s": stage.effective_time_s,
+                    "transfer_in_s": stage.transfer_in_s,
+                    "stage_memory_bytes": stage.cost.memory_bytes,
+                    "remote_wait_exposed_s": stage.cost.remote_wait_exposed_s,
+                    "replicas": list(stage.replica_ids),
+                },
+            )
+        )
+        for replica_id, replica_time_s in stage.replica_times_s:
+            if replica_id == stage.node.id:
+                continue
+            explanations.append(
+                PlacementExplanation(
+                    node_id=replica_id,
+                    decision="selected",
+                    stage_index=index,
+                    layers=stage.layers,
+                    reason=f"selected as data-parallel replica for stage {index}",
+                    metrics={
+                        "replica_time_s": replica_time_s,
+                        "primary_node_id": stage.node.id,
+                    },
+                )
+            )
+
+    for node in inventory.nodes:
+        if node.id not in selected_ids:
+            explanations.append(
+                PlacementExplanation(
+                    node_id=node.id,
+                    decision="excluded",
+                    reason=_node_exclusion_reason(model, inventory, target, node),
+                    metrics={
+                        "compute_class": node.compute_class,
+                        "mem_free_bytes": node.mem_free_bytes,
+                        "supports_stage": node.supports_stage,
+                        "supported_dtypes": list(node.supported_dtypes),
+                    },
+                )
+            )
+            continue
+        if fastest_compute > 0 and node.compute_class < fastest_compute:
+            assigned_layers = sum(len(stage.layers) for stage in candidate.stages if stage.node.id == node.id)
+            explanations.append(
+                PlacementExplanation(
+                    node_id=node.id,
+                    decision="demoted",
+                    reason=(
+                        "slower than fastest stage-capable node; planner limits "
+                        "primary layer ownership or uses replica role"
+                    ),
+                    metrics={
+                        "compute_class": node.compute_class,
+                        "fastest_compute_class": fastest_compute,
+                        "relative_compute": node.compute_class / fastest_compute,
+                        "primary_layer_count": assigned_layers,
+                    },
+                )
+            )
+    return tuple(explanations)
+
+
+def _infeasible_explanations(
+    model: ModelSpec, inventory: Inventory, target: Target
+) -> tuple[PlacementExplanation, ...]:
+    return tuple(
+        PlacementExplanation(
+            node_id=node.id,
+            decision="excluded",
+            reason=_node_exclusion_reason(model, inventory, target, node),
+            metrics={
+                "compute_class": node.compute_class,
+                "mem_free_bytes": node.mem_free_bytes,
+                "supports_stage": node.supports_stage,
+                "supported_dtypes": list(node.supported_dtypes),
+            },
+        )
+        for node in inventory.nodes
+    )
+
+
+def _materialize(model: ModelSpec, candidate: _CandidatePlan, target: Target, inventory: Inventory) -> PlacementPlan:
     predicted = _predict(target, candidate.stages)
     stages = tuple(
         Stage(
@@ -250,10 +387,11 @@ def _materialize(model: ModelSpec, candidate: _CandidatePlan, target: Target) ->
         predicted=predicted,
         feasible=True,
         infeasible_reason=None,
+        explanations=_placement_explanations(model, inventory, target, candidate),
     )
 
 
-def _infeasible(model: ModelSpec, inventory: Inventory) -> PlacementPlan:
+def _infeasible(model: ModelSpec, inventory: Inventory, target: Target) -> PlacementPlan:
     total_mem = sum(node.mem_free_bytes for node in inventory.nodes if node.supports_stage)
     return PlacementPlan(
         stages=(),
@@ -265,6 +403,7 @@ def _infeasible(model: ModelSpec, inventory: Inventory) -> PlacementPlan:
             f"no feasible contiguous stage placement; model resident bytes "
             f"{model.resident_weight_bytes} vs total stage memory {total_mem}"
         ),
+        explanations=_infeasible_explanations(model, inventory, target),
     )
 
 
@@ -291,13 +430,14 @@ def plan_placement(
             infeasible_reason=(
                 f"no stage-capable nodes support activation dtype {model.dtype_activation}"
             ),
+            explanations=_infeasible_explanations(model, inventory, target),
         )
 
     lower = max(1, min_stages or 1)
     upper = max_stages or min(len(stage_nodes), len(model.layers))
     upper = min(max(1, upper), len(stage_nodes), len(model.layers))
     if lower > upper:
-        return _infeasible(model, inventory)
+        return _infeasible(model, inventory, target)
 
     best: PlacementPlan | None = None
     best_score: tuple[float, float, float] | None = None
@@ -310,9 +450,9 @@ def plan_placement(
             if candidate is None:
                 continue
             candidate = _with_replicas(model, inventory, target, candidate)
-            plan = _materialize(model, candidate, target)
+            plan = _materialize(model, candidate, target, inventory)
             score = _score(plan, target.objective)
             if best is None or best_score is None or score > best_score:
                 best = plan
                 best_score = score
-    return best if best is not None else _infeasible(model, inventory)
+    return best if best is not None else _infeasible(model, inventory, target)

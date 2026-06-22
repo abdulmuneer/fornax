@@ -2113,7 +2113,9 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertTrue(validation["valid"], validation["checks"])
         self.assertIn("Status: DRAFT", result["markdown"])
         self.assertIn("## Memory Budget", result["markdown"])
+        self.assertIn("## Placement Explanations", result["markdown"])
         self.assertIn("```json fornax-target", result["markdown"])
+        self.assertTrue(result["machine_bundle"]["evidence"]["placement_explanations"])
         self.assertEqual(
             "draft_not_signed_off", result["machine_bundle"]["evidence"]["status"]
         )
@@ -2618,6 +2620,79 @@ class FornaxPlannerTest(unittest.TestCase):
         plan = plan_placement(model, tiny, Target(4, 16, 8))
         self.assertFalse(plan.feasible)
         self.assertIn("no feasible contiguous stage placement", plan.infeasible_reason or "")
+        self.assertEqual("excluded", plan.to_dict()["explanations"][0]["decision"])
+        self.assertIn("insufficient memory", plan.to_dict()["explanations"][0]["reason"])
+
+    def test_planner_records_selected_demoted_and_excluded_explanations(self) -> None:
+        inventory = Inventory.from_dict(
+            {
+                "nodes": [
+                    {
+                        "id": "fast",
+                        "vendor": "nvidia",
+                        "runtime": "max",
+                        "mem_free_bytes": 16_000_000,
+                        "compute_class": 4_000_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 400_000_000_000.0,
+                        "supported_dtypes": ["fp16"],
+                    },
+                    {
+                        "id": "slow",
+                        "vendor": "cpu",
+                        "runtime": "custom",
+                        "mem_free_bytes": 16_000_000,
+                        "compute_class": 1_000_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 100_000_000_000.0,
+                        "supported_dtypes": ["fp16"],
+                    },
+                    {
+                        "id": "bad_dtype",
+                        "vendor": "cpu",
+                        "runtime": "custom",
+                        "mem_free_bytes": 16_000_000,
+                        "compute_class": 1_000_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 100_000_000_000.0,
+                        "supported_dtypes": ["bf16"],
+                    },
+                    {
+                        "id": "disabled",
+                        "vendor": "cpu",
+                        "runtime": "custom",
+                        "mem_free_bytes": 16_000_000,
+                        "compute_class": 1_000_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 100_000_000_000.0,
+                        "supports_stage": False,
+                        "supported_dtypes": ["fp16"],
+                    },
+                ],
+                "links": [
+                    {
+                        "a": "fast",
+                        "b": "slow",
+                        "bandwidth_bytes_s": 12_500_000_000.0,
+                        "latency_s": 0.00002,
+                    }
+                ],
+            }
+        )
+        plan = plan_placement(
+            dense_model(4),
+            inventory,
+            Target(4, 16, 8, "balanced"),
+            min_stages=2,
+            max_stages=2,
+        )
+        self.assertTrue(plan.feasible, plan.infeasible_reason)
+        explanations = plan.to_dict()["explanations"]
+        by_node_decision = {(row["node_id"], row["decision"]): row for row in explanations}
+        self.assertIn(("fast", "selected"), by_node_decision)
+        self.assertIn(("slow", "selected"), by_node_decision)
+        self.assertIn(("slow", "demoted"), by_node_decision)
+        self.assertIn("slower", by_node_decision[("slow", "demoted")]["reason"])
+        self.assertIn(("bad_dtype", "excluded"), by_node_decision)
+        self.assertIn("activation dtype", by_node_decision[("bad_dtype", "excluded")]["reason"])
+        self.assertIn(("disabled", "excluded"), by_node_decision)
+        self.assertIn("not stage-capable", by_node_decision[("disabled", "excluded")]["reason"])
 
     def test_adding_stage_capable_node_does_not_reduce_throughput(self) -> None:
         model = dense_model(4)

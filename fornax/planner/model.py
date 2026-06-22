@@ -412,6 +412,29 @@ class ExpertPlacement:
 
 
 @dataclass(frozen=True)
+class PlacementExplanation:
+    node_id: str
+    decision: str
+    reason: str
+    stage_index: int | None = None
+    layers: tuple[int, ...] = field(default_factory=tuple)
+    metrics: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "node_id": self.node_id,
+            "decision": self.decision,
+            "reason": self.reason,
+            "metrics": self.metrics,
+        }
+        if self.stage_index is not None:
+            data["stage_index"] = self.stage_index
+        if self.layers:
+            data["layers"] = list(self.layers)
+        return data
+
+
+@dataclass(frozen=True)
 class Predicted:
     throughput_tok_s: float
     ttft_s: float
@@ -443,6 +466,7 @@ class PlacementPlan:
     predicted: Predicted | None
     feasible: bool
     infeasible_reason: str | None = None
+    explanations: tuple[PlacementExplanation, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -452,4 +476,5 @@ class PlacementPlan:
             "predicted": self.predicted.to_dict() if self.predicted else None,
             "feasible": self.feasible,
             "infeasible_reason": self.infeasible_reason,
+            "explanations": [x.to_dict() for x in self.explanations],
         }
