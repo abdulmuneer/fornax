@@ -40,6 +40,10 @@ from .remote_expert_probe import (
     run_cpu_remote_expert_batch_probe,
     validate_remote_expert_batch_probe_fixture,
 )
+from .resilience import (
+    simulate_resilience_replay,
+    validate_resilience_replay_fixture,
+)
 from .runtime_format import validate_runtime_format_golden
 from .stage_replication import (
     simulate_stage_replication,
@@ -193,6 +197,7 @@ def run_t1_simulated_validation(
     pipeline_path = bundle / "pipeline-correctness.json"
     throughput_path = bundle / "throughput-scaling.json"
     stage_replication_path = bundle / "stage-replication.json"
+    resilience_path = bundle / "resilience-replay.json"
     moe_path = bundle / "moe-runtime.json"
     moe_migration_path = bundle / "moe-migration.json"
     remote_expert_path = bundle / "remote-expert-batch.json"
@@ -297,6 +302,9 @@ def run_t1_simulated_validation(
     stage_replication = simulate_stage_replication(
         plan_id=f"{plan_id}-stage-replication",
     )
+    resilience = simulate_resilience_replay(
+        plan_id=f"{plan_id}-resilience",
+    )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
@@ -305,6 +313,7 @@ def run_t1_simulated_validation(
     write_json(pipeline_path, pipeline)
     write_json(throughput_path, throughput)
     write_json(stage_replication_path, stage_replication)
+    write_json(resilience_path, resilience)
     write_json(moe_path, moe)
     write_json(moe_migration_path, moe_migration)
     write_json(remote_expert_path, remote_expert)
@@ -377,6 +386,12 @@ def run_t1_simulated_validation(
             "T1",
             validate_stage_replication_fixture(stage_replication),
             str(stage_replication_path),
+        ),
+        _check(
+            "resilience-replay",
+            "T1",
+            validate_resilience_replay_fixture(resilience),
+            str(resilience_path),
         ),
         _check(
             "moe-runtime",
@@ -455,6 +470,7 @@ def run_t1_simulated_validation(
             "pipeline_correctness": str(pipeline_path),
             "throughput_scaling": str(throughput_path),
             "stage_replication": str(stage_replication_path),
+            "resilience_replay": str(resilience_path),
             "moe_runtime": str(moe_path),
             "moe_migration": str(moe_migration_path),
             "remote_expert_batch": str(remote_expert_path),

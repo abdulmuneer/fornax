@@ -55,6 +55,10 @@ from .remote_expert_probe import (
     run_remote_expert_batch_probe,
     validate_remote_expert_batch_probe,
 )
+from .resilience import (
+    simulate_resilience_replay,
+    validate_resilience_replay,
+)
 from .program_rebaseline import (
     KER_STATUS_VALUES,
     SCOPE_VALUES,
@@ -514,6 +518,34 @@ def _cmd_replication_simulate(args: argparse.Namespace) -> int:
         f"microbatches={summary['microbatch_count']} "
         f"speedup={summary['speedup']:.3f} "
         f"max_abs_error={summary['max_abs_error']}"
+    )
+    return 0
+
+
+def _cmd_resilience_replay_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_resilience_replay(
+            plan_id=args.plan_id,
+            failed_node_id=args.failed_node_id,
+            replay_node_id=args.replay_node_id,
+            checkpoint_token_index=args.checkpoint_token_index,
+            node_loss_time_s=args.node_loss_time_s,
+            replay_delay_s=args.replay_delay_s,
+            token_time_s=args.token_time_s,
+            max_replay_delay_s=args.max_replay_delay_s,
+            vocab_size=args.vocab_size,
+        )
+    except ValueError as exc:
+        print(f"resilience replay-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "resilience replay-simulate: "
+        f"requests={summary['request_count']} "
+        f"replayed={summary['replayed_request_count']} "
+        f"dropped={summary['dropped_request_count']} "
+        f"max_replay_delay_s={summary['max_replay_delay_s']}"
     )
     return 0
 
@@ -1489,6 +1521,27 @@ def _cmd_test_stage_replication(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_resilience_replay(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/resilience_replay"
+    result = validate_resilience_replay(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS resilience-replay: {fixture} "
+            f"requests={summary['request_count']} "
+            f"replayed={summary['replayed_request_count']} "
+            f"dropped={summary['dropped_request_count']} "
+            f"max_replay_delay_s={summary['max_replay_delay_s']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL resilience-replay: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_throughput_scaling(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/throughput_scaling"
     result = validate_throughput_scaling(fixture)
@@ -1590,6 +1643,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_scheduler_contract(args)
     if args.test_name == "stage-replication":
         return _cmd_test_stage_replication(args)
+    if args.test_name == "resilience-replay":
+        return _cmd_test_resilience_replay(args)
     if args.test_name == "backend-coverage":
         return _cmd_test_backend_coverage(args)
     if args.test_name == "benchmark-ledger":
@@ -1881,6 +1936,23 @@ def build_parser() -> argparse.ArgumentParser:
     replication_simulate.add_argument("--tolerance", type=float, default=0.0)
     replication_simulate.set_defaults(func=_cmd_replication_simulate)
 
+    resilience = sub.add_parser("resilience")
+    resilience_sub = resilience.add_subparsers(
+        dest="resilience_command", required=True
+    )
+    replay_simulate = resilience_sub.add_parser("replay-simulate")
+    replay_simulate.add_argument("--out", required=True)
+    replay_simulate.add_argument("--plan-id", default="resilience-replay-plan")
+    replay_simulate.add_argument("--failed-node-id", default="logical-host-1")
+    replay_simulate.add_argument("--replay-node-id", default="logical-host-0")
+    replay_simulate.add_argument("--checkpoint-token-index", type=int, default=2)
+    replay_simulate.add_argument("--node-loss-time-s", type=float, default=0.050)
+    replay_simulate.add_argument("--replay-delay-s", type=float, default=0.010)
+    replay_simulate.add_argument("--token-time-s", type=float, default=0.006)
+    replay_simulate.add_argument("--max-replay-delay-s", type=float, default=0.025)
+    replay_simulate.add_argument("--vocab-size", type=int, default=97)
+    replay_simulate.set_defaults(func=_cmd_resilience_replay_simulate)
+
     scheduler = sub.add_parser("scheduler")
     scheduler_sub = scheduler.add_subparsers(dest="scheduler_command", required=True)
     scheduler_simulate = scheduler_sub.add_parser("simulate")
@@ -2138,6 +2210,7 @@ def build_parser() -> argparse.ArgumentParser:
             "continuous-batching",
             "scheduler-contract",
             "stage-replication",
+            "resilience-replay",
             "backend-coverage",
             "benchmark-ledger",
             "expert-mlp-probe",

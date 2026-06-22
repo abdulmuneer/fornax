@@ -98,6 +98,11 @@ from fornax.remote_expert_probe import (
     run_cpu_remote_expert_batch_probe,
     validate_remote_expert_batch_probe_fixture,
 )
+from fornax.resilience import (
+    simulate_resilience_replay,
+    validate_resilience_replay,
+    validate_resilience_replay_fixture,
+)
 from fornax.runtime_format_spec import render_runtime_format_spec_draft
 from fornax.stage_replication import (
     simulate_stage_replication,
@@ -1049,8 +1054,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(21, result["summary"]["check_count"])
-        self.assertEqual(21, result["summary"]["passed_count"])
+        self.assertEqual(22, result["summary"]["check_count"])
+        self.assertEqual(22, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1063,6 +1068,7 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("pipeline-correctness", {check["name"] for check in validation["checks"]})
         self.assertIn("throughput-scaling", {check["name"] for check in validation["checks"]})
         self.assertIn("stage-replication", {check["name"] for check in validation["checks"]})
+        self.assertIn("resilience-replay", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-migration", {check["name"] for check in validation["checks"]})
         self.assertIn("remote-expert-batch", {check["name"] for check in validation["checks"]})
@@ -1463,6 +1469,57 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_stage_replication_fixture(contract)
         self.assertFalse(result["ok"])
         self.assertIn("outputs_match_reference", "; ".join(result["errors"]))
+
+    def test_resilience_replay_fixture_passes(self) -> None:
+        result = validate_resilience_replay("fornax/golden_vectors/resilience_replay")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(3, result["summary"]["request_count"])
+        self.assertEqual(0, result["summary"]["dropped_token_count"])
+
+    def test_simulated_resilience_replay_zero_dropped_in_flight(self) -> None:
+        contract = simulate_resilience_replay(plan_id="unit-resilience-replay")
+        result = validate_resilience_replay_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(contract["summary"]["zero_dropped_in_flight"])
+        self.assertEqual(
+            contract["summary"]["request_count"],
+            contract["summary"]["replayed_request_count"],
+        )
+        self.assertEqual(0.0, contract["summary"]["max_abs_error"])
+
+    def test_resilience_replay_rejects_dropped_token(self) -> None:
+        contract = simulate_resilience_replay()
+        contract["results"][0]["completed_tokens"] = contract["results"][0]["completed_tokens"][:-1]
+        contract["results"][0]["dropped_token_count"] = 1
+        contract["results"][0]["completed"] = False
+        contract["summary"]["dropped_token_count"] = 1
+        contract["summary"]["zero_dropped_in_flight"] = False
+        contract["summary"]["correctness_passed"] = False
+        result = validate_resilience_replay_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("dropped_token_count", "; ".join(result["errors"]))
+
+    def test_resilience_replay_rejects_duplicate_schedule(self) -> None:
+        contract = simulate_resilience_replay()
+        duplicate = dict(
+            next(event for event in contract["events"] if event["kind"] == "replay_scheduled")
+        )
+        contract["events"].append(duplicate)
+        contract["summary"]["event_count"] = len(contract["events"])
+        result = validate_resilience_replay_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("scheduled more than once", "; ".join(result["errors"]))
+
+    def test_resilience_replay_rejects_late_replay(self) -> None:
+        contract = simulate_resilience_replay(
+            replay_delay_s=0.050,
+            max_replay_delay_s=0.025,
+        )
+        result = validate_resilience_replay_fixture(contract)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("max_replay_delay_s", text)
+        self.assertIn("replay_delay_within_budget", text)
 
     def test_continuous_batching_fixture_passes(self) -> None:
         result = validate_continuous_batching("fornax/golden_vectors/continuous_batching")

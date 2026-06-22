@@ -1,0 +1,331 @@
+{
+  "config": {
+    "checkpoint_token_index": 2,
+    "failed_node_id": "logical-host-1",
+    "max_replay_delay_s": 0.025,
+    "node_loss_time_s": 0.05,
+    "replay_delay_s": 0.01,
+    "replay_node_id": "logical-host-0",
+    "token_time_s": 0.006,
+    "vocab_size": 97
+  },
+  "events": [
+    {
+      "gen_len": 5,
+      "kind": "request_started",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-resilience-replay",
+      "prompt_len": 8,
+      "request_id": "res-r0",
+      "timestamp_s": 0.0
+    },
+    {
+      "checkpoint_token_index": 2,
+      "emitted_tokens": [
+        8,
+        15
+      ],
+      "kind": "checkpoint_recorded",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-resilience-replay",
+      "request_id": "res-r0",
+      "timestamp_s": 0.04
+    },
+    {
+      "gen_len": 4,
+      "kind": "request_started",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-resilience-replay",
+      "prompt_len": 7,
+      "request_id": "res-r1",
+      "timestamp_s": 0.001
+    },
+    {
+      "checkpoint_token_index": 2,
+      "emitted_tokens": [
+        16,
+        23
+      ],
+      "kind": "checkpoint_recorded",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-resilience-replay",
+      "request_id": "res-r1",
+      "timestamp_s": 0.041
+    },
+    {
+      "gen_len": 3,
+      "kind": "request_started",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-resilience-replay",
+      "prompt_len": 6,
+      "request_id": "res-r2",
+      "timestamp_s": 0.002
+    },
+    {
+      "checkpoint_token_index": 2,
+      "emitted_tokens": [
+        24,
+        31
+      ],
+      "kind": "checkpoint_recorded",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-resilience-replay",
+      "request_id": "res-r2",
+      "timestamp_s": 0.042
+    },
+    {
+      "affected_request_ids": [
+        "res-r0",
+        "res-r1",
+        "res-r2"
+      ],
+      "failed_node_id": "logical-host-1",
+      "kind": "node_loss_detected",
+      "plan_id": "golden-resilience-replay",
+      "timestamp_s": 0.05
+    },
+    {
+      "failed_node_id": "logical-host-1",
+      "from_checkpoint_token_index": 2,
+      "kind": "replay_scheduled",
+      "plan_id": "golden-resilience-replay",
+      "replay_node_id": "logical-host-0",
+      "request_id": "res-r0",
+      "timestamp_s": 0.06
+    },
+    {
+      "kind": "replay_started",
+      "plan_id": "golden-resilience-replay",
+      "replay_node_id": "logical-host-0",
+      "request_id": "res-r0",
+      "timestamp_s": 0.06
+    },
+    {
+      "kind": "replay_completed",
+      "plan_id": "golden-resilience-replay",
+      "replay_node_id": "logical-host-0",
+      "replayed_token_count": 3,
+      "request_id": "res-r0",
+      "timestamp_s": 0.078
+    },
+    {
+      "completed_token_count": 5,
+      "dropped_token_count": 0,
+      "kind": "request_completed",
+      "plan_id": "golden-resilience-replay",
+      "request_id": "res-r0",
+      "timestamp_s": 0.078
+    },
+    {
+      "failed_node_id": "logical-host-1",
+      "from_checkpoint_token_index": 2,
+      "kind": "replay_scheduled",
+      "plan_id": "golden-resilience-replay",
+      "replay_node_id": "logical-host-0",
+      "request_id": "res-r1",
+      "timestamp_s": 0.06
+    },
+    {
+      "kind": "replay_started",
+      "plan_id": "golden-resilience-replay",
+      "replay_node_id": "logical-host-0",
+      "request_id": "res-r1",
+      "timestamp_s": 0.061
+    },
+    {
+      "kind": "replay_completed",
+      "plan_id": "golden-resilience-replay",
+      "replay_node_id": "logical-host-0",
+      "replayed_token_count": 2,
+      "request_id": "res-r1",
+      "timestamp_s": 0.073
+    },
+    {
+      "completed_token_count": 4,
+      "dropped_token_count": 0,
+      "kind": "request_completed",
+      "plan_id": "golden-resilience-replay",
+      "request_id": "res-r1",
+      "timestamp_s": 0.073
+    },
+    {
+      "failed_node_id": "logical-host-1",
+      "from_checkpoint_token_index": 2,
+      "kind": "replay_scheduled",
+      "plan_id": "golden-resilience-replay",
+      "replay_node_id": "logical-host-0",
+      "request_id": "res-r2",
+      "timestamp_s": 0.06
+    },
+    {
+      "kind": "replay_started",
+      "plan_id": "golden-resilience-replay",
+      "replay_node_id": "logical-host-0",
+      "request_id": "res-r2",
+      "timestamp_s": 0.062
+    },
+    {
+      "kind": "replay_completed",
+      "plan_id": "golden-resilience-replay",
+      "replay_node_id": "logical-host-0",
+      "replayed_token_count": 1,
+      "request_id": "res-r2",
+      "timestamp_s": 0.068
+    },
+    {
+      "completed_token_count": 3,
+      "dropped_token_count": 0,
+      "kind": "request_completed",
+      "plan_id": "golden-resilience-replay",
+      "request_id": "res-r2",
+      "timestamp_s": 0.068
+    },
+    {
+      "failed_node_state_released": true,
+      "kind": "cleanup",
+      "plan_id": "golden-resilience-replay",
+      "timestamp_s": 0.079
+    }
+  ],
+  "mode": "t1-simulation",
+  "note": "T1 resilience replay simulation: validates single-node-loss replay, zero dropped in-flight requests, no duplicate tokens, and deterministic output recovery. Not real T4 fault-tolerance evidence.",
+  "plan_id": "golden-resilience-replay",
+  "record_kind": "resilience-replay-simulation-contract",
+  "requests": [
+    {
+      "gen_len": 5,
+      "prompt_len": 8,
+      "request_id": "res-r0",
+      "seed": 3
+    },
+    {
+      "gen_len": 4,
+      "prompt_len": 7,
+      "request_id": "res-r1",
+      "seed": 11
+    },
+    {
+      "gen_len": 3,
+      "prompt_len": 6,
+      "request_id": "res-r2",
+      "seed": 19
+    }
+  ],
+  "results": [
+    {
+      "checkpoint_token_index": 2,
+      "completed": true,
+      "completed_checksum": 112.9,
+      "completed_tokens": [
+        8,
+        15,
+        22,
+        29,
+        36
+      ],
+      "dropped_token_count": 0,
+      "duplicate_token_count": 0,
+      "emitted_before_failure": [
+        8,
+        15
+      ],
+      "max_abs_error": 0.0,
+      "reference_checksum": 112.9,
+      "reference_tokens": [
+        8,
+        15,
+        22,
+        29,
+        36
+      ],
+      "replay_delay_s": 0.01,
+      "replay_end_s": 0.078,
+      "replay_start_s": 0.06,
+      "replayed_tokens": [
+        22,
+        29,
+        36
+      ],
+      "request_id": "res-r0"
+    },
+    {
+      "checkpoint_token_index": 2,
+      "completed": true,
+      "completed_checksum": 107.94,
+      "completed_tokens": [
+        16,
+        23,
+        30,
+        37
+      ],
+      "dropped_token_count": 0,
+      "duplicate_token_count": 0,
+      "emitted_before_failure": [
+        16,
+        23
+      ],
+      "max_abs_error": 0.0,
+      "reference_checksum": 107.94,
+      "reference_tokens": [
+        16,
+        23,
+        30,
+        37
+      ],
+      "replay_delay_s": 0.01,
+      "replay_end_s": 0.073,
+      "replay_start_s": 0.061,
+      "replayed_tokens": [
+        30,
+        37
+      ],
+      "request_id": "res-r1"
+    },
+    {
+      "checkpoint_token_index": 2,
+      "completed": true,
+      "completed_checksum": 94.07,
+      "completed_tokens": [
+        24,
+        31,
+        38
+      ],
+      "dropped_token_count": 0,
+      "duplicate_token_count": 0,
+      "emitted_before_failure": [
+        24,
+        31
+      ],
+      "max_abs_error": 0.0,
+      "reference_checksum": 94.07,
+      "reference_tokens": [
+        24,
+        31,
+        38
+      ],
+      "replay_delay_s": 0.01,
+      "replay_end_s": 0.068,
+      "replay_start_s": 0.062,
+      "replayed_tokens": [
+        38
+      ],
+      "request_id": "res-r2"
+    }
+  ],
+  "simulation_method": "single-node-loss-replay",
+  "summary": {
+    "correctness_passed": true,
+    "dropped_request_count": 0,
+    "dropped_token_count": 0,
+    "duplicate_token_count": 0,
+    "event_count": 20,
+    "in_flight_request_count": 3,
+    "max_abs_error": 0.0,
+    "max_replay_delay_s": 0.01,
+    "replay_delay_within_budget": true,
+    "replayed_request_count": 3,
+    "request_count": 3,
+    "zero_dropped_in_flight": true
+  },
+  "version": 1
+}
