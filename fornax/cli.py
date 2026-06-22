@@ -90,6 +90,10 @@ from .phase0_status import render_phase0_status_report
 from .phase0_simulated_validation import run_phase0_simulated_validation
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
+from .serving import (
+    simulate_serving_adapter,
+    validate_serving_adapter,
+)
 from .stage_replication import (
     simulate_stage_replication,
     validate_stage_replication,
@@ -439,6 +443,32 @@ def _cmd_engine_simulate(args: argparse.Namespace) -> int:
         f"finished={summary['finished_count']} "
         f"tokens={summary['token_count']} "
         f"embedded_contracts={summary['embedded_contract_count']}"
+    )
+    return 0
+
+
+def _cmd_serving_adapter_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_serving_adapter(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            model=args.model,
+            stream=args.stream,
+            max_tokens=args.max_tokens,
+            template_hash=args.template_hash,
+            tokenizer_hash=args.tokenizer_hash,
+        )
+    except ValueError as exc:
+        print(f"serving adapter-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "serving adapter-simulate: "
+        f"surfaces={summary['surface_count']} "
+        f"chunks={summary['openai_chunk_count']} "
+        f"tool_calls={summary['tool_call_count']} "
+        f"correctness={summary['correctness_passed']}"
     )
     return 0
 
@@ -1237,6 +1267,26 @@ def _cmd_test_engine_seam(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_serving_adapter(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/serving_adapter"
+    result = validate_serving_adapter(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS serving-adapter: {fixture} "
+            f"surfaces={summary['surface_count']} "
+            f"chunks={summary['openai_chunk_count']} "
+            f"tool_calls={summary['tool_call_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL serving-adapter: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_engine_simulation(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/engine_simulation"
     result = validate_engine_simulation(fixture)
@@ -1619,6 +1669,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_network_contract(args)
     if args.test_name == "engine-seam":
         return _cmd_test_engine_seam(args)
+    if args.test_name == "serving-adapter":
+        return _cmd_test_serving_adapter(args)
     if args.test_name == "engine-simulation":
         return _cmd_test_engine_simulation(args)
     if args.test_name == "observability":
@@ -1894,6 +1946,18 @@ def build_parser() -> argparse.ArgumentParser:
     engine_simulate.add_argument("--timeout-ms", type=float, default=50.0)
     engine_simulate.set_defaults(func=_cmd_engine_simulate)
 
+    serving = sub.add_parser("serving")
+    serving_sub = serving.add_subparsers(dest="serving_command", required=True)
+    serving_adapter = serving_sub.add_parser("adapter-simulate")
+    serving_adapter.add_argument("--out", required=True)
+    serving_adapter.add_argument("--plan-id", default="serving-adapter-plan")
+    serving_adapter.add_argument("--request-id", default="req-serving-adapter-001")
+    serving_adapter.add_argument("--model", default="qwen3-moe-class-target")
+    serving_adapter.add_argument("--max-tokens", type=int, default=64)
+    serving_adapter.add_argument("--no-stream", dest="stream", action="store_false")
+    serving_adapter.add_argument("--template-hash", default="sha256:" + "a" * 64)
+    serving_adapter.add_argument("--tokenizer-hash", default="sha256:" + "b" * 64)
+    serving_adapter.set_defaults(stream=True, func=_cmd_serving_adapter_simulate)
 
     workers = sub.add_parser("workers")
     workers_sub = workers.add_subparsers(dest="workers_command", required=True)
@@ -2198,6 +2262,7 @@ def build_parser() -> argparse.ArgumentParser:
             "runtime-format",
             "network-contract",
             "engine-seam",
+            "serving-adapter",
             "engine-simulation",
             "observability",
             "worker-contract",

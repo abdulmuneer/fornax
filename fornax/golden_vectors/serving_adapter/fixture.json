@@ -1,0 +1,468 @@
+{
+  "adapters": [
+    {
+      "endpoint": "/v1/chat/completions",
+      "protocol": "HTTP/JSON",
+      "streaming": true,
+      "surface": "openai_chat_completions",
+      "trust_boundary": "client_to_serving"
+    },
+    {
+      "backend": "FornaxBackend",
+      "streaming": true,
+      "surface": "ignis_engine",
+      "trait": "Engine",
+      "trust_boundary": "serving_to_scheduler"
+    }
+  ],
+  "cancellation_result": {
+    "cancelled": true,
+    "cleanup": {
+      "kv_released": true,
+      "scheduler_released": true,
+      "workers_released": true
+    },
+    "finish_reason": "cancelled",
+    "request_id": "golden-serving-request-cancel"
+  },
+  "engine_request": {
+    "cancellation": {
+      "propagates_to": [
+        "scheduler",
+        "workers",
+        "kv_state"
+      ],
+      "supported": true
+    },
+    "max_tokens": 64,
+    "messages": [
+      {
+        "content": "Return structured JSON and call tools when needed.",
+        "role": "system"
+      },
+      {
+        "content": "Look up alpha and return a score.",
+        "role": "user"
+      }
+    ],
+    "plan_id": "golden-serving-adapter",
+    "request_id": "golden-serving-request",
+    "response_format": {
+      "json_schema": {
+        "name": "score_response",
+        "schema": {
+          "properties": {
+            "score": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "score"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    },
+    "sampling": {
+      "seed": 7,
+      "temperature": 0.2,
+      "top_p": 0.95
+    },
+    "stop": [
+      "</final>"
+    ],
+    "stream": true,
+    "template": {
+      "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "qwen3-chat",
+      "version": "phase0-fixture-2026-06-22"
+    },
+    "tokenizer": {
+      "hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "qwen3-tokenizer",
+      "version": "phase0-fixture-2026-06-22"
+    },
+    "tools": [
+      {
+        "function": {
+          "name": "lookup_score",
+          "parameters": {
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "engine_result": {
+    "content": "",
+    "finish_reason": "tool_calls",
+    "request_id": "golden-serving-request",
+    "structured_output": {
+      "score": 0.82
+    },
+    "template_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tokenizer_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tool_calls": [
+      {
+        "arguments": {
+          "key": "alpha"
+        },
+        "id": "call-001",
+        "name": "lookup_score"
+      }
+    ],
+    "usage": {
+      "completion_tokens": 9,
+      "prompt_tokens": 42,
+      "total_tokens": 51
+    }
+  },
+  "engine_stream_events": [
+    {
+      "kind": "start",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request"
+    },
+    {
+      "kind": "token",
+      "request_id": "golden-serving-request",
+      "token_id": 1001,
+      "token_text": "{"
+    },
+    {
+      "delta": {
+        "name": "lookup_score"
+      },
+      "kind": "tool_call_delta",
+      "request_id": "golden-serving-request",
+      "tool_call_id": "call-001"
+    },
+    {
+      "delta": {
+        "score": 0.82
+      },
+      "kind": "structured_delta",
+      "request_id": "golden-serving-request"
+    },
+    {
+      "finish_reason": "tool_calls",
+      "kind": "finish",
+      "request_id": "golden-serving-request"
+    }
+  ],
+  "error_mapping": {
+    "engine_error_code": "template_mismatch",
+    "openai_error": {
+      "code": "template_mismatch",
+      "message": "Template hash did not match the target contract.",
+      "type": "invalid_request_error"
+    },
+    "openai_status_code": 409
+  },
+  "error_result": {
+    "error": {
+      "code": "template_mismatch",
+      "message": "Template hash did not match the target contract."
+    },
+    "finish_reason": "error",
+    "request_id": "golden-serving-request-error"
+  },
+  "events": [
+    {
+      "endpoint": "/v1/chat/completions",
+      "kind": "request_received",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "surface": "openai_chat_completions",
+      "timestamp_s": 0.0
+    },
+    {
+      "kind": "request_normalized",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "source_surface": "openai_chat_completions",
+      "target_surface": "ignis_engine",
+      "template_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "timestamp_s": 0.001,
+      "tokenizer_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "backend": "FornaxBackend",
+      "kind": "engine_submitted",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "timestamp_s": 0.002
+    },
+    {
+      "chunk_index": 0,
+      "engine_event_kind": "start",
+      "kind": "stream_chunk_emitted",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "timestamp_s": 0.003
+    },
+    {
+      "chunk_index": 1,
+      "engine_event_kind": "token",
+      "kind": "stream_chunk_emitted",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "timestamp_s": 0.004
+    },
+    {
+      "chunk_index": 2,
+      "engine_event_kind": "tool_call_delta",
+      "kind": "stream_chunk_emitted",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "timestamp_s": 0.005
+    },
+    {
+      "chunk_index": 3,
+      "engine_event_kind": "structured_delta",
+      "kind": "stream_chunk_emitted",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "timestamp_s": 0.006
+    },
+    {
+      "chunk_index": 4,
+      "engine_event_kind": "finish",
+      "kind": "stream_chunk_emitted",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "timestamp_s": 0.007
+    },
+    {
+      "finish_reason": "tool_calls",
+      "kind": "response_finalized",
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "timestamp_s": 0.01
+    },
+    {
+      "kind": "cleanup",
+      "kv_released": true,
+      "plan_id": "golden-serving-adapter",
+      "request_id": "golden-serving-request",
+      "scheduler_released": true,
+      "timestamp_s": 0.011,
+      "workers_released": true
+    }
+  ],
+  "mode": "t1-simulation",
+  "note": "T1 serving adapter simulation: validates OpenAI chat-completions and Ignis Engine surfaces normalize into the same Fornax Engine seam. Not a live HTTP server or production serving claim.",
+  "openai_request": {
+    "endpoint": "/v1/chat/completions",
+    "max_tokens": 64,
+    "messages": [
+      {
+        "content": "Return structured JSON and call tools when needed.",
+        "role": "system"
+      },
+      {
+        "content": "Look up alpha and return a score.",
+        "role": "user"
+      }
+    ],
+    "method": "POST",
+    "model": "qwen3-moe-class-target",
+    "response_format": {
+      "json_schema": {
+        "name": "score_response",
+        "schema": {
+          "properties": {
+            "score": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "score"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "json_schema"
+    },
+    "seed": 7,
+    "stop": [
+      "</final>"
+    ],
+    "stream": true,
+    "surface": "openai_chat_completions",
+    "temperature": 0.2,
+    "tools": [
+      {
+        "function": {
+          "name": "lookup_score",
+          "parameters": {
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ],
+    "top_p": 0.95,
+    "user": "simulation-user"
+  },
+  "openai_response": {
+    "choices": [
+      {
+        "finish_reason": "tool_calls",
+        "index": 0,
+        "message": {
+          "content": "",
+          "role": "assistant",
+          "structured_output": {
+            "score": 0.82
+          },
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": {
+                  "key": "alpha"
+                },
+                "name": "lookup_score"
+              },
+              "id": "call-001",
+              "type": "function"
+            }
+          ]
+        }
+      }
+    ],
+    "id": "chatcmpl-golden-serving-request",
+    "model": "qwen3-moe-class-target",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 9,
+      "prompt_tokens": 42,
+      "total_tokens": 51
+    }
+  },
+  "openai_stream_chunks": [
+    {
+      "choices": [
+        {
+          "delta": {
+            "role": "assistant"
+          },
+          "finish_reason": null,
+          "index": 0
+        }
+      ],
+      "engine_event_kind": "start",
+      "id": "chatcmpl-golden-serving-request",
+      "index": 0,
+      "model": "qwen3-moe-class-target",
+      "object": "chat.completion.chunk"
+    },
+    {
+      "choices": [
+        {
+          "delta": {
+            "content": "{"
+          },
+          "finish_reason": null,
+          "index": 0
+        }
+      ],
+      "engine_event_kind": "token",
+      "id": "chatcmpl-golden-serving-request",
+      "index": 1,
+      "model": "qwen3-moe-class-target",
+      "object": "chat.completion.chunk"
+    },
+    {
+      "choices": [
+        {
+          "delta": {
+            "tool_calls": [
+              {
+                "function": {
+                  "name": "lookup_score"
+                },
+                "id": "call-001",
+                "type": "function"
+              }
+            ]
+          },
+          "finish_reason": null,
+          "index": 0
+        }
+      ],
+      "engine_event_kind": "tool_call_delta",
+      "id": "chatcmpl-golden-serving-request",
+      "index": 2,
+      "model": "qwen3-moe-class-target",
+      "object": "chat.completion.chunk"
+    },
+    {
+      "choices": [
+        {
+          "delta": {
+            "structured_output": {
+              "score": 0.82
+            }
+          },
+          "finish_reason": null,
+          "index": 0
+        }
+      ],
+      "engine_event_kind": "structured_delta",
+      "id": "chatcmpl-golden-serving-request",
+      "index": 3,
+      "model": "qwen3-moe-class-target",
+      "object": "chat.completion.chunk"
+    },
+    {
+      "choices": [
+        {
+          "delta": {},
+          "finish_reason": "tool_calls",
+          "index": 0
+        }
+      ],
+      "engine_event_kind": "finish",
+      "id": "chatcmpl-golden-serving-request",
+      "index": 4,
+      "model": "qwen3-moe-class-target",
+      "object": "chat.completion.chunk"
+    }
+  ],
+  "plan_id": "golden-serving-adapter",
+  "record_kind": "serving-adapter-simulation-contract",
+  "simulation_method": "openai-and-ignis-to-engine-seam-roundtrip",
+  "summary": {
+    "cancellation_mapped": true,
+    "correctness_passed": true,
+    "engine_stream_event_count": 5,
+    "error_mapped": true,
+    "event_count": 10,
+    "openai_chunk_count": 5,
+    "structured_output": true,
+    "surface_count": 2,
+    "template_hash_recorded": true,
+    "tokenizer_hash_recorded": true,
+    "tool_call_count": 1
+  },
+  "version": 1
+}

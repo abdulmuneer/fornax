@@ -45,6 +45,10 @@ from .resilience import (
     validate_resilience_replay_fixture,
 )
 from .runtime_format import validate_runtime_format_golden
+from .serving import (
+    simulate_serving_adapter,
+    validate_serving_adapter_fixture,
+)
 from .stage_replication import (
     simulate_stage_replication,
     validate_stage_replication_fixture,
@@ -193,6 +197,7 @@ def run_t1_simulated_validation(
     worker_path = bundle / "worker-contract.json"
     transport_path = bundle / "transport-contract.json"
     engine_path = bundle / "engine-simulation.json"
+    serving_path = bundle / "serving-adapter.json"
     batching_path = bundle / "continuous-batching.json"
     pipeline_path = bundle / "pipeline-correctness.json"
     throughput_path = bundle / "throughput-scaling.json"
@@ -245,6 +250,10 @@ def run_t1_simulated_validation(
         max_inflight=max_inflight,
         microbatch_size=microbatch_size,
         timeout_ms=timeout_ms,
+    )
+    serving = simulate_serving_adapter(
+        plan_id=f"{plan_id}-serving",
+        request_id=f"{request_id}-serving",
     )
     batching = simulate_continuous_batching(
         plan_id=plan_id,
@@ -309,6 +318,7 @@ def run_t1_simulated_validation(
     write_json(worker_path, worker)
     write_json(transport_path, transport)
     write_json(engine_path, engine)
+    write_json(serving_path, serving)
     write_json(batching_path, batching)
     write_json(pipeline_path, pipeline)
     write_json(throughput_path, throughput)
@@ -362,6 +372,12 @@ def run_t1_simulated_validation(
             "T1",
             validate_engine_simulation_fixture(engine),
             str(engine_path),
+        ),
+        _check(
+            "serving-adapter",
+            "T1",
+            validate_serving_adapter_fixture(serving),
+            str(serving_path),
         ),
         _check(
             "continuous-batching",
@@ -466,6 +482,7 @@ def run_t1_simulated_validation(
             "worker_contract": str(worker_path),
             "transport_contract": str(transport_path),
             "engine_simulation": str(engine_path),
+            "serving_adapter": str(serving_path),
             "continuous_batching": str(batching_path),
             "pipeline_correctness": str(pipeline_path),
             "throughput_scaling": str(throughput_path),

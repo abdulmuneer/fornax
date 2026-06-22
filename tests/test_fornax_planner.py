@@ -104,6 +104,11 @@ from fornax.resilience import (
     validate_resilience_replay_fixture,
 )
 from fornax.runtime_format_spec import render_runtime_format_spec_draft
+from fornax.serving import (
+    simulate_serving_adapter,
+    validate_serving_adapter,
+    validate_serving_adapter_fixture,
+)
 from fornax.stage_replication import (
     simulate_stage_replication,
     validate_stage_replication,
@@ -1054,8 +1059,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(22, result["summary"]["check_count"])
-        self.assertEqual(22, result["summary"]["passed_count"])
+        self.assertEqual(23, result["summary"]["check_count"])
+        self.assertEqual(23, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1064,6 +1069,7 @@ class FornaxPlannerTest(unittest.TestCase):
             for endpoint in transport["endpoints"]
         })
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
+        self.assertIn("serving-adapter", {check["name"] for check in validation["checks"]})
         self.assertIn("continuous-batching", {check["name"] for check in validation["checks"]})
         self.assertIn("pipeline-correctness", {check["name"] for check in validation["checks"]})
         self.assertIn("throughput-scaling", {check["name"] for check in validation["checks"]})
@@ -1092,6 +1098,50 @@ class FornaxPlannerTest(unittest.TestCase):
                     gpu_count=2,
                 )
 
+
+    def test_serving_adapter_fixture_passes(self) -> None:
+        result = validate_serving_adapter("fornax/golden_vectors/serving_adapter")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(2, result["summary"]["surface_count"])
+        self.assertTrue(result["summary"]["template_hash_recorded"])
+        self.assertTrue(result["summary"]["tokenizer_hash_recorded"])
+
+    def test_simulated_serving_adapter_roundtrips_openai_and_engine_surfaces(self) -> None:
+        contract = simulate_serving_adapter(plan_id="unit-serving-plan")
+        result = validate_serving_adapter_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual("openai_chat_completions", contract["openai_request"]["surface"])
+        self.assertEqual("FornaxBackend", contract["adapters"][1]["backend"])
+        self.assertEqual(
+            contract["engine_result"]["usage"],
+            contract["openai_response"]["usage"],
+        )
+        self.assertEqual(
+            len(contract["engine_stream_events"]),
+            len(contract["openai_stream_chunks"]),
+        )
+
+    def test_serving_adapter_rejects_template_hash_mismatch(self) -> None:
+        contract = simulate_serving_adapter()
+        contract["engine_result"]["template_hash"] = "sha256:" + "c" * 64
+        result = validate_serving_adapter_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("template_hash", "; ".join(result["errors"]))
+
+    def test_serving_adapter_rejects_stream_chunk_mismatch(self) -> None:
+        contract = simulate_serving_adapter()
+        contract["openai_stream_chunks"][1]["engine_event_kind"] = "finish"
+        result = validate_serving_adapter_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("engine_event_kind", "; ".join(result["errors"]))
+
+    def test_serving_adapter_rejects_missing_openai_surface(self) -> None:
+        contract = simulate_serving_adapter()
+        contract["adapters"] = [adapter for adapter in contract["adapters"] if adapter["surface"] != "openai_chat_completions"]
+        contract["summary"]["surface_count"] = len(contract["adapters"])
+        result = validate_serving_adapter_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("missing required surfaces", "; ".join(result["errors"]))
 
     def test_engine_simulation_fixture_passes(self) -> None:
         result = validate_engine_simulation("fornax/golden_vectors/engine_simulation")
