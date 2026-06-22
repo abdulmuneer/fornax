@@ -86,6 +86,10 @@ from .pipeline_probe import (
     validate_pipeline_correctness_probe,
 )
 from .observability import validate_observability_contract
+from .ops_lifecycle import (
+    simulate_ops_lifecycle,
+    validate_ops_lifecycle,
+)
 from .phase0_status import render_phase0_status_report
 from .phase0_simulated_validation import run_phase0_simulated_validation
 from .runtime_format import validate_runtime_format_golden
@@ -576,6 +580,35 @@ def _cmd_resilience_replay_simulate(args: argparse.Namespace) -> int:
         f"replayed={summary['replayed_request_count']} "
         f"dropped={summary['dropped_request_count']} "
         f"max_replay_delay_s={summary['max_replay_delay_s']}"
+    )
+    return 0
+
+
+def _cmd_ops_lifecycle_simulate(args: argparse.Namespace) -> int:
+    try:
+        node_ids = [item.strip() for item in args.node_ids.split(",") if item.strip()]
+        result = simulate_ops_lifecycle(
+            plan_id=args.plan_id,
+            cluster_id=args.cluster_id,
+            model_id=args.model_id,
+            initial_version=args.initial_version,
+            target_version=args.target_version,
+            node_ids=node_ids,
+            replacement_node_id=args.replacement_node_id,
+            in_flight_requests=args.in_flight_requests,
+        )
+    except ValueError as exc:
+        print(f"ops lifecycle-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "ops lifecycle-simulate: "
+        f"actions={summary['action_count']} "
+        f"events={summary['event_count']} "
+        f"dropped={summary['dropped_in_flight_count']} "
+        f"rollback={summary['rollback_verified']} "
+        f"node_replace={summary['node_replace_verified']}"
     )
     return 0
 
@@ -1592,6 +1625,28 @@ def _cmd_test_resilience_replay(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_ops_lifecycle(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/ops_lifecycle"
+    result = validate_ops_lifecycle(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS ops-lifecycle: {fixture} "
+            f"actions={summary['action_count']} "
+            f"events={summary['event_count']} "
+            f"dropped={summary['dropped_in_flight_count']} "
+            f"rollback={summary['rollback_verified']} "
+            f"node_replace={summary['node_replace_verified']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL ops-lifecycle: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_throughput_scaling(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/throughput_scaling"
     result = validate_throughput_scaling(fixture)
@@ -1697,6 +1752,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_stage_replication(args)
     if args.test_name == "resilience-replay":
         return _cmd_test_resilience_replay(args)
+    if args.test_name == "ops-lifecycle":
+        return _cmd_test_ops_lifecycle(args)
     if args.test_name == "backend-coverage":
         return _cmd_test_backend_coverage(args)
     if args.test_name == "benchmark-ledger":
@@ -2017,6 +2074,20 @@ def build_parser() -> argparse.ArgumentParser:
     replay_simulate.add_argument("--vocab-size", type=int, default=97)
     replay_simulate.set_defaults(func=_cmd_resilience_replay_simulate)
 
+    ops = sub.add_parser("ops")
+    ops_sub = ops.add_subparsers(dest="ops_command", required=True)
+    lifecycle = ops_sub.add_parser("lifecycle-simulate")
+    lifecycle.add_argument("--out", required=True)
+    lifecycle.add_argument("--plan-id", default="ops-lifecycle-plan")
+    lifecycle.add_argument("--cluster-id", default="fornax-sim-cluster")
+    lifecycle.add_argument("--model-id", default="qwen3-moe-class-target")
+    lifecycle.add_argument("--initial-version", default="v0.1.0")
+    lifecycle.add_argument("--target-version", default="v0.2.0")
+    lifecycle.add_argument("--node-ids", default="logical-host-0,logical-host-1")
+    lifecycle.add_argument("--replacement-node-id", default="logical-host-2")
+    lifecycle.add_argument("--in-flight-requests", type=int, default=4)
+    lifecycle.set_defaults(func=_cmd_ops_lifecycle_simulate)
+
     scheduler = sub.add_parser("scheduler")
     scheduler_sub = scheduler.add_subparsers(dest="scheduler_command", required=True)
     scheduler_simulate = scheduler_sub.add_parser("simulate")
@@ -2276,6 +2347,7 @@ def build_parser() -> argparse.ArgumentParser:
             "scheduler-contract",
             "stage-replication",
             "resilience-replay",
+            "ops-lifecycle",
             "backend-coverage",
             "benchmark-ledger",
             "expert-mlp-probe",

@@ -1,0 +1,459 @@
+{
+  "actions": [
+    {
+      "affected_nodes": [
+        "logical-host-0",
+        "logical-host-1"
+      ],
+      "completed_at_s": 0.005,
+      "name": "deploy",
+      "postconditions": [
+        "nodes admitted",
+        "health checks passed"
+      ],
+      "preconditions": [
+        "cluster.yaml",
+        "model.yaml",
+        "placement.json"
+      ],
+      "started_at_s": 0.0,
+      "status": "completed"
+    },
+    {
+      "affected_nodes": [
+        "logical-host-0",
+        "logical-host-1"
+      ],
+      "completed_at_s": 0.042,
+      "name": "drain",
+      "postconditions": [
+        "zero dropped in-flight",
+        "traffic quiesced before mutation"
+      ],
+      "preconditions": [
+        "bounded queue",
+        "active placement"
+      ],
+      "started_at_s": 0.01,
+      "status": "completed"
+    },
+    {
+      "affected_nodes": [
+        "logical-host-0"
+      ],
+      "completed_at_s": 0.017,
+      "name": "upgrade",
+      "postconditions": [
+        "target version healthy"
+      ],
+      "preconditions": [
+        "drain completed"
+      ],
+      "started_at_s": 0.01,
+      "status": "completed"
+    },
+    {
+      "affected_nodes": [
+        "logical-host-1"
+      ],
+      "completed_at_s": 0.027,
+      "name": "restart",
+      "postconditions": [
+        "node rejoined at same version"
+      ],
+      "preconditions": [
+        "drain completed"
+      ],
+      "started_at_s": 0.02,
+      "status": "completed"
+    },
+    {
+      "affected_nodes": [
+        "logical-host-0"
+      ],
+      "completed_at_s": 0.037,
+      "name": "rollback",
+      "postconditions": [
+        "initial version restored",
+        "health checks passed"
+      ],
+      "preconditions": [
+        "drain completed",
+        "previous version available"
+      ],
+      "started_at_s": 0.03,
+      "status": "completed"
+    },
+    {
+      "affected_nodes": [
+        "logical-host-1",
+        "logical-host-2"
+      ],
+      "completed_at_s": 0.048,
+      "name": "node_replace",
+      "postconditions": [
+        "old node removed",
+        "traffic restored"
+      ],
+      "preconditions": [
+        "drain completed",
+        "replacement admitted"
+      ],
+      "started_at_s": 0.04,
+      "status": "completed"
+    }
+  ],
+  "events": [
+    {
+      "action": "deploy",
+      "config_artifacts": [
+        "cluster.yaml",
+        "model.yaml",
+        "placement.json"
+      ],
+      "kind": "config_loaded",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.0
+    },
+    {
+      "action": "deploy",
+      "kind": "deploy_started",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.001
+    },
+    {
+      "action": "deploy",
+      "kind": "node_admitted",
+      "node_id": "logical-host-0",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.002,
+      "version": "v0.1.0"
+    },
+    {
+      "action": "deploy",
+      "kind": "node_admitted",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.003,
+      "version": "v0.1.0"
+    },
+    {
+      "action": "deploy",
+      "active_version": "v0.1.0",
+      "checked_nodes": [
+        "logical-host-0",
+        "logical-host-1"
+      ],
+      "kind": "health_check_passed",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.005
+    },
+    {
+      "action": "upgrade",
+      "in_flight_before": 4,
+      "kind": "drain_started",
+      "node_id": "logical-host-0",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.01
+    },
+    {
+      "action": "upgrade",
+      "drained_request_count": 4,
+      "dropped_in_flight_count": 0,
+      "in_flight_before": 4,
+      "kind": "drain_completed",
+      "node_id": "logical-host-0",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.012
+    },
+    {
+      "action": "upgrade",
+      "from_version": "v0.1.0",
+      "kind": "upgrade_started",
+      "node_id": "logical-host-0",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.013,
+      "to_version": "v0.2.0"
+    },
+    {
+      "action": "upgrade",
+      "active_version": "v0.2.0",
+      "kind": "upgrade_completed",
+      "node_id": "logical-host-0",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.016
+    },
+    {
+      "action": "upgrade",
+      "active_version": "v0.2.0",
+      "checked_nodes": [
+        "logical-host-0"
+      ],
+      "kind": "health_check_passed",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.017
+    },
+    {
+      "action": "restart",
+      "in_flight_before": 4,
+      "kind": "drain_started",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.02
+    },
+    {
+      "action": "restart",
+      "drained_request_count": 4,
+      "dropped_in_flight_count": 0,
+      "in_flight_before": 4,
+      "kind": "drain_completed",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.022
+    },
+    {
+      "action": "restart",
+      "active_version": "v0.1.0",
+      "kind": "restart_started",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.023
+    },
+    {
+      "action": "restart",
+      "active_version": "v0.1.0",
+      "kind": "restart_completed",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.026
+    },
+    {
+      "action": "restart",
+      "active_version": "v0.1.0",
+      "checked_nodes": [
+        "logical-host-1"
+      ],
+      "kind": "health_check_passed",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.027
+    },
+    {
+      "action": "rollback",
+      "in_flight_before": 4,
+      "kind": "drain_started",
+      "node_id": "logical-host-0",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.03
+    },
+    {
+      "action": "rollback",
+      "drained_request_count": 4,
+      "dropped_in_flight_count": 0,
+      "in_flight_before": 4,
+      "kind": "drain_completed",
+      "node_id": "logical-host-0",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.032
+    },
+    {
+      "action": "rollback",
+      "from_version": "v0.2.0",
+      "kind": "rollback_started",
+      "node_id": "logical-host-0",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.033,
+      "to_version": "v0.1.0"
+    },
+    {
+      "action": "rollback",
+      "active_version": "v0.1.0",
+      "kind": "rollback_completed",
+      "node_id": "logical-host-0",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.036
+    },
+    {
+      "action": "rollback",
+      "active_version": "v0.1.0",
+      "checked_nodes": [
+        "logical-host-0"
+      ],
+      "kind": "health_check_passed",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.037
+    },
+    {
+      "action": "node_replace",
+      "in_flight_before": 4,
+      "kind": "drain_started",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.04
+    },
+    {
+      "action": "node_replace",
+      "drained_request_count": 4,
+      "dropped_in_flight_count": 0,
+      "in_flight_before": 4,
+      "kind": "drain_completed",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.042
+    },
+    {
+      "action": "node_replace",
+      "kind": "node_replace_started",
+      "old_node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "replacement_node_id": "logical-host-2",
+      "timestamp_s": 0.043
+    },
+    {
+      "action": "node_replace",
+      "kind": "node_removed",
+      "node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.044
+    },
+    {
+      "action": "node_replace",
+      "kind": "node_admitted",
+      "node_id": "logical-host-2",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.045,
+      "version": "v0.1.0"
+    },
+    {
+      "action": "node_replace",
+      "kind": "node_replace_completed",
+      "old_node_id": "logical-host-1",
+      "plan_id": "golden-ops-lifecycle",
+      "replacement_node_id": "logical-host-2",
+      "timestamp_s": 0.047
+    },
+    {
+      "action": "node_replace",
+      "active_nodes": [
+        "logical-host-0",
+        "logical-host-2"
+      ],
+      "kind": "traffic_restored",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.048
+    },
+    {
+      "action": "lifecycle",
+      "active_nodes": [
+        "logical-host-0",
+        "logical-host-2"
+      ],
+      "kind": "lifecycle_completed",
+      "plan_id": "golden-ops-lifecycle",
+      "timestamp_s": 0.05
+    }
+  ],
+  "final_state": {
+    "active_nodes": [
+      {
+        "node_id": "logical-host-0",
+        "state": "serving",
+        "version": "v0.1.0"
+      },
+      {
+        "node_id": "logical-host-2",
+        "state": "serving",
+        "version": "v0.1.0"
+      }
+    ],
+    "active_version": "v0.1.0",
+    "removed_nodes": [
+      {
+        "node_id": "logical-host-1",
+        "state": "removed"
+      }
+    ]
+  },
+  "mode": "t1-simulation",
+  "note": "T1 ops lifecycle simulation: validates operator deploy, upgrade, drain, restart, rollback, and node replacement semantics over logical hosts. Not a G5 product-ops closure claim.",
+  "operator_configs": {
+    "cluster.yaml": {
+      "auth": {
+        "mode": "simulated-node-identity",
+        "required": true
+      },
+      "cluster_id": "golden-sim-cluster",
+      "nodes": [
+        {
+          "admission": "managed",
+          "logical_host_id": "logical-host-0",
+          "node_id": "logical-host-0",
+          "role": "stage-worker"
+        },
+        {
+          "admission": "managed",
+          "logical_host_id": "logical-host-1",
+          "node_id": "logical-host-1",
+          "role": "stage-replica"
+        }
+      ],
+      "plan_integrity": {
+        "plan_id": "golden-ops-lifecycle",
+        "required": true
+      }
+    },
+    "model.yaml": {
+      "initial_version": "v0.1.0",
+      "model_id": "qwen3-moe-class-target",
+      "serving": {
+        "endpoint": "/v1/chat/completions",
+        "engine": "FornaxBackend"
+      },
+      "target_version": "v0.2.0"
+    },
+    "placement.json": {
+      "feasible": true,
+      "plan_id": "golden-ops-lifecycle",
+      "stages": [
+        {
+          "index": 0,
+          "layers": [
+            0
+          ],
+          "replicas": [
+            "logical-host-0"
+          ]
+        },
+        {
+          "index": 1,
+          "layers": [
+            1
+          ],
+          "replicas": [
+            "logical-host-1"
+          ]
+        }
+      ]
+    }
+  },
+  "plan_id": "golden-ops-lifecycle",
+  "record_kind": "ops-lifecycle-simulation-contract",
+  "request_accounting": {
+    "drain_event_count": 4,
+    "dropped_in_flight_total": 0,
+    "in_flight_before_each_drain": 4
+  },
+  "simulation_method": "operator-lifecycle-two-logical-hosts",
+  "summary": {
+    "action_count": 6,
+    "active_node_count": 2,
+    "completed_action_count": 6,
+    "config_artifacts_present": true,
+    "correctness_passed": true,
+    "drain_before_mutation": true,
+    "dropped_in_flight_count": 0,
+    "event_count": 28,
+    "node_replace_verified": true,
+    "rollback_verified": true
+  },
+  "version": 1
+}

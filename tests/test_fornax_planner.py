@@ -84,6 +84,11 @@ from fornax.observability import (
     validate_observability_contract,
     validate_observability_fixture,
 )
+from fornax.ops_lifecycle import (
+    simulate_ops_lifecycle,
+    validate_ops_lifecycle,
+    validate_ops_lifecycle_fixture,
+)
 from fornax.network_contract import (
     validate_network_contract,
     validate_network_contract_fixture,
@@ -1059,8 +1064,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(23, result["summary"]["check_count"])
-        self.assertEqual(23, result["summary"]["passed_count"])
+        self.assertEqual(24, result["summary"]["check_count"])
+        self.assertEqual(24, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1075,6 +1080,7 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("throughput-scaling", {check["name"] for check in validation["checks"]})
         self.assertIn("stage-replication", {check["name"] for check in validation["checks"]})
         self.assertIn("resilience-replay", {check["name"] for check in validation["checks"]})
+        self.assertIn("ops-lifecycle", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-migration", {check["name"] for check in validation["checks"]})
         self.assertIn("remote-expert-batch", {check["name"] for check in validation["checks"]})
@@ -1570,6 +1576,62 @@ class FornaxPlannerTest(unittest.TestCase):
         text = "; ".join(result["errors"])
         self.assertIn("max_replay_delay_s", text)
         self.assertIn("replay_delay_within_budget", text)
+
+    def test_ops_lifecycle_fixture_passes(self) -> None:
+        result = validate_ops_lifecycle("fornax/golden_vectors/ops_lifecycle")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(6, result["summary"]["action_count"])
+        self.assertEqual(0, result["summary"]["dropped_in_flight_count"])
+
+    def test_simulated_ops_lifecycle_validates_required_actions(self) -> None:
+        contract = simulate_ops_lifecycle(plan_id="unit-ops-lifecycle")
+        result = validate_ops_lifecycle_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(contract["summary"]["rollback_verified"])
+        self.assertTrue(contract["summary"]["node_replace_verified"])
+        self.assertTrue(contract["summary"]["correctness_passed"])
+        self.assertEqual(
+            {"cluster.yaml", "model.yaml", "placement.json"},
+            set(contract["operator_configs"]),
+        )
+
+    def test_ops_lifecycle_rejects_mutation_without_drain(self) -> None:
+        contract = simulate_ops_lifecycle()
+        contract["events"] = [
+            event
+            for event in contract["events"]
+            if not (
+                event["kind"] == "drain_completed"
+                and event["action"] == "upgrade"
+            )
+        ]
+        contract["summary"]["event_count"] = len(contract["events"])
+        result = validate_ops_lifecycle_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("drain_completed", "; ".join(result["errors"]))
+
+    def test_ops_lifecycle_rejects_dropped_in_flight(self) -> None:
+        contract = simulate_ops_lifecycle()
+        for event in contract["events"]:
+            if event["kind"] == "drain_completed":
+                event["dropped_in_flight_count"] = 1
+                break
+        contract["request_accounting"]["dropped_in_flight_total"] = 1
+        contract["summary"]["dropped_in_flight_count"] = 1
+        contract["summary"]["correctness_passed"] = False
+        result = validate_ops_lifecycle_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("dropped_in_flight", "; ".join(result["errors"]))
+
+    def test_ops_lifecycle_rejects_missing_operator_config(self) -> None:
+        contract = simulate_ops_lifecycle()
+        del contract["operator_configs"]["model.yaml"]
+        contract["summary"]["config_artifacts_present"] = False
+        result = validate_ops_lifecycle_fixture(contract)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("model.yaml", text)
+        self.assertIn("config_artifacts_present", text)
 
     def test_continuous_batching_fixture_passes(self) -> None:
         result = validate_continuous_batching("fornax/golden_vectors/continuous_batching")

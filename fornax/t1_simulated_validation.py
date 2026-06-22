@@ -32,6 +32,10 @@ from .model_support import (
 )
 from .network_contract import validate_network_contract
 from .observability import validate_observability_contract
+from .ops_lifecycle import (
+    simulate_ops_lifecycle,
+    validate_ops_lifecycle_fixture,
+)
 from .pipeline_probe import (
     run_cpu_pipeline_correctness_probe,
     validate_pipeline_correctness_probe_fixture,
@@ -203,6 +207,7 @@ def run_t1_simulated_validation(
     throughput_path = bundle / "throughput-scaling.json"
     stage_replication_path = bundle / "stage-replication.json"
     resilience_path = bundle / "resilience-replay.json"
+    ops_lifecycle_path = bundle / "ops-lifecycle.json"
     moe_path = bundle / "moe-runtime.json"
     moe_migration_path = bundle / "moe-migration.json"
     remote_expert_path = bundle / "remote-expert-batch.json"
@@ -314,6 +319,10 @@ def run_t1_simulated_validation(
     resilience = simulate_resilience_replay(
         plan_id=f"{plan_id}-resilience",
     )
+    ops_lifecycle = simulate_ops_lifecycle(
+        plan_id=f"{plan_id}-ops",
+        cluster_id=f"{plan_id}-cluster",
+    )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
@@ -324,6 +333,7 @@ def run_t1_simulated_validation(
     write_json(throughput_path, throughput)
     write_json(stage_replication_path, stage_replication)
     write_json(resilience_path, resilience)
+    write_json(ops_lifecycle_path, ops_lifecycle)
     write_json(moe_path, moe)
     write_json(moe_migration_path, moe_migration)
     write_json(remote_expert_path, remote_expert)
@@ -410,6 +420,12 @@ def run_t1_simulated_validation(
             str(resilience_path),
         ),
         _check(
+            "ops-lifecycle",
+            "T1/I2",
+            validate_ops_lifecycle_fixture(ops_lifecycle),
+            str(ops_lifecycle_path),
+        ),
+        _check(
             "moe-runtime",
             "T1",
             validate_moe_contract_fixture(moe),
@@ -488,6 +504,7 @@ def run_t1_simulated_validation(
             "throughput_scaling": str(throughput_path),
             "stage_replication": str(stage_replication_path),
             "resilience_replay": str(resilience_path),
+            "ops_lifecycle": str(ops_lifecycle_path),
             "moe_runtime": str(moe_path),
             "moe_migration": str(moe_migration_path),
             "remote_expert_batch": str(remote_expert_path),
