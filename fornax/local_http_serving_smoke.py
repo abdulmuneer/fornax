@@ -89,6 +89,135 @@ LOCAL_TLS_CERT_SHA256 = "sha256:" + hashlib.sha256(
 ).hexdigest()
 LOCAL_TLS_SUBJECT_ALT_NAMES = ["DNS:localhost", "IP:127.0.0.1"]
 LOCAL_TLS_MINIMUM_VERSION = "TLSv1.2"
+# Local smoke certificate fixtures; these are not production secrets.
+LOCAL_MTLS_CA_CERT_PEM = """-----BEGIN CERTIFICATE-----
+MIIDMTCCAhmgAwIBAgIUdUCJmk4IHdizMPw/FH1No6EI3x8wDQYJKoZIhvcNAQEL
+BQAwIDEeMBwGA1UEAwwVRm9ybmF4IExvY2FsIFNtb2tlIENBMB4XDTI2MDYyMjE3
+Mzg0OFoXDTM2MDYxOTE3Mzg0OFowIDEeMBwGA1UEAwwVRm9ybmF4IExvY2FsIFNt
+b2tlIENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxE+6gc8gbbW2
+5y7dWXHEZR1rZzTYGsA203q5mTwjlmt6VS/EALzjvIRzZla3d3eWtlzLUYLVBNox
+qISm8lIMQ3TZaFXP3gYphN5jJJ/ykl0v7v6oH6m36S392w6CwoIrjjWHANtHiS8D
+GQkTfXpwPOVdr5liAHu4r3fpX7dYVe/t70KGACYlKnE9GDCXGUvf5l5q3Ce8EIsb
+d8UTFx03AtFHKVKHO8CM7EU3agCW77/hqRg9NpuH+QVpghDngARdrImDwFZmJ2tH
+Uco1W8EL4Jub5Dkx5LjLnB4p01i2VkkEc9PRV+XR5VubfXfDFrLC18QKeu/YhSxd
+WwNLWI2EJwIDAQABo2MwYTAdBgNVHQ4EFgQUeuXWFbVVRDklf1ULpbN5wmIYHB8w
+HwYDVR0jBBgwFoAUeuXWFbVVRDklf1ULpbN5wmIYHB8wDwYDVR0TAQH/BAUwAwEB
+/zAOBgNVHQ8BAf8EBAMCAQYwDQYJKoZIhvcNAQELBQADggEBAKs5BQD78FfQO5aE
+grC1VBwDtfDMNJMLtxFhBN1zGfhW/YDZZQffCaNyibgrCi6rXWCdWmMnWx3MIVyW
+dyQvbNJA4lG0FIZsYhcdV9g5pvLAYwQGckxddFa3DR31OarM4qp4JJntmn1z95cl
+pu1Qm9hJOVkAL0R/hn1ef7wYyh8Sr0/It/2Qq4RuQT8QQInqE4+TWaEHBHUH1ePm
+c2ozBniNDAzhi9gDWfYKZx/m2vO9WRLgBfEGbZkv7U6oJNgFry4Hv9aD/Kmf2zLn
+2ZG92DpONIdetCOY34ZU5wJtowT3yS2IHnxLENYAhaHaQkUiNuH8W3FFE4r2Livw
+acX2g5I=
+-----END CERTIFICATE-----
+"""
+LOCAL_MTLS_SERVER_CERT_PEM = """-----BEGIN CERTIFICATE-----
+MIIDQzCCAiugAwIBAgIUchuVfNc2Hb7K9k3xH8/zzsUaK8wwDQYJKoZIhvcNAQEL
+BQAwIDEeMBwGA1UEAwwVRm9ybmF4IExvY2FsIFNtb2tlIENBMB4XDTI2MDYyMjE3
+Mzg0OFoXDTM2MDYxOTE3Mzg0OFowFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjAN
+BgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuVaGmuLJ54UkDYPA7ZdQT3TjxXWH
+kDglB7VBK4nML9nHH2Rtfa5UHcpx/b4WaMRYap3pkTO7E65iEXxleTZfSxjm3xQC
+yPcT4FVSpYyiic/0Jk5dKejnwZbSJcVyZ9Pudm/ncxqkMjFQaZlTNSa9lXWzh00J
+vkOV1Ktj/nUh8inaz7yE/4E+0cNJajAVFHGg5FVCyki1NAD1GTGTOVxkK17mCf38
+4uesSyGxPJxKzwnT6uSdBNj8BRDhv8R3tHk4IHzt94qzAIe4oxCgCDpPX2f9HQ8s
+hgdQyEOGJg12J4fdrJ1Laj9WDDWU0mpDfOsK09lZztmbrWP8qFCXE2DncQIDAQAB
+o4GAMH4wGgYDVR0RBBMwEYIJbG9jYWxob3N0hwR/AAABMBMGA1UdJQQMMAoGCCsG
+AQUFBwMBMAsGA1UdDwQEAwIFoDAdBgNVHQ4EFgQUNRtzdIsMyeQncAtUoTRYzmNA
+5O4wHwYDVR0jBBgwFoAUeuXWFbVVRDklf1ULpbN5wmIYHB8wDQYJKoZIhvcNAQEL
+BQADggEBAAgxOs+IkId+IKgnguSnX8fTlWiwJTtl52pj0nnUFBHsrsqbLPKpMU9V
+MBgDGvlJEUspDD4mRofadWZ8KMQgJFZytD8qAh5xMonUcritLPc37wmfbH/wwjbB
+EYaf/WWFVhUaq/gPfX3GGImdnndvrQGyuJgzCC8DCRDwNLNkOWP1C6c2tJr++8In
+MEMyW6ewfxu9dX/8Ce9ASjjSuN8WYMKWDe8JnmRFJ0WIflSGyW14YMRLj1fdypZT
+FZUelTaDwGi2zd2Rimhio6Zd31rFh9S8V3g9XKMhgYeS2vzBuDf8SiMyU95CwXdM
+0blTlwvG7uKo+dfT6M8B0xeQjUUlWow=
+-----END CERTIFICATE-----
+"""
+LOCAL_MTLS_SERVER_KEY_PEM = """-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC5Voaa4snnhSQN
+g8Dtl1BPdOPFdYeQOCUHtUEricwv2ccfZG19rlQdynH9vhZoxFhqnemRM7sTrmIR
+fGV5Nl9LGObfFALI9xPgVVKljKKJz/QmTl0p6OfBltIlxXJn0+52b+dzGqQyMVBp
+mVM1Jr2VdbOHTQm+Q5XUq2P+dSHyKdrPvIT/gT7Rw0lqMBUUcaDkVULKSLU0APUZ
+MZM5XGQrXuYJ/fzi56xLIbE8nErPCdPq5J0E2PwFEOG/xHe0eTggfO33irMAh7ij
+EKAIOk9fZ/0dDyyGB1DIQ4YmDXYnh92snUtqP1YMNZTSakN86wrT2VnO2ZutY/yo
+UJcTYOdxAgMBAAECggEAH9SX7o7nnS8VF4savdNgdBz/p2B9hUvXNEExbaBPZKJy
+29XcJhskEC++LxWP9LNP+hOf0xO+2+z1o8opBU3MxPGEaSifJ9OjYsJUnOEP4zpH
+VLLdtj5tWyajdeA4u1M/H7EtX2viakpk5JX0H+tE4R/jUufstfQWjf1XgZKtX1D8
+yZIoicnFg0Gp9ghctu6S4SfMixKdQCUPfrSII03QiZLPEtEFMNut98RZnPOJKBa7
+bNTgHQt38fxa2RXGzohLua1y5FdssHyvvjD22exYQfJxw4duD9dJCE7DQmiS9mgx
+rwPLzQ/Tat51pOXPXTVL1t5TbznEFYodY0cHCIAIbwKBgQDuCePMADLiy2EO5GIS
+YGkScrDJroyvsIclPlWigWdeC2nW3j4Khe8L2mPcZ0RnitwyXnuHaHNCUBvknu50
+cDwOpKp2tGdkJQyID244SPoLzb4eNWQCjU2amf7v1czZe4iOFMOgIpriYd/7p641
+xiLQZxQ0R8IsmyRA1pbmMD4cHwKBgQDHUqLIH6FY2fifCYh8j65m2h1vUdzVm5+T
+baPGyBWBr8BHB0P9SIP5dp0dwa1nhbrxITtbpJJ2xWINWK6fMgSuhyIu/Dasmb3B
+6pq6YVLL6k4u3//T+uaoU8c0+YsDEVfLy7grsrtPeXtsCKoaLXKVPVsGiYgxmPWw
+2PXDaXaKbwKBgQCpb163YdjWuD+Q8x2fyQJhgEO4e0dm8zdvWixobMXgGi2vJShy
+Ix2hiUUVqGf3b88HB1vUaZPJOu5v0HUZap5FKg6wSf9iOEDwRFOHOuLJLhzKseRL
+MLtxdXYSz1Nt5tGvmLYasScgRtzA631Eh5FWWFj4Ua+0QoYOpPBqTyKWrwKBgDWI
+AwHeRNX5DGWiCM7zQ7KJx7f682VG+2971a1wVR5UVj59PAxNKmyYJ5AzUN/psZBL
+DYcKRu+xCSludM96fnlk/5BA2mo2jBkFafK+ap8rWT4LmMiUrNfuUCTxFB2JzduE
+5fyObvHkPXqBRTXsmMZuCQFTdIllfC63xiFqNJTvAoGBAN/p1ismxRLcp85d17N3
+59vlOTG5pJ71dvlX2C5lRFrb5gc54rYMAOunWIxbC0PyjBVVAUAGWQuHiDBu57tl
+JA/ZN19X7h8kc7estb3VS4CboWKWx1bRgROXkWH+5HICmDYZLUeLvVEC3GZf6tv1
+lfGmbwIjxjTHLzdwL+cB0vmA
+-----END PRIVATE KEY-----
+"""
+LOCAL_MTLS_CLIENT_CERT_PEM = """-----BEGIN CERTIFICATE-----
+MIIDMDCCAhigAwIBAgIUchuVfNc2Hb7K9k3xH8/zzsUaK80wDQYJKoZIhvcNAQEL
+BQAwIDEeMBwGA1UEAwwVRm9ybmF4IExvY2FsIFNtb2tlIENBMB4XDTI2MDYyMjE3
+Mzg0OVoXDTM2MDYxOTE3Mzg0OVowHjEcMBoGA1UEAwwTZm9ybmF4LWxvY2FsLWNs
+aWVudDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALxMCjL+t6M7ezVa
+GIfeJgrZt5+ZsE3NRJHbTl00C3gne0OZI+s6vUViG8bjJ+hIMApdILm9tNZIxKOI
+ppuQl0jrXydEjoc3LQi9cJqCxGHqE2Ww94dQYuBSrnnlVOr/hFb8tU0wsPMFRz/C
+T08o9bG0yCGulK8bbA/lrhHw0NECrln/rA2jrjjMZpX/1aDIKkcSkRdjeowAPxoM
+Q3pUp3PAcl3GCof5t37y2Hk66/b32bcba6C9+0cwwal4u4fUmwnra0pL6DDfO74G
+PMeGpzUrjCE3t3pPiziFH9d+x/FMojOz1D7brf5EYtwNQlrr/CG8eWXYX68+rY4b
+l78StrcCAwEAAaNkMGIwEwYDVR0lBAwwCgYIKwYBBQUHAwIwCwYDVR0PBAQDAgeA
+MB0GA1UdDgQWBBRirN0omrnkEjFUl/IsDM1IZPn5uDAfBgNVHSMEGDAWgBR65dYV
+tVVEOSV/VQuls3nCYhgcHzANBgkqhkiG9w0BAQsFAAOCAQEAFX5T5g/SQ5VC4UPY
+L+v9bx3WIeIie0F8jcMwwYgwn5mw6R74RGmK3Fc+efHpWtOUI70EGgY5uwWxWGXe
+uBl5bwEWzmAAJmU1Xy7vEAMs0n9lMebllOgvgwC4aPNXjW+IsLVCVDg276u700vh
+LH0S6PZLIA5Wz0hFtZKL7JENqmM+FY9VH4j5Fsy+t2PT60udSSy7PfY9bJXHlya4
+uNnZxxAZYXHlggk513oJeUcSk7quW99W8rx+1u5jA/XKIlJNIfxziii0K1ZzyE65
+ES/L7HRgAHSzUEWXtML7omzO7TXkQa4Ci85zT3yn6uYxiH14wxeNG3v6GVCkhVVc
+KqyLMQ==
+-----END CERTIFICATE-----
+"""
+LOCAL_MTLS_CLIENT_KEY_PEM = """-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC8TAoy/rejO3s1
+WhiH3iYK2befmbBNzUSR205dNAt4J3tDmSPrOr1FYhvG4yfoSDAKXSC5vbTWSMSj
+iKabkJdI618nRI6HNy0IvXCagsRh6hNlsPeHUGLgUq555VTq/4RW/LVNMLDzBUc/
+wk9PKPWxtMghrpSvG2wP5a4R8NDRAq5Z/6wNo644zGaV/9WgyCpHEpEXY3qMAD8a
+DEN6VKdzwHJdxgqH+bd+8th5Ouv299m3G2ugvftHMMGpeLuH1JsJ62tKS+gw3zu+
+BjzHhqc1K4whN7d6T4s4hR/XfsfxTKIzs9Q+263+RGLcDUJa6/whvHll2F+vPq2O
+G5e/Era3AgMBAAECggEAV8zhKJwrRtryfZMwQxJsDL0uaSZB1lVztstbBAzDmFhY
+mtGqtQHjxZmUuC2tqxsWA48fNlzmGNE/l72daoaGdIMEEIxgJV6uChhDjFiTd9Ct
+EMru8NKj+FO1dbNg4F8a93DInWCp8fexHGLfllrUDfPtKf985xXTUqpXe5gd1ocq
+tg/TYWivBnZQSQDCDc4CYmgSNZ4D505gWh0DgpkfCfJbFFHYlGwvAzvIVD5KYK97
+hBJ4ztx/eQb93NthdNh4+NLY4AeyHVvwXVCRXoONcO0OITPg4dwiumxbBsz6rgiT
+7w2RsxpKMKB1TOoNYetAcaVvt4QD6iF5rFru29COIQKBgQDy7ZLEzXnI7aFAvweT
+cTHq8GA4aHljXzEpoxLd6D3O1cXm6iPCToUC5YtDQuGDeOkmGQ9sS6fJXKHD4WOT
+XbE8aq52mxTQY36p1lu6dxeQVQtiPl+cQqkgIAwYd9b3z7rNP+01x4yh2U3jFBKF
+NJX9k3sbnAq2/LzXzi94GZsmhwKBgQDGbedXYMRvcQF018HBeSnlB09l0CDW/Gck
+Vq9tzORkojj/L5pd0ZannpEUOClzoD8Ays552L/KE3PMu+8BG6eOOjXLuIR9Myso
+s5OzUgJv3OVwT7b09fJ+2C1Av3/bogpylNli1vGDXI6jhhKg1b3YC9999zXRZIdQ
+uHhMUwPKUQKBgHzhOCPHZSWvUsfP6/sVo42cyDn3Kv+0fbdjx10f+DYNmtCb6IoI
+h0P38GFBTmChlWkqVM1dDwHqhpYFlYS6E1R1mv4JtudxXjm8oib29bwSm+mDGu9f
+LUYAc3dYk7+MoADHLhAJZvgEl492UBb982UJna2Rx8hNoF5n9esNbr6dAoGAXZHF
+3XZMKyDmxupW+5zfHJjt39zdH4O2P3SBFQ3hRXMZ3XvdFxCWMkSbtSUmpteR3hXE
+d8C179xsZsbYVXVs9ayNYZuJHmDaoT7ND2pEq+tGZkewxqKTzyyxai7jY/ZtZsq6
+F9mz2XXz7Thz4FPqSc6PfR7tyefVx0K1t4gN6YECgYEAnV5b2YUT9r5dnDK7zvpi
+kvur2HUxrlDU6Fq2Z6z1vQYbv489RI0plt6JrWq6CWdR9sYvyfyPY3MWrJbmafT2
+WD0wBMqt5FX98vP3boXc8tB6BGJ65M+p645uSAl8K4Ai0knL63u3tvD4J7ohP6ti
+Yw8oleYHeTIoG2F+VmYvCig=
+-----END PRIVATE KEY-----
+"""
+LOCAL_MTLS_CA_CERT_SHA256 = "sha256:" + hashlib.sha256(
+    ssl.PEM_cert_to_DER_cert(LOCAL_MTLS_CA_CERT_PEM)
+).hexdigest()
+LOCAL_MTLS_CLIENT_CERT_SHA256 = "sha256:" + hashlib.sha256(
+    ssl.PEM_cert_to_DER_cert(LOCAL_MTLS_CLIENT_CERT_PEM)
+).hexdigest()
+LOCAL_MTLS_CLIENT_SUBJECT = "fornax-local-client"
 
 
 def _is_sha256(value: Any) -> bool:
@@ -396,6 +525,33 @@ class _SmokeServer(ThreadingHTTPServer):
         self._lifecycle_cleanup_count = 0
         self._lifecycle_rejected_count = 0
         self.lifecycle_events: list[dict[str, Any]] = []
+        self._mtls_lock = threading.Lock()
+        self._mtls_peer_subjects: list[str] = []
+
+    def record_mtls_peer(self, peer_cert: dict[str, Any] | None) -> None:
+        subject = ""
+        if isinstance(peer_cert, dict):
+            for rdn in peer_cert.get("subject", ()):  # tuple-of-tuples from ssl.
+                for key, value in rdn:
+                    if key == "commonName" and isinstance(value, str):
+                        subject = value
+                        break
+                if subject:
+                    break
+        with self._mtls_lock:
+            self._mtls_peer_subjects.append(subject or "<unknown>")
+
+    def mtls_summary(self) -> dict[str, Any]:
+        with self._mtls_lock:
+            subjects = list(self._mtls_peer_subjects)
+        return {
+            "enabled": bool(self.config.get("enable_mtls")),
+            "verified_peer_count": len(subjects),
+            "peer_subjects": subjects,
+            "expected_client_subject": LOCAL_MTLS_CLIENT_SUBJECT,
+            "all_peers_expected": bool(subjects)
+            and all(subject == LOCAL_MTLS_CLIENT_SUBJECT for subject in subjects),
+        }
 
     def try_admit(self) -> bool:
         with self._inflight_lock:
@@ -576,6 +732,22 @@ class _SmokeHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         config = self.server.config
+        if config.get("enable_mtls"):
+            peer_cert = self.connection.getpeercert() if hasattr(self.connection, "getpeercert") else None
+            if not peer_cert:
+                self.server.record_rejection("mtls_client_certificate_required")
+                self._json_response(
+                    403,
+                    {
+                        "error": {
+                            "type": "authentication_error",
+                            "code": "mtls_client_certificate_required",
+                            "message": "Local smoke mTLS mode requires a verified client certificate.",
+                        }
+                    },
+                )
+                return
+            self.server.record_mtls_peer(peer_cert)
         if self.path != "/v1/chat/completions":
             self.server.record_rejection("bad_path")
             self._json_response(
@@ -686,18 +858,52 @@ def _write_local_tls_material(directory: Path) -> tuple[Path, Path]:
     return cert_path, key_path
 
 
-def _server_tls_context(cert_path: Path, key_path: Path) -> ssl.SSLContext:
+def _write_local_mtls_material(directory: Path) -> tuple[Path, Path, Path, Path, Path]:
+    ca_path = directory / "fornax-local-smoke-ca.pem"
+    server_cert_path = directory / "fornax-local-smoke-mtls-server-cert.pem"
+    server_key_path = directory / "fornax-local-smoke-mtls-server-key.pem"
+    client_cert_path = directory / "fornax-local-smoke-mtls-client-cert.pem"
+    client_key_path = directory / "fornax-local-smoke-mtls-client-key.pem"
+    ca_path.write_text(LOCAL_MTLS_CA_CERT_PEM, encoding="utf-8")
+    server_cert_path.write_text(LOCAL_MTLS_SERVER_CERT_PEM, encoding="utf-8")
+    server_key_path.write_text(LOCAL_MTLS_SERVER_KEY_PEM, encoding="utf-8")
+    client_cert_path.write_text(LOCAL_MTLS_CLIENT_CERT_PEM, encoding="utf-8")
+    client_key_path.write_text(LOCAL_MTLS_CLIENT_KEY_PEM, encoding="utf-8")
+    server_key_path.chmod(0o600)
+    client_key_path.chmod(0o600)
+    return ca_path, server_cert_path, server_key_path, client_cert_path, client_key_path
+
+
+def _server_tls_context(
+    cert_path: Path,
+    key_path: Path,
+    *,
+    client_ca_path: Path | None = None,
+    require_client_cert: bool = False,
+) -> ssl.SSLContext:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     if hasattr(ssl, "TLSVersion"):
         context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(str(cert_path), str(key_path))
+    if require_client_cert:
+        if client_ca_path is None:
+            raise ValueError("client_ca_path is required when require_client_cert is true")
+        context.load_verify_locations(cafile=str(client_ca_path))
+        context.verify_mode = ssl.CERT_REQUIRED
     return context
 
 
-def _client_tls_context() -> ssl.SSLContext:
-    context = ssl.create_default_context(cadata=LOCAL_TLS_CERT_PEM)
+def _client_tls_context(
+    *,
+    ca_pem: str = LOCAL_TLS_CERT_PEM,
+    cert_path: Path | None = None,
+    key_path: Path | None = None,
+) -> ssl.SSLContext:
+    context = ssl.create_default_context(cadata=ca_pem)
     if hasattr(ssl, "TLSVersion"):
         context.minimum_version = ssl.TLSVersion.TLSv1_2
+    if cert_path is not None and key_path is not None:
+        context.load_cert_chain(str(cert_path), str(key_path))
     return context
 
 
@@ -740,6 +946,38 @@ def _post_json(
             "content_type": exc.headers.get("content-type"),
             "body": json.loads(data) if data else {},
         }
+
+
+def _post_json_transport_error(
+    url: str,
+    payload: dict[str, Any],
+    *,
+    plan_id: str,
+    plan_hash: str,
+    auth_token: str | None,
+    timeout_s: float,
+    ssl_context: ssl.SSLContext | None = None,
+) -> dict[str, Any]:
+    try:
+        response = _post_json(
+            url,
+            payload,
+            plan_id=plan_id,
+            plan_hash=plan_hash,
+            auth_token=auth_token,
+            timeout_s=timeout_s,
+            ssl_context=ssl_context,
+        )
+    except Exception as exc:
+        return {
+            "transport_error": True,
+            "error_type": type(exc).__name__,
+            "message": str(exc),
+        }
+    return {
+        "transport_error": False,
+        "unexpected_response": response,
+    }
 
 
 def _post_sse(
@@ -808,6 +1046,7 @@ def run_local_http_serving_smoke(
     timeout_s: float = 5.0,
     backend_mode: str = BACKEND_MODE_ADAPTER,
     enable_tls: bool = False,
+    enable_mtls: bool = False,
 ) -> dict[str, Any]:
     if not host or not plan_id or not plan_hash or not request_id or not model or not auth_token:
         raise ValueError("host, plan_id, plan_hash, request_id, model, and auth_token must be non-empty")
@@ -825,6 +1064,8 @@ def run_local_http_serving_smoke(
         raise ValueError("timeout_s must be a positive number")
     if backend_mode not in BACKEND_MODES:
         raise ValueError(f"backend_mode must be one of {BACKEND_MODES}")
+    if enable_mtls:
+        enable_tls = True
 
     output_path = Path(out)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -840,19 +1081,39 @@ def run_local_http_serving_smoke(
         "retry_after_ms": retry_after_ms,
         "backend_mode": backend_mode,
         "enable_tls": enable_tls,
+        "enable_mtls": enable_mtls,
     }
     server = _SmokeServer((host, port), config)
     server_host, server_port = server.server_address
     tls_tempdir: tempfile.TemporaryDirectory[str] | None = None
     client_ssl_context: ssl.SSLContext | None = None
+    mtls_no_client_ssl_context: ssl.SSLContext | None = None
     if enable_tls:
         tls_tempdir = tempfile.TemporaryDirectory(prefix="fornax-local-http-tls-")
-        cert_path, key_path = _write_local_tls_material(Path(tls_tempdir.name))
-        server.socket = _server_tls_context(cert_path, key_path).wrap_socket(
+        if enable_mtls:
+            ca_path, cert_path, key_path, client_cert_path, client_key_path = _write_local_mtls_material(
+                Path(tls_tempdir.name)
+            )
+            server_context = _server_tls_context(
+                cert_path,
+                key_path,
+                client_ca_path=ca_path,
+                require_client_cert=True,
+            )
+            client_ssl_context = _client_tls_context(
+                ca_pem=LOCAL_MTLS_CA_CERT_PEM,
+                cert_path=client_cert_path,
+                key_path=client_key_path,
+            )
+            mtls_no_client_ssl_context = _client_tls_context(ca_pem=LOCAL_MTLS_CA_CERT_PEM)
+        else:
+            cert_path, key_path = _write_local_tls_material(Path(tls_tempdir.name))
+            server_context = _server_tls_context(cert_path, key_path)
+            client_ssl_context = _client_tls_context()
+        server.socket = server_context.wrap_socket(
             server.socket,
             server_side=True,
         )
-        client_ssl_context = _client_tls_context()
     thread = threading.Thread(target=server.serve_forever, name="fornax-http-smoke", daemon=True)
     started_ns = time.perf_counter_ns()
     thread.start()
@@ -893,6 +1154,19 @@ def run_local_http_serving_smoke(
             auth_token=None,
             timeout_s=float(timeout_s),
             ssl_context=client_ssl_context,
+        )
+        mtls_reject = (
+            _post_json_transport_error(
+                endpoint,
+                {"model": model, "messages": adapter["openai_request"]["messages"], "max_tokens": max_tokens, "stream": False},
+                plan_id=plan_id,
+                plan_hash=plan_hash,
+                auth_token=auth_token,
+                timeout_s=float(timeout_s),
+                ssl_context=mtls_no_client_ssl_context,
+            )
+            if enable_mtls
+            else None
         )
         backpressure_holders: list[dict[str, Any]] = []
         backpressure_errors: list[BaseException] = []
@@ -994,7 +1268,9 @@ def run_local_http_serving_smoke(
     )
     backpressure_summary = server.backpressure_summary()
     lifecycle_summary = server.lifecycle_summary()
+    mtls_summary = server.mtls_summary()
     expected_backend_request_count = 2 + max_inflight
+    expected_endpoint_request_count = expected_backend_request_count + 4
     backpressure_holder_ok = (
         inflight_observed
         and len(backpressure_holders) == max_inflight
@@ -1059,11 +1335,21 @@ def run_local_http_serving_smoke(
             and stream_ok
         )
     )
+    mtls_ok = (
+        not enable_mtls
+        or (
+            isinstance(mtls_reject, dict)
+            and mtls_reject.get("transport_error") is True
+            and mtls_summary.get("verified_peer_count") == expected_endpoint_request_count
+            and mtls_summary.get("all_peers_expected") is True
+        )
+    )
     checks = [
         {"name": "serving-adapter", "ok": bool(adapter_validation.get("ok")), "errors": adapter_validation.get("errors", []), "warnings": adapter_validation.get("warnings", [])},
         {"name": "fornax-backend-integration", "ok": backend_ok, "errors": [] if backend_ok else ["FornaxBackend local integration invalid"], "warnings": []},
         {"name": "endpoint-auth-reject", "ok": auth_reject_ok, "errors": [] if auth_reject_ok else ["endpoint auth rejection invalid"], "warnings": []},
         *([{"name": "local-tls-handshake", "ok": tls_ok, "errors": [] if tls_ok else ["local TLS handshake invalid"], "warnings": ["local self-signed TLS is not product TLS/mTLS evidence"]}] if enable_tls else []),
+        *([{"name": "local-mtls-node-identity", "ok": mtls_ok, "errors": [] if mtls_ok else ["local mTLS node identity invalid"], "warnings": ["local mTLS client identity is not production node identity evidence"]}] if enable_mtls else []),
         {"name": "backpressure-reject", "ok": backpressure_reject_ok and backpressure_holder_ok, "errors": [] if backpressure_reject_ok and backpressure_holder_ok else ["backpressure rejection invalid"], "warnings": []},
         {"name": "lifecycle-cleanup", "ok": lifecycle_ok, "errors": [] if lifecycle_ok else ["lifecycle cleanup invalid"], "warnings": []},
         *([{"name": "target-fixture-parity", "ok": target_fixture_ok, "errors": [] if target_fixture_ok else ["target fixture parity invalid"], "warnings": ["local target fixture parity is not real frontier model parity"]}] if target_fixture_enabled else []),
@@ -1131,11 +1417,27 @@ def run_local_http_serving_smoke(
         "tls_enabled": enable_tls,
         "local_tls_enabled": enable_tls,
         "tls_client_verified": enable_tls,
-        "tls_mode": "local-self-signed" if enable_tls else "disabled",
-        "tls_certificate_sha256": LOCAL_TLS_CERT_SHA256 if enable_tls else None,
+        "tls_mode": "local-mutual-tls" if enable_mtls else ("local-self-signed" if enable_tls else "disabled"),
+        "tls_certificate_sha256": (
+            LOCAL_MTLS_CA_CERT_SHA256 if enable_mtls else (LOCAL_TLS_CERT_SHA256 if enable_tls else None)
+        ),
         "tls_subject_alt_names": LOCAL_TLS_SUBJECT_ALT_NAMES if enable_tls else [],
         "tls_minimum_version": LOCAL_TLS_MINIMUM_VERSION if enable_tls else None,
+        "mtls_enabled": enable_mtls,
+        "local_mtls_enabled": enable_mtls,
+        "mtls_client_certificate_required": enable_mtls,
+        "mtls_missing_client_cert_rejected": bool(
+            enable_mtls and isinstance(mtls_reject, dict) and mtls_reject.get("transport_error") is True
+        ),
+        "mtls_verified_peer_count": mtls_summary.get("verified_peer_count"),
+        "mtls_expected_peer_count": expected_endpoint_request_count if enable_mtls else 0,
+        "mtls_peer_subjects": mtls_summary.get("peer_subjects"),
+        "mtls_client_subject": LOCAL_MTLS_CLIENT_SUBJECT if enable_mtls else None,
+        "mtls_all_peers_expected": mtls_summary.get("all_peers_expected"),
+        "mtls_ca_certificate_sha256": LOCAL_MTLS_CA_CERT_SHA256 if enable_mtls else None,
+        "mtls_client_certificate_sha256": LOCAL_MTLS_CLIENT_CERT_SHA256 if enable_mtls else None,
         "production_tls_enabled": False,
+        "production_mtls_enabled": False,
         "production_auth_enabled": False,
         "target_model_parity": False,
         "g2_g3_gate_evidence": False,
@@ -1155,13 +1457,29 @@ def run_local_http_serving_smoke(
         },
         "tls": {
             "enabled": enable_tls,
-            "mode": "local-self-signed" if enable_tls else "disabled",
+            "mode": "local-self-signed" if enable_tls and not enable_mtls else ("local-mutual-tls" if enable_mtls else "disabled"),
             "client_certificate_verified": enable_tls,
-            "certificate_sha256": LOCAL_TLS_CERT_SHA256 if enable_tls else None,
+            "certificate_sha256": LOCAL_TLS_CERT_SHA256 if enable_tls and not enable_mtls else (LOCAL_MTLS_CA_CERT_SHA256 if enable_mtls else None),
             "subject_alt_names": LOCAL_TLS_SUBJECT_ALT_NAMES if enable_tls else [],
             "minimum_version": LOCAL_TLS_MINIMUM_VERSION if enable_tls else None,
             "private_key_redacted": True,
             "production_tls": False,
+        },
+        "mtls": {
+            "enabled": enable_mtls,
+            "mode": "local-mutual-tls" if enable_mtls else "disabled",
+            "client_certificate_required": enable_mtls,
+            "missing_client_certificate_rejected": bool(
+                enable_mtls and isinstance(mtls_reject, dict) and mtls_reject.get("transport_error") is True
+            ),
+            "verified_peer_count": mtls_summary.get("verified_peer_count"),
+            "expected_peer_count": expected_endpoint_request_count if enable_mtls else 0,
+            "peer_subjects": mtls_summary.get("peer_subjects"),
+            "client_subject": LOCAL_MTLS_CLIENT_SUBJECT if enable_mtls else None,
+            "ca_certificate_sha256": LOCAL_MTLS_CA_CERT_SHA256 if enable_mtls else None,
+            "client_certificate_sha256": LOCAL_MTLS_CLIENT_CERT_SHA256 if enable_mtls else None,
+            "private_key_redacted": True,
+            "production_mtls": False,
         },
         "lifecycle": lifecycle_summary,
         "backend": backend_summary,
@@ -1171,6 +1489,7 @@ def run_local_http_serving_smoke(
             "non_stream": non_stream,
             "stream": stream,
             "auth_reject": auth_reject,
+            "mtls_reject": mtls_reject,
             "backpressure_holders": backpressure_holders,
             "backpressure_reject": backpressure_reject,
             "plan_reject": plan_reject,
@@ -1186,7 +1505,8 @@ def run_local_http_serving_smoke(
             "backpressure rejection, and local lifecycle cleanup. When target-fixture "
             "mode is enabled, it also proves deterministic local fixture loading and "
             "non-stream/stream parity only. TLS mode uses a local self-signed fixture "
-            "certificate with client verification; it is not product auth/mTLS, real frontier "
+            "certificate with client verification; mTLS mode additionally requires a local "
+            "client certificate and records the peer identity. It is not product auth/mTLS, real frontier "
             "multi-host serving, or G2/G3 closure evidence."
         ),
     }
@@ -1314,13 +1634,15 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("tls must be an object")
         tls = {}
     tls_enabled = summary.get("tls_enabled") is True
+    mtls_enabled = summary.get("mtls_enabled") is True
     if tls_enabled:
+        expected_tls_mode = "local-mutual-tls" if mtls_enabled else "local-self-signed"
         if summary.get("local_tls_enabled") is not True:
             errors.append("summary.local_tls_enabled must be true when TLS is enabled")
         if summary.get("tls_client_verified") is not True:
             errors.append("summary.tls_client_verified must be true when TLS is enabled")
-        if summary.get("tls_mode") != "local-self-signed":
-            errors.append("summary.tls_mode must be local-self-signed when TLS is enabled")
+        if summary.get("tls_mode") != expected_tls_mode:
+            errors.append(f"summary.tls_mode must be {expected_tls_mode} when TLS is enabled")
         if not _is_sha256(summary.get("tls_certificate_sha256")):
             errors.append("summary.tls_certificate_sha256 must be a sha256 hash when TLS is enabled")
         if summary.get("tls_subject_alt_names") != LOCAL_TLS_SUBJECT_ALT_NAMES:
@@ -1329,8 +1651,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("summary.tls_minimum_version must match local TLS minimum")
         if tls.get("enabled") is not True:
             errors.append("tls.enabled must be true when summary.tls_enabled is true")
-        if tls.get("mode") != "local-self-signed":
-            errors.append("tls.mode must be local-self-signed when TLS is enabled")
+        if tls.get("mode") != expected_tls_mode:
+            errors.append(f"tls.mode must be {expected_tls_mode} when TLS is enabled")
         if tls.get("client_certificate_verified") is not True:
             errors.append("tls.client_certificate_verified must be true when TLS is enabled")
         if tls.get("certificate_sha256") != summary.get("tls_certificate_sha256"):
@@ -1352,6 +1674,58 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("tls.mode must be disabled when TLS is disabled")
     if tls.get("production_tls") is not False:
         errors.append("tls.production_tls must be false")
+    mtls = data.get("mtls")
+    if not isinstance(mtls, dict):
+        errors.append("mtls must be an object")
+        mtls = {}
+    if mtls_enabled:
+        expected_peer_count = summary.get("mtls_expected_peer_count")
+        if summary.get("local_mtls_enabled") is not True:
+            errors.append("summary.local_mtls_enabled must be true when mTLS is enabled")
+        if summary.get("mtls_client_certificate_required") is not True:
+            errors.append("summary.mtls_client_certificate_required must be true")
+        if summary.get("mtls_missing_client_cert_rejected") is not True:
+            errors.append("summary.mtls_missing_client_cert_rejected must be true")
+        if summary.get("mtls_client_subject") != LOCAL_MTLS_CLIENT_SUBJECT:
+            errors.append("summary.mtls_client_subject must match local mTLS client subject")
+        if not isinstance(expected_peer_count, int) or expected_peer_count <= 0:
+            errors.append("summary.mtls_expected_peer_count must be a positive integer")
+        elif summary.get("mtls_verified_peer_count") != expected_peer_count:
+            errors.append("summary.mtls_verified_peer_count must match summary.mtls_expected_peer_count")
+        peer_subjects = summary.get("mtls_peer_subjects")
+        if not isinstance(peer_subjects, list) or not peer_subjects:
+            errors.append("summary.mtls_peer_subjects must be a non-empty list")
+        elif any(subject != LOCAL_MTLS_CLIENT_SUBJECT for subject in peer_subjects):
+            errors.append("summary.mtls_peer_subjects must all match local mTLS client subject")
+        if summary.get("mtls_all_peers_expected") is not True:
+            errors.append("summary.mtls_all_peers_expected must be true")
+        if not _is_sha256(summary.get("mtls_ca_certificate_sha256")):
+            errors.append("summary.mtls_ca_certificate_sha256 must be a sha256 hash")
+        if not _is_sha256(summary.get("mtls_client_certificate_sha256")):
+            errors.append("summary.mtls_client_certificate_sha256 must be a sha256 hash")
+        if mtls.get("enabled") is not True:
+            errors.append("mtls.enabled must be true when summary.mtls_enabled is true")
+        if mtls.get("mode") != "local-mutual-tls":
+            errors.append("mtls.mode must be local-mutual-tls when mTLS is enabled")
+        if mtls.get("client_certificate_required") is not True:
+            errors.append("mtls.client_certificate_required must be true")
+        if mtls.get("missing_client_certificate_rejected") is not True:
+            errors.append("mtls.missing_client_certificate_rejected must be true")
+        if expected_peer_count is not None and mtls.get("verified_peer_count") != expected_peer_count:
+            errors.append("mtls.verified_peer_count must match summary.mtls_expected_peer_count")
+        if mtls.get("client_subject") != LOCAL_MTLS_CLIENT_SUBJECT:
+            errors.append("mtls.client_subject must match local mTLS client subject")
+        if mtls.get("private_key_redacted") is not True:
+            errors.append("mtls.private_key_redacted must be true")
+    else:
+        if summary.get("local_mtls_enabled") is not False:
+            errors.append("summary.local_mtls_enabled must be false when mTLS is disabled")
+        if mtls.get("enabled") is not False:
+            errors.append("mtls.enabled must be false when summary.mtls_enabled is false")
+        if mtls.get("mode") != "disabled":
+            errors.append("mtls.mode must be disabled when mTLS is disabled")
+    if mtls.get("production_mtls") is not False:
+        errors.append("mtls.production_mtls must be false")
     responses = data.get("responses")
     if not isinstance(responses, dict):
         errors.append("responses must be an object")
@@ -1364,6 +1738,14 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("responses.auth_reject.status must be 401")
         if auth_reject.get("body", {}).get("error", {}).get("code") != "endpoint_auth_required":
             errors.append("responses.auth_reject error code must be endpoint_auth_required")
+    mtls_reject = responses.get("mtls_reject") if isinstance(responses, dict) else None
+    if mtls_enabled:
+        if not isinstance(mtls_reject, dict):
+            errors.append("responses.mtls_reject must be an object when mTLS is enabled")
+        elif mtls_reject.get("transport_error") is not True:
+            errors.append("responses.mtls_reject.transport_error must be true when mTLS is enabled")
+    elif mtls_reject is not None:
+        errors.append("responses.mtls_reject must be null unless mTLS is enabled")
     backpressure_holders = responses.get("backpressure_holders") if isinstance(responses, dict) else None
     if not isinstance(backpressure_holders, list):
         errors.append("responses.backpressure_holders must be a list")
@@ -1398,6 +1780,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
     check_names = {check.get("name") for check in checks if isinstance(check, dict)}
     if tls_enabled and "local-tls-handshake" not in check_names:
         errors.append("checks must include local-tls-handshake when TLS is enabled")
+    if mtls_enabled and "local-mtls-node-identity" not in check_names:
+        errors.append("checks must include local-mtls-node-identity when mTLS is enabled")
     passed_count = sum(1 for check in checks if isinstance(check, dict) and check.get("ok") is True)
     if summary.get("check_count") != len(checks):
         errors.append("summary.check_count must match checks")
@@ -1522,6 +1906,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.auth_token_redacted must be true")
     if summary.get("production_tls_enabled") is not False:
         errors.append("summary.production_tls_enabled must be false for local smoke")
+    if summary.get("production_mtls_enabled") is not False:
+        errors.append("summary.production_mtls_enabled must be false for local smoke")
     if summary.get("production_auth_enabled") is not False:
         errors.append("summary.production_auth_enabled must be false for local smoke")
     if summary.get("target_model_parity") is not False:
@@ -1546,6 +1932,10 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "local_tls_enabled": summary.get("local_tls_enabled") is True,
             "tls_client_verified": summary.get("tls_client_verified") is True,
             "production_tls_enabled": summary.get("production_tls_enabled") is False,
+            "mtls_enabled": summary.get("mtls_enabled") is True,
+            "local_mtls_enabled": summary.get("local_mtls_enabled") is True,
+            "mtls_missing_client_cert_rejected": summary.get("mtls_missing_client_cert_rejected") is True,
+            "production_mtls_enabled": summary.get("production_mtls_enabled") is False,
             "backpressure_rejected": summary.get("backpressure_rejected") is True,
             "backpressure_reject_count": summary.get("backpressure_reject_count"),
             "failure_semantics_verified": summary.get("failure_semantics_verified") is True,

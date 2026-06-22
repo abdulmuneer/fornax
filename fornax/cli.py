@@ -1524,6 +1524,7 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
             timeout_s=args.timeout_s,
             backend_mode=args.backend_mode,
             enable_tls=args.enable_tls,
+            enable_mtls=args.enable_mtls,
         )
     except (OSError, ValueError) as exc:
         print(f"program local-http-serving-smoke: {exc}")
@@ -1541,6 +1542,7 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
         f"sse_chunks={summary['sse_chunk_count']}; "
         f"auth_reject={summary['endpoint_auth_rejected']}; "
         f"tls={summary['tls_enabled']}; "
+        f"mtls={summary['mtls_enabled']}; "
         f"backpressure={summary['backpressure_rejected']}; "
         f"lifecycle={summary['lifecycle_all_released']}; "
         f"target_fixture={summary['target_fixture_parity']}; "
@@ -2826,6 +2828,7 @@ def build_parser() -> argparse.ArgumentParser:
     local_http_serving.add_argument("--backpressure-delay-ms", type=int, default=250)
     local_http_serving.add_argument("--backend-mode", choices=["adapter", "target-fixture"], default="adapter")
     local_http_serving.add_argument("--enable-tls", action="store_true")
+    local_http_serving.add_argument("--enable-mtls", action="store_true")
     local_http_serving.add_argument("--timeout-s", type=float, default=5.0)
     local_http_serving.set_defaults(func=_cmd_program_local_http_serving_smoke)
 

@@ -803,6 +803,36 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(bundle["summary"]["target_model_parity"])
         self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
 
+    def test_local_http_serving_smoke_validates_local_mtls_target_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            artifact = Path(d) / "local-http-serving-mtls-target-fixture-smoke.json"
+            bundle = run_local_http_serving_smoke(
+                out=artifact,
+                backend_mode="target-fixture",
+                enable_mtls=True,
+            )
+            result = validate_local_http_serving_smoke(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(bundle["ok"])
+        self.assertEqual(12, bundle["summary"]["check_count"])
+        self.assertEqual(12, bundle["summary"]["passed_count"])
+        self.assertTrue(bundle["summary"]["tls_enabled"])
+        self.assertTrue(bundle["summary"]["mtls_enabled"])
+        self.assertTrue(bundle["summary"]["local_mtls_enabled"])
+        self.assertTrue(bundle["summary"]["mtls_client_certificate_required"])
+        self.assertTrue(bundle["summary"]["mtls_missing_client_cert_rejected"])
+        self.assertEqual("local-mutual-tls", bundle["summary"]["tls_mode"])
+        self.assertEqual("fornax-local-client", bundle["summary"]["mtls_client_subject"])
+        self.assertEqual(bundle["summary"]["mtls_expected_peer_count"], bundle["summary"]["mtls_verified_peer_count"])
+        self.assertTrue(bundle["summary"]["mtls_all_peers_expected"])
+        self.assertFalse(bundle["summary"]["production_mtls_enabled"])
+        self.assertTrue(bundle["mtls"]["missing_client_certificate_rejected"])
+        self.assertTrue(bundle["mtls"]["private_key_redacted"])
+        self.assertTrue(bundle["responses"]["mtls_reject"]["transport_error"])
+        self.assertTrue(bundle["summary"]["target_fixture_parity"])
+        self.assertFalse(bundle["summary"]["target_model_parity"])
+        self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+
     def test_local_http_serving_smoke_rejects_gate_overclaim(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             artifact = Path(d) / "local-http-serving-smoke.json"
