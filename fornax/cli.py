@@ -82,6 +82,7 @@ from .model_support import (
     simulated_model_support_matrix,
     validate_model_support_matrix,
 )
+from .metrics_ledger import simulate_metrics_ledger, validate_metrics_ledger
 from .network_contract import validate_network_contract
 from .network_security_spec import render_network_security_spec_draft
 from .pipeline_probe import (
@@ -459,6 +460,39 @@ def _cmd_engine_simulate(args: argparse.Namespace) -> int:
         f"embedded_contracts={summary['embedded_contract_count']}"
     )
     return 0
+
+
+def _cmd_observability_metrics_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_metrics_ledger(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            max_queue_depth=args.max_queue_depth,
+            max_inflight=args.max_inflight,
+            kv_page_limit=args.kv_page_limit,
+            memory_limit_bytes=args.memory_limit_bytes,
+            memory_warning_fraction=args.memory_warning_fraction,
+            memory_critical_fraction=args.memory_critical_fraction,
+            sample_period_ms=args.sample_period_ms,
+        )
+    except ValueError as exc:
+        print(f"observability metrics-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    validation = validate_metrics_ledger(args.out)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "observability metrics-simulate: "
+        f"samples={summary['sample_count']} "
+        f"alerts={summary['alert_count']} "
+        f"max_queue={summary['max_queue_depth_observed']} "
+        f"memory_pressure={summary['max_memory_pressure_fraction']}"
+        f"{suffix}"
+    )
+    return 0 if validation["ok"] else 2
 
 
 def _cmd_runtime_stage_host_simulate(args: argparse.Namespace) -> int:
@@ -1494,6 +1528,26 @@ def _cmd_test_observability(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_metrics_ledger(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/metrics_ledger"
+    result = validate_metrics_ledger(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS metrics-ledger: {fixture} "
+            f"samples={summary['sample_count']} "
+            f"alerts={summary['alert_count']} "
+            f"max_queue={summary['max_queue_depth_observed']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL metrics-ledger: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_worker_contract(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/worker_contract"
     result = validate_worker_contract(fixture)
@@ -1936,6 +1990,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_engine_simulation(args)
     if args.test_name == "observability":
         return _cmd_test_observability(args)
+    if args.test_name == "metrics-ledger":
+        return _cmd_test_metrics_ledger(args)
     if args.test_name == "worker-contract":
         return _cmd_test_worker_contract(args)
     if args.test_name == "transport-contract":
@@ -2222,6 +2278,23 @@ def build_parser() -> argparse.ArgumentParser:
     engine_simulate.add_argument("--microbatch-size", type=int, default=2)
     engine_simulate.add_argument("--timeout-ms", type=float, default=50.0)
     engine_simulate.set_defaults(func=_cmd_engine_simulate)
+
+    observability = sub.add_parser("observability")
+    observability_sub = observability.add_subparsers(
+        dest="observability_command", required=True
+    )
+    metrics = observability_sub.add_parser("metrics-simulate")
+    metrics.add_argument("--out", required=True)
+    metrics.add_argument("--plan-id", default="metrics-ledger-plan")
+    metrics.add_argument("--request-id", default="req-metrics-ledger")
+    metrics.add_argument("--max-queue-depth", type=int, default=4)
+    metrics.add_argument("--max-inflight", type=int, default=3)
+    metrics.add_argument("--kv-page-limit", type=int, default=16)
+    metrics.add_argument("--memory-limit-bytes", type=int, default=80 * 1024 * 1024 * 1024)
+    metrics.add_argument("--memory-warning-fraction", type=float, default=0.85)
+    metrics.add_argument("--memory-critical-fraction", type=float, default=0.95)
+    metrics.add_argument("--sample-period-ms", type=float, default=10.0)
+    metrics.set_defaults(func=_cmd_observability_metrics_simulate)
 
     runtime = sub.add_parser("runtime")
     runtime_sub = runtime.add_subparsers(dest="runtime_command", required=True)
@@ -2591,6 +2664,7 @@ def build_parser() -> argparse.ArgumentParser:
             "serving-adapter",
             "engine-simulation",
             "observability",
+            "metrics-ledger",
             "worker-contract",
             "transport-contract",
             "trust-boundary",

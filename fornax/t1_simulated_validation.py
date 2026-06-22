@@ -30,6 +30,7 @@ from .model_support import (
     simulated_model_support_matrix,
     validate_model_support_matrix_fixture,
 )
+from .metrics_ledger import simulate_metrics_ledger, validate_metrics_ledger_fixture
 from .network_contract import validate_network_contract
 from .observability import validate_observability_contract
 from .onboarding import (
@@ -211,6 +212,7 @@ def run_t1_simulated_validation(
     worker_path = bundle / "worker-contract.json"
     transport_path = bundle / "transport-contract.json"
     trust_boundary_path = bundle / "trust-boundary.json"
+    metrics_ledger_path = bundle / "metrics-ledger.json"
     engine_path = bundle / "engine-simulation.json"
     stage_host_path = bundle / "stage-host.json"
     serving_path = bundle / "serving-adapter.json"
@@ -265,6 +267,12 @@ def run_t1_simulated_validation(
         plan_id=f"{plan_id}-trust-boundary",
         request_id=f"{request_id}-trust-boundary",
         plan_hash=plan_hash,
+    )
+    metrics_ledger = simulate_metrics_ledger(
+        plan_id=f"{plan_id}-metrics",
+        request_id=f"{request_id}-metrics",
+        max_queue_depth=max_queue_depth + 2,
+        max_inflight=max(max_inflight, 3),
     )
     engine = simulated_engine_contract(
         plan_id=plan_id,
@@ -360,6 +368,7 @@ def run_t1_simulated_validation(
     write_json(worker_path, worker)
     write_json(transport_path, transport)
     write_json(trust_boundary_path, trust_boundary)
+    write_json(metrics_ledger_path, metrics_ledger)
     write_json(engine_path, engine)
     write_json(stage_host_path, stage_host)
     write_json(serving_path, serving)
@@ -425,6 +434,12 @@ def run_t1_simulated_validation(
             "T1",
             validate_observability_contract("fornax/golden_vectors/observability"),
             "fornax/golden_vectors/observability",
+        ),
+        _check(
+            "metrics-ledger",
+            "T1/G2",
+            validate_metrics_ledger_fixture(metrics_ledger),
+            str(metrics_ledger_path),
         ),
         _check(
             "engine-simulation",
@@ -559,6 +574,7 @@ def run_t1_simulated_validation(
             "worker_contract": str(worker_path),
             "transport_contract": str(transport_path),
             "trust_boundary": str(trust_boundary_path),
+            "metrics_ledger": str(metrics_ledger_path),
             "engine_simulation": str(engine_path),
             "stage_host": str(stage_host_path),
             "serving_adapter": str(serving_path),

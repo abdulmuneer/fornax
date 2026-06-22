@@ -1,0 +1,301 @@
+{
+  "config": {
+    "kv_page_limit": 16,
+    "max_inflight": 3,
+    "max_queue_depth": 4,
+    "memory_critical_fraction": 0.95,
+    "memory_limit_bytes": 85899345920,
+    "memory_warning_fraction": 0.85,
+    "sample_period_ms": 10.0
+  },
+  "events": [
+    {
+      "admitted_request_id": "r0",
+      "kind": "request_admitted",
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.001
+    },
+    {
+      "admitted_request_id": "r1",
+      "kind": "request_admitted",
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.002
+    },
+    {
+      "kind": "kv_pages_allocated",
+      "owner": "stage-0",
+      "pages": 8,
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.003
+    },
+    {
+      "admitted_request_id": "r2",
+      "kind": "request_admitted",
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.011
+    },
+    {
+      "admitted_request_id": "r3",
+      "kind": "request_admitted",
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.012
+    },
+    {
+      "kind": "backpressure_asserted",
+      "plan_id": "golden-metrics-ledger",
+      "queue_depth": 4,
+      "reason": "admission_queue_full",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.02
+    },
+    {
+      "kind": "kv_pages_allocated",
+      "owner": "stage-1",
+      "pages": 6,
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.021
+    },
+    {
+      "kind": "memory_pressure_observed",
+      "level": "warning",
+      "memory_pressure_fraction": 0.9,
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.03
+    },
+    {
+      "kind": "kv_pages_evicted",
+      "owner": "stage-1",
+      "pages": 2,
+      "plan_id": "golden-metrics-ledger",
+      "reason": "memory_pressure",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.031
+    },
+    {
+      "completed_request_id": "r0",
+      "kind": "request_completed",
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.035
+    },
+    {
+      "completed_request_id": "r1",
+      "kind": "request_completed",
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.036
+    },
+    {
+      "completed_request_id": "r2",
+      "kind": "request_completed",
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.037
+    },
+    {
+      "completed_request_id": "r3",
+      "kind": "request_completed",
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.038
+    },
+    {
+      "kind": "backpressure_cleared",
+      "plan_id": "golden-metrics-ledger",
+      "queue_depth": 1,
+      "reason": "queue_drained",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.04
+    },
+    {
+      "kind": "cleanup",
+      "metrics_state_released": true,
+      "plan_id": "golden-metrics-ledger",
+      "request_id": "golden-metrics-ledger-request",
+      "timestamp_s": 0.05
+    }
+  ],
+  "metrics": {
+    "alerts": [
+      {
+        "kind": "queue_depth_high",
+        "sample_id": "sample-2",
+        "severity": "warning",
+        "threshold": 4,
+        "value": 4
+      },
+      {
+        "kind": "memory_pressure_warning",
+        "sample_id": "sample-2",
+        "severity": "warning",
+        "threshold": 0.85,
+        "value": 0.85
+      },
+      {
+        "kind": "kv_eviction_started",
+        "sample_id": "sample-3",
+        "severity": "info",
+        "threshold": 1,
+        "value": 2
+      }
+    ],
+    "counters": {
+      "allocation_failures_total": 0,
+      "backpressure_asserted_total": 1,
+      "backpressure_cleared_total": 1,
+      "kv_pages_evicted_total": 2,
+      "requests_admitted_total": 4,
+      "requests_completed_total": 4
+    },
+    "gauges": {
+      "max_inflight_observed": 3,
+      "max_kv_pages_allocated": 14,
+      "max_memory_pressure_fraction": 0.9,
+      "max_memory_used_bytes": 77309411328,
+      "max_queue_depth_observed": 4
+    },
+    "histograms": {
+      "stage_latency_ms": {
+        "buckets": [
+          {
+            "count": 0,
+            "le": 1.0
+          },
+          {
+            "count": 7,
+            "le": 5.0
+          },
+          {
+            "count": 10,
+            "le": 10.0
+          },
+          {
+            "count": 10,
+            "le": "inf"
+          }
+        ],
+        "count": 10,
+        "sum": 38.8,
+        "unit": "ms"
+      }
+    }
+  },
+  "mode": "t1-simulation",
+  "note": "T1 metrics-ledger simulation: validates queue depth, backpressure, KV-page, memory-pressure, alert, and latency aggregate consistency without claiming live runtime telemetry or production dashboards.",
+  "plan_id": "golden-metrics-ledger",
+  "record_kind": "metrics-ledger-simulation-contract",
+  "request_id": "golden-metrics-ledger-request",
+  "result": {
+    "alerts_complete": true,
+    "backpressure_observed": true,
+    "correctness_passed": true,
+    "histograms_consistent": true,
+    "kv_metrics_consistent": true,
+    "memory_pressure_observed": true,
+    "queue_bounded": true
+  },
+  "samples": [
+    {
+      "backpressure_active": false,
+      "inflight_requests": 0,
+      "kv_pages_allocated": 0,
+      "kv_pages_evicted_total": 0,
+      "memory_pressure_fraction": 0.3,
+      "memory_used_bytes": 25769803776,
+      "queue_depth": 0,
+      "sample_id": "sample-0",
+      "stage_latency_ms": {
+        "stage-0": 2.4,
+        "stage-1": 2.6
+      },
+      "timestamp_s": 0.0
+    },
+    {
+      "backpressure_active": false,
+      "inflight_requests": 2,
+      "kv_pages_allocated": 8,
+      "kv_pages_evicted_total": 0,
+      "memory_pressure_fraction": 0.6,
+      "memory_used_bytes": 51539607552,
+      "queue_depth": 2,
+      "sample_id": "sample-1",
+      "stage_latency_ms": {
+        "stage-0": 3.1,
+        "stage-1": 3.4
+      },
+      "timestamp_s": 0.01
+    },
+    {
+      "backpressure_active": true,
+      "inflight_requests": 3,
+      "kv_pages_allocated": 14,
+      "kv_pages_evicted_total": 0,
+      "memory_pressure_fraction": 0.85,
+      "memory_used_bytes": 73014444032,
+      "queue_depth": 4,
+      "sample_id": "sample-2",
+      "stage_latency_ms": {
+        "stage-0": 4.8,
+        "stage-1": 5.1
+      },
+      "timestamp_s": 0.02
+    },
+    {
+      "backpressure_active": true,
+      "inflight_requests": 3,
+      "kv_pages_allocated": 14,
+      "kv_pages_evicted_total": 2,
+      "memory_pressure_fraction": 0.9,
+      "memory_used_bytes": 77309411328,
+      "queue_depth": 3,
+      "sample_id": "sample-3",
+      "stage_latency_ms": {
+        "stage-0": 5.5,
+        "stage-1": 5.7
+      },
+      "timestamp_s": 0.03
+    },
+    {
+      "backpressure_active": false,
+      "inflight_requests": 1,
+      "kv_pages_allocated": 10,
+      "kv_pages_evicted_total": 2,
+      "memory_pressure_fraction": 0.7,
+      "memory_used_bytes": 60129542144,
+      "queue_depth": 1,
+      "sample_id": "sample-4",
+      "stage_latency_ms": {
+        "stage-0": 3.2,
+        "stage-1": 3.0
+      },
+      "timestamp_s": 0.04
+    }
+  ],
+  "simulation_method": "queue-backpressure-kv-memory-metrics",
+  "summary": {
+    "alert_count": 3,
+    "backpressure_event_count": 1,
+    "correctness_passed": true,
+    "event_count": 15,
+    "kv_pages_evicted_total": 2,
+    "max_inflight_observed": 3,
+    "max_kv_pages_allocated": 14,
+    "max_memory_pressure_fraction": 0.9,
+    "max_queue_depth_observed": 4,
+    "sample_count": 5,
+    "stage_latency_sample_count": 10
+  },
+  "target_workstreams": [
+    "WS-G2",
+    "WS-F2",
+    "WS-E4"
+  ],
+  "version": 1
+}

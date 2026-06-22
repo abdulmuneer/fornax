@@ -75,6 +75,11 @@ from fornax.model_support import (
     validate_model_support_matrix,
     validate_model_support_matrix_fixture,
 )
+from fornax.metrics_ledger import (
+    simulate_metrics_ledger,
+    validate_metrics_ledger,
+    validate_metrics_ledger_fixture,
+)
 from fornax.network_security_spec import render_network_security_spec_draft
 from fornax.pipeline_probe import (
     run_cpu_pipeline_correctness_probe,
@@ -1053,6 +1058,60 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("plan_id must match", "; ".join(result["errors"]))
 
+    def test_metrics_ledger_fixture_passes(self) -> None:
+        result = validate_metrics_ledger("fornax/golden_vectors/metrics_ledger")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(5, result["summary"]["sample_count"])
+        self.assertEqual(3, result["summary"]["alert_count"])
+        self.assertEqual(4, result["summary"]["max_queue_depth_observed"])
+        self.assertEqual(2, result["summary"]["kv_pages_evicted_total"])
+
+    def test_simulated_metrics_ledger_validates_derived_metrics(self) -> None:
+        contract = simulate_metrics_ledger(plan_id="unit-metrics-plan")
+        result = validate_metrics_ledger_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(4, contract["metrics"]["counters"]["requests_admitted_total"])
+        self.assertEqual(10, contract["metrics"]["histograms"]["stage_latency_ms"]["count"])
+
+    def test_metrics_ledger_rejects_counter_mismatch(self) -> None:
+        contract = simulate_metrics_ledger()
+        contract["metrics"]["counters"]["requests_admitted_total"] += 1
+        result = validate_metrics_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("metrics.counters.requests_admitted_total", "; ".join(result["errors"]))
+
+    def test_metrics_ledger_rejects_queue_overflow_sample(self) -> None:
+        contract = simulate_metrics_ledger(max_queue_depth=4)
+        contract["samples"][0]["queue_depth"] = 5
+        result = validate_metrics_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("queue_depth exceeds", "; ".join(result["errors"]))
+
+    def test_metrics_ledger_rejects_missing_memory_alert(self) -> None:
+        contract = simulate_metrics_ledger()
+        contract["metrics"]["alerts"] = [
+            alert
+            for alert in contract["metrics"]["alerts"]
+            if alert["kind"] != "memory_pressure_warning"
+        ]
+        result = validate_metrics_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("memory_pressure_warning", "; ".join(result["errors"]))
+
+    def test_metrics_ledger_rejects_memory_pressure_mismatch(self) -> None:
+        contract = simulate_metrics_ledger()
+        contract["samples"][1]["memory_pressure_fraction"] = 0.1
+        result = validate_metrics_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("memory_pressure_fraction", "; ".join(result["errors"]))
+
+    def test_metrics_ledger_rejects_histogram_mismatch(self) -> None:
+        contract = simulate_metrics_ledger()
+        contract["metrics"]["histograms"]["stage_latency_ms"]["count"] += 1
+        result = validate_metrics_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("histograms.stage_latency_ms.count", "; ".join(result["errors"]))
+
     def test_worker_contract_fixture_passes(self) -> None:
         result = validate_worker_contract("fornax/golden_vectors/worker_contract")
         self.assertTrue(result["ok"], result["errors"])
@@ -1136,11 +1195,12 @@ class FornaxPlannerTest(unittest.TestCase):
             bundle = Path(result["bundle"])
             transport = read_json(bundle / "transport-contract.json")
             trust_boundary = read_json(bundle / "trust-boundary.json")
+            metrics_ledger = read_json(bundle / "metrics-ledger.json")
             stage_host = read_json(bundle / "stage-host.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(28, result["summary"]["check_count"])
-        self.assertEqual(28, result["summary"]["passed_count"])
+        self.assertEqual(29, result["summary"]["check_count"])
+        self.assertEqual(29, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1150,9 +1210,12 @@ class FornaxPlannerTest(unittest.TestCase):
         })
         self.assertFalse(trust_boundary["trust_policy"]["allow_anonymous"])
         self.assertTrue(trust_boundary["summary"]["stale_plan_rejected"])
+        self.assertTrue(metrics_ledger["summary"]["correctness_passed"])
+        self.assertGreaterEqual(metrics_ledger["summary"]["alert_count"], 3)
         self.assertEqual("planned", stage_host["stage_host"]["max_graphlet_status"])
         self.assertFalse(stage_host["stage_host"]["measured"])
         self.assertIn("trust-boundary", {check["name"] for check in validation["checks"]})
+        self.assertIn("metrics-ledger", {check["name"] for check in validation["checks"]})
         self.assertIn("stage-host", {check["name"] for check in validation["checks"]})
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("serving-adapter", {check["name"] for check in validation["checks"]})
