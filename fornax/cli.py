@@ -61,6 +61,10 @@ from .program_rebaseline import (
     render_program_rebaseline_draft,
 )
 from .moe import simulated_moe_contract, validate_moe_contract
+from .moe_migration import (
+    simulated_moe_hot_expert_migration,
+    validate_moe_hot_expert_migration,
+)
 from .moe_parity import (
     run_moe_layer_parity_probe,
     validate_moe_layer_parity_probe,
@@ -530,6 +534,39 @@ def _cmd_moe_simulate(args: argparse.Namespace) -> int:
         f"remote_dispatches={summary['remote_dispatch_count']} "
         f"migrations={summary['migration_recommendation_count']} "
         f"remote_hit_rate={summary['remote_hit_rate']:.3f}"
+    )
+    return 0
+
+
+def _cmd_moe_migration_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulated_moe_hot_expert_migration(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            plan_hash=args.plan_hash,
+            token_count=args.token_count,
+            hidden_dim=args.hidden_dim,
+            intermediate_dim=args.intermediate_dim,
+            vocab_size=args.vocab_size,
+            expert_count=args.expert_count,
+            top_k=args.top_k,
+            hot_expert_id=args.hot_expert_id,
+            migration_hotness_threshold=args.migration_hotness_threshold,
+            tolerance=args.tolerance,
+            logical_source_host=args.logical_source_host,
+            logical_expert_host=args.logical_expert_host,
+        )
+    except ValueError as exc:
+        print(f"moe migration-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "moe migration-simulate: "
+        f"hot_expert={summary['hot_expert_id']} "
+        f"remote_reduction={summary['remote_token_copy_reduction']} "
+        f"post_remote_batches={summary['post_remote_batches']} "
+        f"max_post_logit_abs_error={summary['max_post_logit_abs_error']}"
     )
     return 0
 
@@ -1230,6 +1267,26 @@ def _cmd_test_moe_runtime(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_moe_migration(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/moe_migration"
+    result = validate_moe_hot_expert_migration(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS moe-migration: {fixture} "
+            f"hot_expert={summary['hot_expert_id']} "
+            f"remote_reduction={summary['remote_token_copy_reduction']} "
+            f"post_remote_batches={summary['post_remote_batches']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL moe-migration: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_remote_expert_probe(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/remote_expert_batch"
     result = validate_remote_expert_batch_probe(fixture)
@@ -1465,6 +1522,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_transport_contract(args)
     if args.test_name == "moe-runtime":
         return _cmd_test_moe_runtime(args)
+    if args.test_name == "moe-migration":
+        return _cmd_test_moe_migration(args)
     if args.test_name == "remote-expert-probe":
         return _cmd_test_remote_expert_probe(args)
     if args.test_name == "moe-parity-probe":
@@ -1774,6 +1833,24 @@ def build_parser() -> argparse.ArgumentParser:
     moe_simulate.add_argument("--migration-hotness-threshold", type=float, default=0.50)
     moe_simulate.set_defaults(func=_cmd_moe_simulate)
 
+    moe_migration = moe_sub.add_parser("migration-simulate")
+    moe_migration.add_argument("--out", required=True)
+    moe_migration.add_argument("--plan-id", default="moe-migration-simulated-plan")
+    moe_migration.add_argument("--request-id", default="req-moe-migration-simulated")
+    moe_migration.add_argument("--plan-hash", default="sha256:moe-migration-simulated-plan")
+    moe_migration.add_argument("--token-count", type=int, default=6)
+    moe_migration.add_argument("--hidden-dim", type=int, default=16)
+    moe_migration.add_argument("--intermediate-dim", type=int, default=32)
+    moe_migration.add_argument("--vocab-size", type=int, default=17)
+    moe_migration.add_argument("--expert-count", type=int, default=4)
+    moe_migration.add_argument("--top-k", type=int, default=2)
+    moe_migration.add_argument("--hot-expert-id", type=int, default=1)
+    moe_migration.add_argument("--migration-hotness-threshold", type=float, default=0.45)
+    moe_migration.add_argument("--tolerance", type=float, default=0.0)
+    moe_migration.add_argument("--logical-source-host", default="logical-host-0")
+    moe_migration.add_argument("--logical-expert-host", default="logical-host-1")
+    moe_migration.set_defaults(func=_cmd_moe_migration_simulate)
+
     remote_probe = moe_sub.add_parser("remote-expert-probe")
     remote_probe.add_argument("--out", required=True)
     remote_probe.add_argument("--backend", choices=["cpu-stdlib", "torch"], default="cpu-stdlib")
@@ -1981,6 +2058,7 @@ def build_parser() -> argparse.ArgumentParser:
             "worker-contract",
             "transport-contract",
             "moe-runtime",
+            "moe-migration",
             "remote-expert-probe",
             "moe-parity-probe",
             "model-support",

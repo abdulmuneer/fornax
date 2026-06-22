@@ -60,6 +60,11 @@ from fornax.moe import (
     validate_moe_contract,
     validate_moe_contract_fixture,
 )
+from fornax.moe_migration import (
+    simulated_moe_hot_expert_migration,
+    validate_moe_hot_expert_migration,
+    validate_moe_hot_expert_migration_fixture,
+)
 from fornax.moe_parity import (
     run_cpu_moe_layer_parity_probe,
     validate_moe_layer_parity_probe_fixture,
@@ -1039,8 +1044,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(19, result["summary"]["check_count"])
-        self.assertEqual(19, result["summary"]["passed_count"])
+        self.assertEqual(20, result["summary"]["check_count"])
+        self.assertEqual(20, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1053,6 +1058,7 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("pipeline-correctness", {check["name"] for check in validation["checks"]})
         self.assertIn("throughput-scaling", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
+        self.assertIn("moe-migration", {check["name"] for check in validation["checks"]})
         self.assertIn("remote-expert-batch", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-layer-parity", {check["name"] for check in validation["checks"]})
         self.assertIn("model-support", {check["name"] for check in validation["checks"]})
@@ -1287,6 +1293,56 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("hotness must be", "; ".join(result["errors"]))
 
+
+
+    def test_moe_migration_fixture_passes(self) -> None:
+        result = validate_moe_hot_expert_migration("fornax/golden_vectors/moe_migration")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(1, result["summary"]["migration_count"])
+        self.assertGreater(result["summary"]["remote_token_copy_reduction"], 0)
+
+    def test_simulated_moe_migration_reduces_remote_calls_and_preserves_parity(self) -> None:
+        contract = simulated_moe_hot_expert_migration(
+            plan_id="unit-migration-plan",
+            request_id="unit-migration-request",
+            plan_hash="sha256:unit-migration-plan",
+        )
+        result = validate_moe_hot_expert_migration_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(contract["result"]["hot_expert_migrated"])
+        self.assertGreater(contract["result"]["remote_token_copy_reduction"], 0)
+        self.assertEqual(0, contract["result"]["max_post_logit_abs_error"])
+        self.assertEqual("sha256:unit-migration-plan", contract["plan_hash"])
+
+    def test_moe_migration_rejects_missing_remote_reduction(self) -> None:
+        contract = simulated_moe_hot_expert_migration()
+        contract["result"]["post_remote_token_copies"] = contract["result"]["pre_remote_token_copies"]
+        contract["result"]["remote_token_copy_reduction"] = 0
+        contract["summary"]["remote_token_copy_reduction"] = 0
+        result = validate_moe_hot_expert_migration_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("remote_token_copy_reduction", "; ".join(result["errors"]))
+
+    def test_moe_migration_rejects_failed_parity(self) -> None:
+        contract = simulated_moe_hot_expert_migration()
+        contract["result"]["correctness_passed"] = False
+        contract["summary"]["correctness_passed"] = False
+        contract["result"]["next_tokens_match"] = False
+        result = validate_moe_hot_expert_migration_fixture(contract)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("next_tokens_match", text)
+        self.assertIn("correctness_passed", text)
+
+    def test_moe_migration_rejects_missing_placement_commit(self) -> None:
+        contract = simulated_moe_hot_expert_migration()
+        contract["events"] = [
+            event for event in contract["events"] if event["kind"] != "placement_committed"
+        ]
+        contract["summary"]["event_count"] = len(contract["events"])
+        result = validate_moe_hot_expert_migration_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("required migration sequence", "; ".join(result["errors"]))
 
     def test_model_support_fixture_passes(self) -> None:
         result = validate_model_support_matrix("fornax/golden_vectors/model_support")

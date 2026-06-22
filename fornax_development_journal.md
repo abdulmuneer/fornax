@@ -1894,3 +1894,72 @@
   --microbatch-size 2 --timeout-ms 50` showing 19/19 checks passed, `python3 -m
   unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`,
   `make fornax-golden`, and `make fornax-test` all passed.
+
+
+### T1 hot-expert migration simulation milestone
+
+- Added `fornax.moe_migration` for the WS-C C3 expert placement / migration
+  policy gap. The artifact simulates a hot remote expert on one logical host,
+  recommends migration, drains/copies state, commits the placement update,
+  replays routing, and verifies parity against the same deterministic MoE
+  reference path used by the layer/logit parity probe.
+- Added `fornax moe migration-simulate --out ...` and `fornax test
+  moe-migration`; added the golden fixture
+  `fornax/golden_vectors/moe_migration/fixture.json`; expanded `make
+  fornax-golden` and `fornax program simulate-t1` so hot-expert migration is
+  part of the regular two-logical-host simulated-cluster evidence path. The
+  one-command T1 bundle now validates 20 checks including `moe-migration`.
+- The validator enforces the ordered migration sequence
+  `placement_snapshot_before -> hot_expert_detected -> migration_recommendation
+  -> migration_plan -> drain_started -> expert_state_copied -> placement_committed
+  -> routing_replayed -> parity_verified -> cleanup`, plan/request/hash
+  propagation, hotness threshold, hot expert remote-before/local-after placement,
+  positive remote-token-copy reduction, zero dropped tokens, next-token parity,
+  layer/logit parity, and summary/result consistency.
+- The golden fixture records `tier=T1-simulation`,
+  `simulation_method=two-logical-host-hot-expert-migration`, `hot_expert_id=1`,
+  `hotness=0.5` against threshold `0.45`, pre/post remote token copies `7 -> 1`,
+  remote-token-copy reduction `6`, pre/post remote batches `2 -> 1`,
+  `max_post_layer_abs_error=0.0`, `max_post_logit_abs_error=0.0`,
+  `next_tokens_match=true`, `dropped_tokens=0`, `correctness_passed=true`, and
+  10 ordered events.
+- This narrows the Phase 2.5/M4 MoE runtime gap for the approved simulation
+  method: development can now validate that a hot remote expert is migrated into
+  the local logical host without changing outputs. It remains T1 simulation only;
+  live worker migration, accelerator state copy, real inter-host transport,
+  target-model hot expert telemetry, and T3/T4 real-cluster migration evidence
+  remain open.
+- Review-lens pass:
+  - Program Management: approve. This converts C3 from a recommendation-only
+    milestone into a machine-checkable simulated migration artifact that can be
+    tracked independently from real cluster gate closure.
+  - Distributed Runtime/Scheduler: approve with comments. The state transition
+    and placement ownership are explicit, but a live scheduler/worker handoff
+    under concurrent requests is still future work.
+  - LLM/Model Architecture: approve with comments. The migration replay preserves
+    deterministic MoE layer/logit parity; target-model router telemetry and
+    real expert weights remain future T3/T4 work.
+  - Hardware/Networking: approve with comments. The artifact uses the logical
+    two-host simulation method and does not claim accelerator or real network
+    migration evidence.
+  - Testing/Quality: approve. Regression tests cover fixture validity, remote
+    reduction, parity failure rejection, missing placement commit rejection, and
+    T1 bundle integration.
+- Verification: `python3 -m py_compile fornax/moe_migration.py fornax/cli.py
+  fornax/t1_simulated_validation.py tests/test_fornax_planner.py`, `python3 -m
+  fornax moe migration-simulate --out
+  fornax/golden_vectors/moe_migration/fixture.json --plan-id golden-moe-migration
+  --request-id golden-moe-migration-request --plan-hash
+  sha256:golden-moe-migration --token-count 6 --hidden-dim 16
+  --intermediate-dim 32 --vocab-size 17 --expert-count 4 --top-k 2
+  --hot-expert-id 1 --migration-hotness-threshold 0.45 --tolerance 0.0`,
+  `python3 -m fornax test moe-migration`, focused MoE migration and T1 bundle
+  tests, `python3 -m fornax program simulate-t1 --out-dir
+  /tmp/fornax_t1_moe_migration_validation_cli_20260622 --gpu-count 2 --profile
+  two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000 --link-latency-s
+  0.0004 --slow-node-factor 0.65 --plan-id cli-t1-moe-migration-plan
+  --request-id cli-t1-moe-migration-request --plan-hash
+  sha256:cli-t1-moe-migration-plan --max-queue-depth 2 --max-inflight 2
+  --microbatch-size 2 --timeout-ms 50` showing 20/20 checks passed, `python3 -m
+  unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`,
+  `make fornax-golden`, and `make fornax-test` all passed.

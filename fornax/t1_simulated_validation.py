@@ -18,6 +18,10 @@ from .golden import run_golden_plans
 from .inventory import build_logical_cluster_inventory, collect_local_inventory
 from .io import read_json, write_json
 from .moe import simulated_moe_contract, validate_moe_contract_fixture
+from .moe_migration import (
+    simulated_moe_hot_expert_migration,
+    validate_moe_hot_expert_migration_fixture,
+)
 from .moe_parity import (
     run_cpu_moe_layer_parity_probe,
     validate_moe_layer_parity_probe_fixture,
@@ -185,6 +189,7 @@ def run_t1_simulated_validation(
     pipeline_path = bundle / "pipeline-correctness.json"
     throughput_path = bundle / "throughput-scaling.json"
     moe_path = bundle / "moe-runtime.json"
+    moe_migration_path = bundle / "moe-migration.json"
     remote_expert_path = bundle / "remote-expert-batch.json"
     moe_parity_path = bundle / "moe-layer-parity.json"
     model_support_path = bundle / "model-support-matrix.json"
@@ -242,6 +247,11 @@ def run_t1_simulated_validation(
         request_id=request_id,
         plan_hash=plan_hash,
     )
+    moe_migration = simulated_moe_hot_expert_migration(
+        plan_id=plan_id,
+        request_id=request_id,
+        plan_hash=plan_hash,
+    )
     remote_expert = run_cpu_remote_expert_batch_probe(
         iterations=2,
         warmup=1,
@@ -287,6 +297,7 @@ def run_t1_simulated_validation(
     write_json(pipeline_path, pipeline)
     write_json(throughput_path, throughput)
     write_json(moe_path, moe)
+    write_json(moe_migration_path, moe_migration)
     write_json(remote_expert_path, remote_expert)
     write_json(moe_parity_path, moe_parity)
     write_json(model_support_path, model_support)
@@ -359,6 +370,12 @@ def run_t1_simulated_validation(
             str(moe_path),
         ),
         _check(
+            "moe-migration",
+            "T1",
+            validate_moe_hot_expert_migration_fixture(moe_migration),
+            str(moe_migration_path),
+        ),
+        _check(
             "remote-expert-batch",
             "T1",
             validate_remote_expert_batch_probe_fixture(remote_expert),
@@ -423,6 +440,7 @@ def run_t1_simulated_validation(
             "pipeline_correctness": str(pipeline_path),
             "throughput_scaling": str(throughput_path),
             "moe_runtime": str(moe_path),
+            "moe_migration": str(moe_migration_path),
             "remote_expert_batch": str(remote_expert_path),
             "moe_layer_parity": str(moe_parity_path),
             "model_support_matrix": str(model_support_path),
