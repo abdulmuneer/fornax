@@ -51,6 +51,10 @@ from .contracts import load_target_contract
 from .io import load_inventory, load_model_target, read_json, write_json
 from .planner import plan_placement
 from .preflight import run_phase0_preflight
+from .remote_expert_probe import (
+    run_remote_expert_batch_probe,
+    validate_remote_expert_batch_probe,
+)
 from .program_rebaseline import (
     KER_STATUS_VALUES,
     SCOPE_VALUES,
@@ -522,6 +526,52 @@ def _cmd_moe_simulate(args: argparse.Namespace) -> int:
         f"remote_dispatches={summary['remote_dispatch_count']} "
         f"migrations={summary['migration_recommendation_count']} "
         f"remote_hit_rate={summary['remote_hit_rate']:.3f}"
+    )
+    return 0
+
+
+def _cmd_moe_remote_expert_probe(args: argparse.Namespace) -> int:
+    try:
+        result = run_remote_expert_batch_probe(
+            backend=args.backend,
+            torch_python=args.torch_python,
+            source_device=args.source_device,
+            expert_device=args.expert_device,
+            dtype=args.dtype,
+            iterations=args.iterations,
+            warmup=args.warmup,
+            token_count=args.token_count,
+            hidden_dim=args.hidden_dim,
+            intermediate_dim=args.intermediate_dim,
+            expert_id=args.expert_id,
+            tolerance=args.tolerance,
+            logical_source_host=args.logical_source_host,
+            logical_expert_host=args.logical_expert_host,
+            timeout_s=args.timeout_s,
+        )
+    except ValueError as exc:
+        print(f"moe remote-expert-probe: {exc}")
+        return 2
+    write_json(args.out, result)
+    if not result.get("measured"):
+        print(
+            "remote expert batch probe unavailable: "
+            f"backend={result.get('backend')} error={result.get('error')}"
+        )
+        return 2
+    validation = validate_remote_expert_batch_probe(args.out)
+    if not validation["ok"]:
+        print("remote expert batch probe invalid: " + "; ".join(validation["errors"]))
+        return 2
+    summary = validation["summary"]
+    suffix = " accelerator" if summary.get("accelerator_measured") else " reference"
+    print(
+        "remote expert batch probe:"
+        f"{suffix} backend={summary.get('backend')} "
+        f"{summary.get('source_device')}->{summary.get('expert_device')} "
+        f"batches={summary.get('remote_batches')} "
+        f"expert_calls_s={summary.get('expert_calls_s'):.3f} "
+        f"max_abs_error={summary.get('max_abs_error')}"
     )
     return 0
 
@@ -1127,6 +1177,27 @@ def _cmd_test_moe_runtime(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_remote_expert_probe(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/remote_expert_batch"
+    result = validate_remote_expert_batch_probe(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS remote-expert-probe: {fixture} "
+            f"backend={summary['backend']} "
+            f"accelerator={summary['accelerator_measured']} "
+            f"devices={summary['source_device']}->{summary['expert_device']} "
+            f"batches={summary['remote_batches']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL remote-expert-probe: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_model_support(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/model_support"
     result = validate_model_support_matrix(fixture)
@@ -1320,6 +1391,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_transport_contract(args)
     if args.test_name == "moe-runtime":
         return _cmd_test_moe_runtime(args)
+    if args.test_name == "remote-expert-probe":
+        return _cmd_test_remote_expert_probe(args)
     if args.test_name == "model-support":
         return _cmd_test_model_support(args)
     if args.test_name == "continuous-batching":
@@ -1625,6 +1698,25 @@ def build_parser() -> argparse.ArgumentParser:
     moe_simulate.add_argument("--migration-hotness-threshold", type=float, default=0.50)
     moe_simulate.set_defaults(func=_cmd_moe_simulate)
 
+    remote_probe = moe_sub.add_parser("remote-expert-probe")
+    remote_probe.add_argument("--out", required=True)
+    remote_probe.add_argument("--backend", choices=["cpu-stdlib", "torch"], default="cpu-stdlib")
+    remote_probe.add_argument("--torch-python")
+    remote_probe.add_argument("--source-device", default="cuda:0")
+    remote_probe.add_argument("--expert-device", default="cuda:1")
+    remote_probe.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    remote_probe.add_argument("--iterations", type=int, default=5)
+    remote_probe.add_argument("--warmup", type=int, default=1)
+    remote_probe.add_argument("--token-count", type=int, default=4)
+    remote_probe.add_argument("--hidden-dim", type=int, default=16)
+    remote_probe.add_argument("--intermediate-dim", type=int, default=32)
+    remote_probe.add_argument("--expert-id", type=int, default=5)
+    remote_probe.add_argument("--tolerance", type=float, default=0.0)
+    remote_probe.add_argument("--logical-source-host", default="logical-host-0")
+    remote_probe.add_argument("--logical-expert-host", default="logical-host-1")
+    remote_probe.add_argument("--timeout-s", type=float, default=180.0)
+    remote_probe.set_defaults(func=_cmd_moe_remote_expert_probe)
+
     model_support = sub.add_parser("model-support")
     model_support_sub = model_support.add_subparsers(
         dest="model_support_command", required=True
@@ -1792,6 +1884,7 @@ def build_parser() -> argparse.ArgumentParser:
             "worker-contract",
             "transport-contract",
             "moe-runtime",
+            "remote-expert-probe",
             "model-support",
             "continuous-batching",
             "scheduler-contract",

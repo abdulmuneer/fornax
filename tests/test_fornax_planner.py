@@ -85,6 +85,10 @@ from fornax.phase0_simulated_validation import run_phase0_simulated_validation
 from fornax.t1_simulated_validation import run_t1_simulated_validation
 from fornax.preflight import run_phase0_preflight
 from fornax.program_rebaseline import render_program_rebaseline_draft
+from fornax.remote_expert_probe import (
+    run_cpu_remote_expert_batch_probe,
+    validate_remote_expert_batch_probe_fixture,
+)
 from fornax.runtime_format_spec import render_runtime_format_spec_draft
 from fornax.scheduler import (
     simulate_scheduler,
@@ -688,6 +692,57 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("summary.target_met must be true", text)
         self.assertFalse(artifact["summary"]["saturation_within_contract"])
 
+
+    def test_cpu_remote_expert_batch_probe_validates_reference_not_accelerator(self) -> None:
+        artifact = run_cpu_remote_expert_batch_probe(iterations=1, token_count=2)
+        result = validate_remote_expert_batch_probe_fixture(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(artifact["result"]["correctness_passed"])
+        self.assertFalse(artifact["accelerator_measured"])
+        self.assertIn("not accelerator evidence", "; ".join(result["warnings"]))
+
+    def test_remote_expert_batch_rejects_false_t3_claim_without_cuda(self) -> None:
+        artifact = run_cpu_remote_expert_batch_probe(iterations=1, token_count=2)
+        artifact["tier"] = "T3-same-host-remote-expert-simulation"
+        artifact["accelerator_measured"] = True
+        result = validate_remote_expert_batch_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("hardware.device_type must be cuda-remote-expert", text)
+        self.assertIn("config.source_device must be cuda:<index>", text)
+        self.assertIn("cpu-stdlib backend cannot be accelerator_measured", text)
+
+    def test_remote_expert_batch_rejects_same_cuda_pair_claim(self) -> None:
+        artifact = run_cpu_remote_expert_batch_probe(iterations=1, token_count=2)
+        artifact["tier"] = "T3-same-host-remote-expert-simulation"
+        artifact["backend"] = "torch"
+        artifact["accelerator_measured"] = True
+        artifact["source"] = "fornax.remote_expert_probe.torch_remote_expert_batch"
+        artifact["config"].update({"source_device": "cuda:0", "expert_device": "cuda:0", "dtype": "float32"})
+        artifact["environment"]["torch_version"] = "test-torch"
+        artifact["hardware"] = {
+            "device_type": "cuda-remote-expert",
+            "source_device": "cuda:0",
+            "expert_device": "cuda:0",
+            "source_name": "test-gpu",
+            "expert_name": "test-gpu",
+            "source_total_memory_bytes": 1024,
+            "expert_total_memory_bytes": 1024,
+            "same_physical_host": True,
+            "logical_hosts": ["logical-host-0", "logical-host-1"],
+        }
+        result = validate_remote_expert_batch_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        self.assertIn("config.source_device and config.expert_device must differ", "; ".join(result["errors"]))
+
+    def test_remote_expert_batch_rejects_failed_correctness(self) -> None:
+        artifact = run_cpu_remote_expert_batch_probe(iterations=1, token_count=2)
+        artifact["result"]["correctness_passed"] = False
+        artifact["result"]["max_abs_error"] = artifact["config"]["tolerance"] + 1.0
+        result = validate_remote_expert_batch_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        self.assertIn("correctness_passed", "; ".join(result["errors"]))
+
     def test_tiny_expert_mlp_benchmark_records_measurement(self) -> None:
         result = run_tiny_expert_mlp_benchmark(
             iterations=1, batch_tokens=2, hidden_dim=4, intermediate_dim=6
@@ -929,8 +984,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(17, result["summary"]["check_count"])
-        self.assertEqual(17, result["summary"]["passed_count"])
+        self.assertEqual(18, result["summary"]["check_count"])
+        self.assertEqual(18, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -943,6 +998,7 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("pipeline-correctness", {check["name"] for check in validation["checks"]})
         self.assertIn("throughput-scaling", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
+        self.assertIn("remote-expert-batch", {check["name"] for check in validation["checks"]})
         self.assertIn("model-support", {check["name"] for check in validation["checks"]})
         self.assertIn("transport-contract", {check["name"] for check in validation["checks"]})
         self.assertIn("scheduler-contract", {check["name"] for check in validation["checks"]})

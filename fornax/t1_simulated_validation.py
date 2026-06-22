@@ -28,6 +28,10 @@ from .pipeline_probe import (
     run_cpu_pipeline_correctness_probe,
     validate_pipeline_correctness_probe_fixture,
 )
+from .remote_expert_probe import (
+    run_cpu_remote_expert_batch_probe,
+    validate_remote_expert_batch_probe_fixture,
+)
 from .runtime_format import validate_runtime_format_golden
 from .throughput_scaling import (
     simulate_throughput_scaling,
@@ -177,6 +181,7 @@ def run_t1_simulated_validation(
     pipeline_path = bundle / "pipeline-correctness.json"
     throughput_path = bundle / "throughput-scaling.json"
     moe_path = bundle / "moe-runtime.json"
+    remote_expert_path = bundle / "remote-expert-batch.json"
     model_support_path = bundle / "model-support-matrix.json"
     results_path = bundle / "t1-simulated-validation.json"
 
@@ -232,6 +237,15 @@ def run_t1_simulated_validation(
         request_id=request_id,
         plan_hash=plan_hash,
     )
+    remote_expert = run_cpu_remote_expert_batch_probe(
+        iterations=2,
+        warmup=1,
+        token_count=4,
+        hidden_dim=16,
+        intermediate_dim=32,
+        expert_id=5,
+        tolerance=0.0,
+    )
     model_support = simulated_model_support_matrix(
         matrix_id=f"{plan_id}-model-support",
         target_model_id="qwen3-moe-class-target",
@@ -257,6 +271,7 @@ def run_t1_simulated_validation(
     write_json(pipeline_path, pipeline)
     write_json(throughput_path, throughput)
     write_json(moe_path, moe)
+    write_json(remote_expert_path, remote_expert)
     write_json(model_support_path, model_support)
 
     checks = [
@@ -327,6 +342,12 @@ def run_t1_simulated_validation(
             str(moe_path),
         ),
         _check(
+            "remote-expert-batch",
+            "T1",
+            validate_remote_expert_batch_probe_fixture(remote_expert),
+            str(remote_expert_path),
+        ),
+        _check(
             "model-support",
             "T1",
             validate_model_support_matrix_fixture(model_support),
@@ -379,6 +400,7 @@ def run_t1_simulated_validation(
             "pipeline_correctness": str(pipeline_path),
             "throughput_scaling": str(throughput_path),
             "moe_runtime": str(moe_path),
+            "remote_expert_batch": str(remote_expert_path),
             "model_support_matrix": str(model_support_path),
             "validation": str(results_path),
         },

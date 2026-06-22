@@ -1,0 +1,60 @@
+{
+  "accelerator_measured": false,
+  "available": true,
+  "backend": "cpu-stdlib",
+  "config": {
+    "dtype": "float64-reference",
+    "expert_device": "cpu",
+    "expert_id": 5,
+    "hidden_dim": 16,
+    "intermediate_dim": 32,
+    "iterations": 2,
+    "logical_expert_host": "logical-host-1",
+    "logical_source_host": "logical-host-0",
+    "source_device": "cpu",
+    "token_count": 4,
+    "tolerance": 0.0,
+    "transfer_payload_bytes_per_batch": 1024,
+    "warmup": 1
+  },
+  "environment": {
+    "cpu_count": 208,
+    "machine": "x86_64",
+    "platform": "Linux-6.6.113+-x86_64-with-glibc2.39",
+    "python_executable": "/usr/bin/python3",
+    "python_version": "3.12.3"
+  },
+  "hardware": {
+    "device_type": "cpu-remote-expert",
+    "expert_device": "cpu",
+    "expert_name": "x86_64",
+    "logical_hosts": [
+      "logical-host-0",
+      "logical-host-1"
+    ],
+    "same_physical_host": true,
+    "source_device": "cpu",
+    "source_name": "x86_64"
+  },
+  "measured": true,
+  "note": "CPU reference remote expert batch probe; not accelerator or T3 hardware evidence.",
+  "probe_kind": "remote-expert-batch-probe",
+  "result": {
+    "batches_s": 1858.4666163641702,
+    "checksum": 0.6253382586599183,
+    "correctness_passed": true,
+    "elapsed_ns": 1076156,
+    "elapsed_s": 0.001076156,
+    "expert_calls": 8,
+    "expert_calls_s": 7433.866465456681,
+    "max_abs_error": 0.0,
+    "reference_checksum": 0.6253382586599183,
+    "remote_batches": 2,
+    "timing_method": "perf_counter_ns_cpu_remote_expert_batch",
+    "tokens_processed": 8,
+    "transfer_payload_bytes": 2048
+  },
+  "source": "fornax.remote_expert_probe.cpu_remote_expert_batch.stdlib",
+  "tier": "T0/T1-reference",
+  "version": 1
+}

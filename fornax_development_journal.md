@@ -1741,3 +1741,75 @@
   sha256:cli-t1-throughput-plan --max-queue-depth 2 --max-inflight 2
   --microbatch-size 2 --timeout-ms 50` showing 17/17 checks passed, and
   `git diff --check` all passed.
+
+
+### T3 same-host remote expert batch probe milestone
+
+- Added `fornax.remote_expert_probe` for an independent remote expert batch
+  probe. The probe dispatches a deterministic hidden-state batch from a source
+  host to an expert host, executes a small expert MLP, returns weighted results,
+  and validates parity against a local/reference expert path.
+- Added `fornax moe remote-expert-probe --out ...` and `fornax test
+  remote-expert-probe`; added the CPU reference golden fixture
+  `fornax/golden_vectors/remote_expert_batch/fixture.json`; expanded `make
+  fornax-golden` and `fornax program simulate-t1` so remote expert batches are
+  part of the regular simulated-cluster evidence path. The one-command T1 bundle
+  now validates 18 checks including `remote-expert-batch`.
+- The validator enforces measured status, batch/expert-call accounting, transfer
+  byte accounting, checksum/reference checksum presence, correctness pass,
+  distinct logical hosts, source/expert hardware metadata, and rejects false
+  `T3-same-host-remote-expert-simulation` claims unless the artifact uses a
+  distinct CUDA source/expert device pair. CPU artifacts remain CI-safe reference
+  evidence only.
+- Ran the lab probe on the same-host H100 logical pair with
+  `/mnt/dataprocessing/venvs/asr-data-prep/bin/python`: artifact
+  `/tmp/fornax_remote_expert_batch_h100_pair_20260621.json` records
+  `source_device=cuda:0`, `expert_device=cuda:1`, dtype `float32`,
+  `remote_batches=20`, `expert_calls=160`,
+  `expert_calls_s=27694.131916956303`, `transfer_payload_bytes=81920`,
+  `max_abs_error=0.0`, `correctness_passed=true`, H100 source/expert names,
+  torch `2.12.0+cu130`, CUDA `13.0`, and peer access true in both directions.
+- This narrows the Phase 2.5/G2 MoE gap for the approved simulation method: remote
+  expert batches are now independently measured on the two-H100 logical-host
+  setup. It still does not close real multi-host T3, target-model MoE
+  layer/logit parity, all-to-all routing, or product workload locality decisions.
+- Review-lens pass:
+  - LLM/Model Architecture: approve with comments. The probe checks an
+    expert-MLP-shaped batch and weighted gather against a reference path; real
+    target MoE router traces and layer/logit parity remain future work.
+  - Distributed Runtime/Scheduler: approve with comments. The artifact validates
+    remote expert dispatch/execution/return as an independent batch primitive,
+    but not yet live worker scheduling or migration decisions under load.
+  - Hardware/Networking: approve with comments. The H100 run records real
+    same-host CUDA placement and peer access; real inter-host network transport
+    remains separate T3 evidence.
+  - Low-level Software: approve. The validator prevents false accelerator claims,
+    same-device claims, accounting drift, and failed-correctness artifacts from
+    being treated as milestone evidence.
+  - Testing/Quality: approve. Regression tests cover CPU reference validity,
+    false T3 claims without CUDA, same CUDA source/expert rejection, failed
+    correctness rejection, and T1 bundle integration.
+- Verification: `python3 -m py_compile fornax/remote_expert_probe.py
+  fornax/cli.py fornax/t1_simulated_validation.py tests/test_fornax_planner.py`,
+  `python3 -m fornax moe remote-expert-probe --backend cpu-stdlib --out
+  fornax/golden_vectors/remote_expert_batch/fixture.json --iterations 2
+  --warmup 1 --token-count 4 --hidden-dim 16 --intermediate-dim 32
+  --expert-id 5 --tolerance 0.0`, `python3 -m fornax test
+  remote-expert-probe`, focused remote expert and T1 integration tests,
+  `python3 -m fornax moe remote-expert-probe --backend torch --torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --out
+  /tmp/fornax_remote_expert_batch_h100_pair_20260621.json --source-device
+  cuda:0 --expert-device cuda:1 --dtype float32 --iterations 20 --warmup 3
+  --token-count 8 --hidden-dim 64 --intermediate-dim 128 --expert-id 5
+  --tolerance 0.0001 --timeout-s 180`, `python3 -m fornax test
+  remote-expert-probe --fixture
+  /tmp/fornax_remote_expert_batch_h100_pair_20260621.json`, `python3 -m
+  unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`,
+  `make fornax-golden`, `make fornax-test`, `python3 -m fornax program
+  simulate-t1 --out-dir /tmp/fornax_t1_remote_expert_validation_cli_20260621
+  --gpu-count 2 --profile two-gpu-heterogeneous --link-bandwidth-bytes-s
+  12500000000 --link-latency-s 0.0004 --slow-node-factor 0.65 --plan-id
+  cli-t1-remote-expert-plan --request-id cli-t1-remote-expert-request
+  --plan-hash sha256:cli-t1-remote-expert-plan --max-queue-depth 2
+  --max-inflight 2 --microbatch-size 2 --timeout-ms 50` showing 18/18 checks
+  passed, and `git diff --check` all passed.
