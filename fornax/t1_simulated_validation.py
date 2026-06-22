@@ -75,6 +75,7 @@ from .transport import (
     simulated_transport_contract,
     validate_transport_contract_fixture,
 )
+from .trust_boundary import simulate_trust_boundary, validate_trust_boundary_fixture
 from .workers import simulated_worker_contract, validate_worker_contract_fixture
 
 
@@ -209,6 +210,7 @@ def run_t1_simulated_validation(
     scheduler_path = bundle / "scheduler-contract.json"
     worker_path = bundle / "worker-contract.json"
     transport_path = bundle / "transport-contract.json"
+    trust_boundary_path = bundle / "trust-boundary.json"
     engine_path = bundle / "engine-simulation.json"
     stage_host_path = bundle / "stage-host.json"
     serving_path = bundle / "serving-adapter.json"
@@ -258,6 +260,11 @@ def run_t1_simulated_validation(
         plan_hash=plan_hash,
         max_queue_depth=max_queue_depth,
         timeout_ms=timeout_ms,
+    )
+    trust_boundary = simulate_trust_boundary(
+        plan_id=f"{plan_id}-trust-boundary",
+        request_id=f"{request_id}-trust-boundary",
+        plan_hash=plan_hash,
     )
     engine = simulated_engine_contract(
         plan_id=plan_id,
@@ -352,6 +359,7 @@ def run_t1_simulated_validation(
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
+    write_json(trust_boundary_path, trust_boundary)
     write_json(engine_path, engine)
     write_json(stage_host_path, stage_host)
     write_json(serving_path, serving)
@@ -393,6 +401,12 @@ def run_t1_simulated_validation(
             "T1",
             validate_network_contract("fornax/golden_vectors/network_contract"),
             "fornax/golden_vectors/network_contract",
+        ),
+        _check(
+            "trust-boundary",
+            "T1/E3",
+            validate_trust_boundary_fixture(trust_boundary),
+            str(trust_boundary_path),
         ),
         _check(
             "engine-seam",
@@ -544,6 +558,7 @@ def run_t1_simulated_validation(
             "scheduler_contract": str(scheduler_path),
             "worker_contract": str(worker_path),
             "transport_contract": str(transport_path),
+            "trust_boundary": str(trust_boundary_path),
             "engine_simulation": str(engine_path),
             "stage_host": str(stage_host_path),
             "serving_adapter": str(serving_path),

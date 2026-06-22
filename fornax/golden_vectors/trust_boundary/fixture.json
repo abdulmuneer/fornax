@@ -1,0 +1,426 @@
+{
+  "auth_attempts": [
+    {
+      "attempt_id": "auth-stage-0",
+      "claims": {
+        "cluster_id": "golden-sim-cluster",
+        "endpoint_id": "stage-0",
+        "expires_at_s": 30.01,
+        "issued_at_s": 0.01,
+        "node_id": "sim-gpu0",
+        "nonce": "nonce-stage-0-1",
+        "plan_hash": "sha256:golden-trust-boundary",
+        "plan_id": "golden-trust-boundary",
+        "role": "stage_worker"
+      },
+      "expected_plan_hash": "sha256:golden-trust-boundary",
+      "signature": "sha256:c4d0ecab292f4205a6d7f8a892f5d0ee6aa676270f2e691c1ca0527db3f2b002",
+      "status": "accepted"
+    },
+    {
+      "attempt_id": "auth-stage-1",
+      "claims": {
+        "cluster_id": "golden-sim-cluster",
+        "endpoint_id": "stage-1",
+        "expires_at_s": 30.011,
+        "issued_at_s": 0.011,
+        "node_id": "sim-gpu1",
+        "nonce": "nonce-stage-1-1",
+        "plan_hash": "sha256:golden-trust-boundary",
+        "plan_id": "golden-trust-boundary",
+        "role": "stage_worker"
+      },
+      "expected_plan_hash": "sha256:golden-trust-boundary",
+      "signature": "sha256:486f081728a62524ada1874c52ec519e8e97853e30afeff7311ca920493c6a82",
+      "status": "accepted"
+    },
+    {
+      "attempt_id": "reject-stale-plan",
+      "claims": {
+        "cluster_id": "golden-sim-cluster",
+        "endpoint_id": "stage-1",
+        "expires_at_s": 30.012,
+        "issued_at_s": 0.012,
+        "node_id": "sim-gpu1",
+        "nonce": "nonce-stage-1-stale",
+        "plan_hash": "sha256:stale-trust-boundary-plan",
+        "plan_id": "golden-trust-boundary",
+        "role": "stage_worker"
+      },
+      "expected_plan_hash": "sha256:golden-trust-boundary",
+      "reason": "stale_plan_hash",
+      "signature": "sha256:41f0ae11bafddd9dc241dcc88629c6ef5cb64245f0c5a49edaf0192ffc182641",
+      "status": "rejected"
+    },
+    {
+      "attempt_id": "reject-duplicate-nonce",
+      "claims": {
+        "cluster_id": "golden-sim-cluster",
+        "endpoint_id": "stage-0",
+        "expires_at_s": 30.013,
+        "issued_at_s": 0.013,
+        "node_id": "sim-gpu0",
+        "nonce": "nonce-stage-0-1",
+        "plan_hash": "sha256:golden-trust-boundary",
+        "plan_id": "golden-trust-boundary",
+        "role": "stage_worker"
+      },
+      "expected_plan_hash": "sha256:golden-trust-boundary",
+      "reason": "duplicate_nonce",
+      "signature": "sha256:226c7a234d1521fe85842f3379be12b4790bd42e554dbe459b98e508040ff7df",
+      "status": "rejected"
+    },
+    {
+      "attempt_id": "reject-unknown-identity",
+      "claims": {
+        "cluster_id": "golden-sim-cluster",
+        "endpoint_id": "stage-9",
+        "expires_at_s": 30.014,
+        "issued_at_s": 0.014,
+        "node_id": "sim-gpu9",
+        "nonce": "nonce-stage-9-1",
+        "plan_hash": "sha256:golden-trust-boundary",
+        "plan_id": "golden-trust-boundary",
+        "role": "stage_worker"
+      },
+      "expected_plan_hash": "sha256:golden-trust-boundary",
+      "reason": "unknown_identity",
+      "signature": "sha256:bfb874dc61dd6c84b7062229a78f791873942c143cdada8e38b065ee2d97dc3b",
+      "status": "rejected"
+    },
+    {
+      "attempt_id": "reject-anonymous",
+      "claims": {
+        "anonymous": true,
+        "cluster_id": "golden-sim-cluster",
+        "expires_at_s": 30.015,
+        "issued_at_s": 0.015,
+        "nonce": "nonce-anonymous-1",
+        "plan_hash": "sha256:golden-trust-boundary",
+        "plan_id": "golden-trust-boundary"
+      },
+      "expected_plan_hash": "sha256:golden-trust-boundary",
+      "reason": "anonymous_disallowed",
+      "signature": "",
+      "status": "rejected"
+    }
+  ],
+  "authenticated_messages": [
+    {
+      "auth_attempt_id": "auth-stage-0",
+      "destination_endpoint_id": "stage-1",
+      "message_id": "msg-activation-0",
+      "message_kind": "activation",
+      "nonce": "nonce-stage-0-1",
+      "plan_hash": "sha256:golden-trust-boundary",
+      "plan_id": "golden-trust-boundary",
+      "plan_tag": "sha256:c3e615aca97572c15aebf8da772af0cd18d177103e6304c809b343046d09cd9a",
+      "source_endpoint_id": "stage-0"
+    }
+  ],
+  "cluster_id": "golden-sim-cluster",
+  "events": [
+    {
+      "cluster_id": "golden-sim-cluster",
+      "identity_count": 3,
+      "kind": "identity_manifest_loaded",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.0
+    },
+    {
+      "endpoint_id": "stage-0",
+      "kind": "node_identity_admitted",
+      "node_id": "sim-gpu0",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "role": "stage_worker",
+      "timestamp_s": 0.001
+    },
+    {
+      "endpoint_id": "stage-1",
+      "kind": "node_identity_admitted",
+      "node_id": "sim-gpu1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "role": "stage_worker",
+      "timestamp_s": 0.001
+    },
+    {
+      "endpoint_id": "expert-0",
+      "kind": "node_identity_admitted",
+      "node_id": "sim-gpu1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "role": "expert_worker",
+      "timestamp_s": 0.001
+    },
+    {
+      "attempt_id": "auth-stage-0",
+      "endpoint_id": "stage-0",
+      "kind": "endpoint_auth_challenge",
+      "nonce": "nonce-stage-0-1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.01
+    },
+    {
+      "attempt_id": "auth-stage-0",
+      "endpoint_id": "stage-0",
+      "kind": "endpoint_auth_accepted",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.011
+    },
+    {
+      "attempt_id": "auth-stage-0",
+      "kind": "plan_tag_verified",
+      "plan_hash": "sha256:golden-trust-boundary",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.012
+    },
+    {
+      "attempt_id": "auth-stage-0",
+      "endpoint_id": "stage-0",
+      "kind": "replay_nonce_accepted",
+      "nonce": "nonce-stage-0-1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.013
+    },
+    {
+      "attempt_id": "auth-stage-1",
+      "endpoint_id": "stage-1",
+      "kind": "endpoint_auth_challenge",
+      "nonce": "nonce-stage-1-1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.011
+    },
+    {
+      "attempt_id": "auth-stage-1",
+      "endpoint_id": "stage-1",
+      "kind": "endpoint_auth_accepted",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.012
+    },
+    {
+      "attempt_id": "auth-stage-1",
+      "kind": "plan_tag_verified",
+      "plan_hash": "sha256:golden-trust-boundary",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.013
+    },
+    {
+      "attempt_id": "auth-stage-1",
+      "endpoint_id": "stage-1",
+      "kind": "replay_nonce_accepted",
+      "nonce": "nonce-stage-1-1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.014
+    },
+    {
+      "attempt_id": "reject-stale-plan",
+      "endpoint_id": "stage-1",
+      "kind": "endpoint_auth_challenge",
+      "nonce": "nonce-stage-1-stale",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.012
+    },
+    {
+      "attempt_id": "reject-stale-plan",
+      "endpoint_id": "stage-1",
+      "kind": "auth_reject",
+      "plan_id": "golden-trust-boundary",
+      "reason": "stale_plan_hash",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.013
+    },
+    {
+      "attempt_id": "reject-stale-plan",
+      "expected_plan_hash": "sha256:golden-trust-boundary",
+      "kind": "plan_integrity_reject",
+      "plan_id": "golden-trust-boundary",
+      "rejected_plan_hash": "sha256:stale-trust-boundary-plan",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.014
+    },
+    {
+      "attempt_id": "reject-duplicate-nonce",
+      "endpoint_id": "stage-0",
+      "kind": "endpoint_auth_challenge",
+      "nonce": "nonce-stage-0-1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.013
+    },
+    {
+      "attempt_id": "reject-duplicate-nonce",
+      "endpoint_id": "stage-0",
+      "kind": "auth_reject",
+      "plan_id": "golden-trust-boundary",
+      "reason": "duplicate_nonce",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.014
+    },
+    {
+      "attempt_id": "reject-duplicate-nonce",
+      "endpoint_id": "stage-0",
+      "kind": "replay_nonce_reject",
+      "nonce": "nonce-stage-0-1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.015
+    },
+    {
+      "attempt_id": "reject-unknown-identity",
+      "endpoint_id": "stage-9",
+      "kind": "endpoint_auth_challenge",
+      "nonce": "nonce-stage-9-1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.014
+    },
+    {
+      "attempt_id": "reject-unknown-identity",
+      "endpoint_id": "stage-9",
+      "kind": "auth_reject",
+      "plan_id": "golden-trust-boundary",
+      "reason": "unknown_identity",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.015
+    },
+    {
+      "attempt_id": "reject-anonymous",
+      "endpoint_id": "anonymous",
+      "kind": "endpoint_auth_challenge",
+      "nonce": "nonce-anonymous-1",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.015
+    },
+    {
+      "attempt_id": "reject-anonymous",
+      "endpoint_id": "anonymous",
+      "kind": "auth_reject",
+      "plan_id": "golden-trust-boundary",
+      "reason": "anonymous_disallowed",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.016
+    },
+    {
+      "auth_state_released": true,
+      "kind": "cleanup",
+      "plan_id": "golden-trust-boundary",
+      "request_id": "golden-trust-boundary-request",
+      "timestamp_s": 0.1
+    }
+  ],
+  "mode": "t1-simulation",
+  "node_identities": [
+    {
+      "admitted": true,
+      "endpoint_id": "stage-0",
+      "key_id": "sim-gpu0-stage-0-sim-key",
+      "logical_host_id": "sim-host-0",
+      "node_id": "sim-gpu0",
+      "physical_device": "cuda:0",
+      "public_key_hash": "sha256:5ff452325aef949312a9ad23595223909bc756cbb3220934cb8f89cce2db28d8",
+      "role": "stage_worker",
+      "token_scope": [
+        "runtime:connect",
+        "runtime:send",
+        "runtime:receive"
+      ]
+    },
+    {
+      "admitted": true,
+      "endpoint_id": "stage-1",
+      "key_id": "sim-gpu1-stage-1-sim-key",
+      "logical_host_id": "sim-host-1",
+      "node_id": "sim-gpu1",
+      "physical_device": "cuda:1",
+      "public_key_hash": "sha256:c1d4358edac548a6f4028338b4b5710fdec1cc2313ba0c5c6b3c93350a9a6659",
+      "role": "stage_worker",
+      "token_scope": [
+        "runtime:connect",
+        "runtime:send",
+        "runtime:receive"
+      ]
+    },
+    {
+      "admitted": true,
+      "endpoint_id": "expert-0",
+      "key_id": "sim-gpu1-expert-0-sim-key",
+      "logical_host_id": "sim-host-1",
+      "node_id": "sim-gpu1",
+      "physical_device": "cuda:1",
+      "public_key_hash": "sha256:327b2b78fa3120b9db7e6e4120307ec1f387afa6d70d3e5b1e63054bd4bbf995",
+      "role": "expert_worker",
+      "token_scope": [
+        "runtime:connect",
+        "runtime:send",
+        "runtime:receive"
+      ]
+    }
+  ],
+  "note": "T1 trust-boundary simulation: validates node identity, endpoint auth, plan-integrity tags, and replay-nonce rejection over two logical GPU hosts. This is not real TLS, mTLS, production auth, or G3 security evidence.",
+  "plan_hash": "sha256:golden-trust-boundary",
+  "plan_id": "golden-trust-boundary",
+  "record_kind": "trust-boundary-simulation-contract",
+  "request_id": "golden-trust-boundary-request",
+  "result": {
+    "anonymous_rejected": true,
+    "correctness_passed": true,
+    "duplicate_nonce_rejected": true,
+    "endpoint_auth_enforced": true,
+    "identities_admitted": true,
+    "plan_integrity_enforced": true,
+    "stale_plan_rejected": true,
+    "unknown_identity_rejected": true
+  },
+  "simulation_method": "node-identity-endpoint-auth-plan-integrity",
+  "summary": {
+    "accepted_auth_count": 2,
+    "anonymous_rejected": true,
+    "authenticated_message_count": 1,
+    "correctness_passed": true,
+    "duplicate_nonce_rejected": true,
+    "event_count": 23,
+    "identity_count": 3,
+    "rejected_auth_count": 4,
+    "required_reject_reason_count": 4,
+    "stale_plan_rejected": true,
+    "unknown_identity_rejected": true
+  },
+  "target_workstreams": [
+    "WS-E3",
+    "WS-E4"
+  ],
+  "trust_policy": {
+    "allow_anonymous": false,
+    "auth_scheme": "hmac-sha256-simulated-capability-token",
+    "identity_source": "simulated-node-manifest",
+    "require_endpoint_auth": true,
+    "require_plan_hash": true,
+    "require_replay_nonce": true,
+    "required_claims": [
+      "cluster_id",
+      "endpoint_id",
+      "expires_at_s",
+      "issued_at_s",
+      "node_id",
+      "nonce",
+      "plan_hash",
+      "plan_id",
+      "role"
+    ],
+    "token_ttl_s": 30.0
+  },
+  "version": 1
+}

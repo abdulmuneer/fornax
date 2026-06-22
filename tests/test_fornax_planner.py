@@ -155,6 +155,11 @@ from fornax.transport import (
     validate_transport_contract,
     validate_transport_contract_fixture,
 )
+from fornax.trust_boundary import (
+    simulate_trust_boundary,
+    validate_trust_boundary,
+    validate_trust_boundary_fixture,
+)
 from fornax.validation import validate_target_contract
 from fornax.workers import (
     simulated_worker_contract,
@@ -1130,11 +1135,12 @@ class FornaxPlannerTest(unittest.TestCase):
             )
             bundle = Path(result["bundle"])
             transport = read_json(bundle / "transport-contract.json")
+            trust_boundary = read_json(bundle / "trust-boundary.json")
             stage_host = read_json(bundle / "stage-host.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(27, result["summary"]["check_count"])
-        self.assertEqual(27, result["summary"]["passed_count"])
+        self.assertEqual(28, result["summary"]["check_count"])
+        self.assertEqual(28, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1142,8 +1148,11 @@ class FornaxPlannerTest(unittest.TestCase):
             endpoint["worker_environment"]["CUDA_VISIBLE_DEVICES"]
             for endpoint in transport["endpoints"]
         })
+        self.assertFalse(trust_boundary["trust_policy"]["allow_anonymous"])
+        self.assertTrue(trust_boundary["summary"]["stale_plan_rejected"])
         self.assertEqual("planned", stage_host["stage_host"]["max_graphlet_status"])
         self.assertFalse(stage_host["stage_host"]["measured"])
+        self.assertIn("trust-boundary", {check["name"] for check in validation["checks"]})
         self.assertIn("stage-host", {check["name"] for check in validation["checks"]})
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("serving-adapter", {check["name"] for check in validation["checks"]})
@@ -1365,6 +1374,75 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("CUDA_VISIBLE_DEVICES", "; ".join(result["errors"]))
 
+
+    def test_trust_boundary_fixture_passes(self) -> None:
+        result = validate_trust_boundary("fornax/golden_vectors/trust_boundary")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(3, result["summary"]["identity_count"])
+        self.assertEqual(2, result["summary"]["accepted_auth_count"])
+        self.assertEqual(4, result["summary"]["rejected_auth_count"])
+        self.assertTrue(result["summary"]["stale_plan_rejected"])
+
+    def test_simulated_trust_boundary_validates_identity_auth_and_plan_tags(self) -> None:
+        contract = simulate_trust_boundary(
+            plan_id="unit-trust-plan",
+            request_id="unit-trust-request",
+            plan_hash="sha256:unit-trust-plan",
+        )
+        result = validate_trust_boundary_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertFalse(contract["trust_policy"]["allow_anonymous"])
+        self.assertEqual(
+            {"anonymous_disallowed", "duplicate_nonce", "stale_plan_hash", "unknown_identity"},
+            {attempt["reason"] for attempt in contract["auth_attempts"] if attempt["status"] == "rejected"},
+        )
+
+    def test_trust_boundary_rejects_signature_tamper(self) -> None:
+        contract = simulate_trust_boundary()
+        contract["auth_attempts"][0]["signature"] = "sha256:bad"
+        result = validate_trust_boundary_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("signature must match", "; ".join(result["errors"]))
+
+    def test_trust_boundary_rejects_missing_stale_plan_reject(self) -> None:
+        contract = simulate_trust_boundary()
+        contract["auth_attempts"] = [
+            attempt
+            for attempt in contract["auth_attempts"]
+            if attempt.get("reason") != "stale_plan_hash"
+        ]
+        result = validate_trust_boundary_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("stale_plan_hash", "; ".join(result["errors"]))
+
+    def test_trust_boundary_rejects_anonymous_policy_weakening(self) -> None:
+        contract = simulate_trust_boundary()
+        contract["trust_policy"]["allow_anonymous"] = True
+        result = validate_trust_boundary_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("allow_anonymous must be false", "; ".join(result["errors"]))
+
+    def test_trust_boundary_rejects_unknown_identity_acceptance(self) -> None:
+        contract = simulate_trust_boundary()
+        for attempt in contract["auth_attempts"]:
+            if attempt.get("reason") == "unknown_identity":
+                attempt["status"] = "accepted"
+                attempt.pop("reason")
+                break
+        result = validate_trust_boundary_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("unknown identity", "; ".join(result["errors"]))
+
+    def test_trust_boundary_requires_duplicate_nonce_reject(self) -> None:
+        contract = simulate_trust_boundary()
+        contract["auth_attempts"] = [
+            attempt
+            for attempt in contract["auth_attempts"]
+            if attempt.get("reason") != "duplicate_nonce"
+        ]
+        result = validate_trust_boundary_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("duplicate_nonce", "; ".join(result["errors"]))
 
     def test_moe_runtime_fixture_passes(self) -> None:
         result = validate_moe_contract("fornax/golden_vectors/moe_runtime")

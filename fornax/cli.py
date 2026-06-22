@@ -126,6 +126,7 @@ from .throughput_scaling import (
     validate_throughput_scaling,
 )
 from .transport import simulated_transport_contract, validate_transport_contract
+from .trust_boundary import simulate_trust_boundary, validate_trust_boundary
 from .validation import validate_target_contract
 from .workers import simulated_worker_contract, validate_worker_contract
 
@@ -568,6 +569,34 @@ def _cmd_transport_simulate(args: argparse.Namespace) -> int:
         f"cancels={summary['cancel_count']}"
     )
     return 0
+
+
+def _cmd_transport_trust_boundary_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_trust_boundary(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            plan_hash=args.plan_hash,
+            cluster_id=args.cluster_id,
+            token_ttl_s=args.token_ttl_s,
+        )
+    except ValueError as exc:
+        print(f"transport trust-boundary-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    validation = validate_trust_boundary(args.out)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "transport trust-boundary-simulate: "
+        f"identities={summary['identity_count']} "
+        f"accepted={summary['accepted_auth_count']} "
+        f"rejected={summary['rejected_auth_count']}"
+        f"{suffix}"
+    )
+    return 0 if validation["ok"] else 2
 
 
 def _cmd_replication_simulate(args: argparse.Namespace) -> int:
@@ -1506,6 +1535,26 @@ def _cmd_test_transport_contract(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_trust_boundary(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/trust_boundary"
+    result = validate_trust_boundary(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS trust-boundary: {fixture} "
+            f"identities={summary['identity_count']} "
+            f"accepted={summary['accepted_auth_count']} "
+            f"rejected={summary['rejected_auth_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL trust-boundary: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_moe_runtime(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/moe_runtime"
     result = validate_moe_contract(fixture)
@@ -1891,6 +1940,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_worker_contract(args)
     if args.test_name == "transport-contract":
         return _cmd_test_transport_contract(args)
+    if args.test_name == "trust-boundary":
+        return _cmd_test_trust_boundary(args)
     if args.test_name == "moe-runtime":
         return _cmd_test_moe_runtime(args)
     if args.test_name == "moe-migration":
@@ -2228,7 +2279,14 @@ def build_parser() -> argparse.ArgumentParser:
     transport_simulate.add_argument("--timeout-ms", type=float, default=50.0)
     transport_simulate.set_defaults(func=_cmd_transport_simulate)
 
-
+    trust_boundary = transport_sub.add_parser("trust-boundary-simulate")
+    trust_boundary.add_argument("--out", required=True)
+    trust_boundary.add_argument("--plan-id", default="trust-boundary-plan")
+    trust_boundary.add_argument("--request-id", default="req-trust-boundary")
+    trust_boundary.add_argument("--plan-hash", default="sha256:trust-boundary-plan")
+    trust_boundary.add_argument("--cluster-id", default="fornax-sim-cluster")
+    trust_boundary.add_argument("--token-ttl-s", type=float, default=30.0)
+    trust_boundary.set_defaults(func=_cmd_transport_trust_boundary_simulate)
 
     replication = sub.add_parser("replication")
     replication_sub = replication.add_subparsers(dest="replication_command", required=True)
@@ -2535,6 +2593,7 @@ def build_parser() -> argparse.ArgumentParser:
             "observability",
             "worker-contract",
             "transport-contract",
+            "trust-boundary",
             "moe-runtime",
             "moe-migration",
             "remote-expert-probe",
