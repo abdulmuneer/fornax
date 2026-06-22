@@ -26,11 +26,11 @@ NVIDIA/AMD/Mac fleet when available.
 |---|---|
 | S3-1 | Open for real Apple evidence; simulation must not pretend to close this gate item. |
 | S3-2 | Partial: simulated transport and topology placement exist; real heterogeneous fabric remains open. |
-| S3-3 | Partial: trust-boundary simulation exists; production auth/keying remains open. |
+| S3-3 | Partial: trust-boundary simulation exists and localhost HTTPS/bearer-token/plan-hash smoke now passes; production auth/keying and mTLS remain open. |
 | S3-4 | Partial: backpressure and replay simulations exist; real partition/failure proof remains open. |
 | S3-5 | Partial: stage-replication simulation exists; real replicated runtime remains open. |
 | S3-6 | Done at planner artifact scope; live runtime linkage remains future work. |
-| S3-7 | Partial: state-ownership simulation exists; localhost HTTP lifecycle cleanup, local target-fixture parity, and a 5/5 H100 local serving-runtime bundle with integrated target-fixture execution evidence exist; live distributed lifecycle proof remains open. |
+| S3-7 | Partial: state-ownership simulation exists; localhost HTTPS lifecycle cleanup, local target-fixture parity, and a 5/5 H100 local serving-runtime bundle with integrated target-fixture execution evidence exist; live distributed lifecycle proof remains open. |
 
 ## Validation
 
@@ -39,14 +39,14 @@ NVIDIA/AMD/Mac fleet when available.
 - `python3 -m fornax test trust-boundary`
 - `python3 -m fornax test state-ownership`
 - `python3 -m fornax test stage-replication`
-- `python3 -m fornax program local-http-serving-smoke --backend-mode target-fixture --out /tmp/fornax_local_http_serving_target_fixture_smoke_20260622.json`
+- `python3 -m fornax program local-http-serving-smoke --backend-mode target-fixture --enable-tls --out /tmp/fornax_local_http_serving_tls_target_fixture_smoke_20260622.json`
 - `python3 -m fornax accelerator target-fixture-probe --backend torch --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --device cuda:0 --out /tmp/fornax_target_fixture_probe_h100_20260622.json`
 - `python3 -m fornax program local-serving-smoke --out-dir /tmp/fornax_local_serving_smoke_target_fixture_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --pipeline-source-device cuda:0 --pipeline-destination-device cuda:1 --moe-source-device cuda:0 --moe-expert-device cuda:1 --target-fixture-device cuda:0`
 
 ## Exit Criteria
 
 - Local two-GPU logical-host validation no longer blocks implementation.
-- Security, topology, replication, lifecycle, local target-fixture parity, measured local H100 fixture execution, and the integrated local serving-runtime target-fixture bundle are
+- Security, topology, replication, lifecycle, local HTTPS target-fixture parity, measured local H100 fixture execution, and the integrated local serving-runtime target-fixture bundle are
   coherent under simulation/local smoke scope.
 - G3 remains open until a real frontier MoE is served across the required
   heterogeneous fleet at predicted throughput.

@@ -775,6 +775,34 @@ class FornaxPlannerTest(unittest.TestCase):
         ).strip()
         self.assertEqual("fixture target parity", streamed)
 
+    def test_local_http_serving_smoke_validates_local_tls_target_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            artifact = Path(d) / "local-http-serving-tls-target-fixture-smoke.json"
+            bundle = run_local_http_serving_smoke(
+                out=artifact,
+                backend_mode="target-fixture",
+                enable_tls=True,
+            )
+            result = validate_local_http_serving_smoke(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(bundle["ok"])
+        self.assertEqual(11, bundle["summary"]["check_count"])
+        self.assertEqual(11, bundle["summary"]["passed_count"])
+        self.assertTrue(bundle["summary"]["tls_enabled"])
+        self.assertTrue(bundle["summary"]["local_tls_enabled"])
+        self.assertTrue(bundle["summary"]["tls_client_verified"])
+        self.assertEqual("https", bundle["summary"]["scheme"])
+        self.assertTrue(bundle["summary"]["endpoint"].startswith("https://"))
+        self.assertEqual("local-self-signed", bundle["summary"]["tls_mode"])
+        self.assertTrue(bundle["summary"]["tls_certificate_sha256"].startswith("sha256:"))
+        self.assertEqual(["DNS:localhost", "IP:127.0.0.1"], bundle["summary"]["tls_subject_alt_names"])
+        self.assertFalse(bundle["summary"]["production_tls_enabled"])
+        self.assertFalse(bundle["tls"]["production_tls"])
+        self.assertTrue(bundle["tls"]["private_key_redacted"])
+        self.assertTrue(bundle["summary"]["target_fixture_parity"])
+        self.assertFalse(bundle["summary"]["target_model_parity"])
+        self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+
     def test_local_http_serving_smoke_rejects_gate_overclaim(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             artifact = Path(d) / "local-http-serving-smoke.json"

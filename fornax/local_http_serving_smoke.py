@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import ssl
+import tempfile
 import threading
 import time
 import urllib.error
@@ -32,6 +35,60 @@ TARGET_FIXTURE_MODEL_ID = "fornax-local-target-fixture-v1"
 TARGET_FIXTURE_TEMPLATE_HASH = "sha256:" + "c" * 64
 TARGET_FIXTURE_TOKENIZER_HASH = "sha256:" + "d" * 64
 TARGET_FIXTURE_STOP_SEQUENCE = "</final>"
+LOCAL_TLS_CERT_PEM = """-----BEGIN CERTIFICATE-----
+MIIDJTCCAg2gAwIBAgIUVheQ23kqqwZE2L4OnSDAbGEr1kcwDQYJKoZIhvcNAQEL
+BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MDYyMjE3MjIzNloXDTM2MDYx
+OTE3MjIzNlowFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF
+AAOCAQ8AMIIBCgKCAQEAyqaqP6VcPGTlm4ebBkKg3/aEIv5+K6pgLv8nJi5bQZPx
+DVoMQmzvzbnOFI+yRdeOkpppLtds3BQlkAxIHDrDp/UZ+Yym8KtkSGwtEq8N5c1P
+r8IwRb37fc5PkbOU+sMS2g1bkymq1aRQc8ELYfOvhGsu6K/EZdltium0TBiRXc+m
+3Mi/M6FIqPCMJcaaPp2FGUK7AagCLkl4y4E4Wg2+OSn8f4it15ex2kmBLlvbzuAt
+tZDT2CZPzaQO/uGwi7IJmdbwlrNJ0e86YrNPOdO668M7opDoCvmUvzXXj3HAv2sc
+gNdVD6S9JEl5P3+ZmS4V3oqeAllsAj1bGWKf/b5QsQIDAQABo28wbTAdBgNVHQ4E
+FgQU3QCSExc/sltQ9FnxBHHNMpz/5ukwHwYDVR0jBBgwFoAU3QCSExc/sltQ9Fnx
+BHHNMpz/5ukwDwYDVR0TAQH/BAUwAwEB/zAaBgNVHREEEzARgglsb2NhbGhvc3SH
+BH8AAAEwDQYJKoZIhvcNAQELBQADggEBALQZqFNra7iD5Vj6htmt7eU9H5ABviXG
+HpCTJmcvBCG0RKTmWTx4+4Hp1LcUGCRwzO//Ix+4yPUD0jT1pBmXeLXf8BiDnT8W
+h5SWOuLelirkFJ5UBRVUsmfW4KZv/yCeDacv15iS2kLvyJsr88Z9AxuhuRzo7FCH
+B/BYZRyMq0nAUHOkqSp/Rfbut3PiWCaY78Y+oV7dLdHkjM7lCXG7x9oJ9sp0ziVa
+Ef6Qc6AXXZADOlNlMEHwl9hURqrK29MXLs9b8zi/ojlkZyZncgIiaPD6jlimzTBH
+e6PpGhd5WjJ8fRinR3w+8L3Dbrkt4uOp2FU/E1LiE2qCmG5zV7P5F8A=
+-----END CERTIFICATE-----
+"""
+LOCAL_TLS_KEY_PEM = """-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDKpqo/pVw8ZOWb
+h5sGQqDf9oQi/n4rqmAu/ycmLltBk/ENWgxCbO/Nuc4Uj7JF146Smmku12zcFCWQ
+DEgcOsOn9Rn5jKbwq2RIbC0Srw3lzU+vwjBFvft9zk+Rs5T6wxLaDVuTKarVpFBz
+wQth86+Eay7or8Rl2W2K6bRMGJFdz6bcyL8zoUio8Iwlxpo+nYUZQrsBqAIuSXjL
+gThaDb45Kfx/iK3Xl7HaSYEuW9vO4C21kNPYJk/NpA7+4bCLsgmZ1vCWs0nR7zpi
+s08507rrwzuikOgK+ZS/NdePccC/axyA11UPpL0kSXk/f5mZLhXeip4CWWwCPVsZ
+Yp/9vlCxAgMBAAECggEABXlzS8UGukPwgZ8sGdhxb54Wy4+L7tfgrCGs7VFfGjpU
+o/Yc3YDYs+TzKKeJcEJmjIElhRmBNusdaP2H8ilH5qY5UCjo9piZXNfSmjixO6ts
+SGogHeDdZcnjE44iIL8QfTmopw+prjFM52pINC/I0Undn8q7F77uqwwYAzPpCLtv
+w4hXJziRPegMCm9ASmZPcaMgx79/+K23G2n3387Dn7uGcvJ0HqvR4F5C2utjveqk
+2Vgn+FvLEOUgvzL3fRDvCOFfXxTyihv0GE+qntFGJ0VgK7/rgxXjtH2Avaf0k/ZQ
+1rRuIadayMKcx2jKEREYKnCmfsvwyUNHUGsFB8AgpQKBgQDpQMSV3hiQFDJPZ0Sj
+TCHVWYerTwRyIJf31Amr7m9awvPy5RGKKnAyUAEW7gOj64/MwBJ1kL1UVsYKl2tZ
+jiiSAI4fV5Zybbiy1gIlzyrcXSEkHJjXwvPNHvB4vaqFOrPPKd97+J0YK3N+8iW4
+dOwabBRk4EXrhYoHJ0XEAzaVVQKBgQDeaejm3r0I9SYRGiQckbtkkLCHk3YjlzdG
+y5IEQLmkqgpLU9fOVUJQe3Qiyx+9wQ+DDL/KNS05yINt/4+wk5sFdwcoQNyrkeIU
+EsUBfFDin56LqooSCjJe3p+K3/4rlp0JvKFgprPoGPCN3Ky51/h+ECAHD7iukpkM
+SvHJ1B3N7QKBgQCGjGHZwV+R3NSYkQ061TO/CgIEg3QhEUQYJSvfDY8WX9awigpw
+FMLbguLeAzX+XGd6yGDdiDxuZg+fFHFMG4Czl7ZjxfZ202vzXReoD7S9oMr5NbXE
+4CQacnpsa5vtdks6eQD9Vg/oXUgmNjAkEu4O38Fz3xr2HPXd4n2P7/qQcQKBgCWc
+zYk1g8xfANgFjrPSJVmlamUTF/h+2xc61++mLn7dTq5ceHNpUbSgnAxCQ5TocEIe
+RtTgV0ydTzSr8lXPMHklHu28wlS1cAErB2vv5RHeIobGCWFxngETLvHiXW5roxUB
+dF0O8/+9L/kdp4wqLNjMy03GZ9oF6qH8jpUuLPglAoGAQDAwsZOeJiSygUDFGix0
+cLSZyAWtXCDVg1hVgSAvLl/P82D8JmX3us2iXPayrhoeCMIyKx6V17at3OTfVVd6
+lCbaQkdbIjz4FgKRiHgwc/btZ7jYH++WZHKnHgMBDoFjmx88o/JlXDh7zUwioQjL
+d0Oa4T0baB+z47Vdp45xad8=
+-----END PRIVATE KEY-----
+"""
+LOCAL_TLS_CERT_SHA256 = "sha256:" + hashlib.sha256(
+    ssl.PEM_cert_to_DER_cert(LOCAL_TLS_CERT_PEM)
+).hexdigest()
+LOCAL_TLS_SUBJECT_ALT_NAMES = ["DNS:localhost", "IP:127.0.0.1"]
+LOCAL_TLS_MINIMUM_VERSION = "TLSv1.2"
 
 
 def _is_sha256(value: Any) -> bool:
@@ -620,6 +677,30 @@ class _SmokeHandler(BaseHTTPRequestHandler):
             self.server.release_inflight()
 
 
+def _write_local_tls_material(directory: Path) -> tuple[Path, Path]:
+    cert_path = directory / "fornax-local-smoke-cert.pem"
+    key_path = directory / "fornax-local-smoke-key.pem"
+    cert_path.write_text(LOCAL_TLS_CERT_PEM, encoding="utf-8")
+    key_path.write_text(LOCAL_TLS_KEY_PEM, encoding="utf-8")
+    key_path.chmod(0o600)
+    return cert_path, key_path
+
+
+def _server_tls_context(cert_path: Path, key_path: Path) -> ssl.SSLContext:
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    if hasattr(ssl, "TLSVersion"):
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(str(cert_path), str(key_path))
+    return context
+
+
+def _client_tls_context() -> ssl.SSLContext:
+    context = ssl.create_default_context(cadata=LOCAL_TLS_CERT_PEM)
+    if hasattr(ssl, "TLSVersion"):
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
 def _post_json(
     url: str,
     payload: dict[str, Any],
@@ -628,6 +709,7 @@ def _post_json(
     plan_hash: str,
     auth_token: str | None,
     timeout_s: float,
+    ssl_context: ssl.SSLContext | None = None,
 ) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     headers = {
@@ -644,7 +726,7 @@ def _post_json(
         headers=headers,
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:
+        with urllib.request.urlopen(request, timeout=timeout_s, context=ssl_context) as response:
             data = response.read().decode("utf-8")
             return {
                 "status": int(response.status),
@@ -668,6 +750,7 @@ def _post_sse(
     plan_hash: str,
     auth_token: str | None,
     timeout_s: float,
+    ssl_context: ssl.SSLContext | None = None,
 ) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     headers = {
@@ -683,7 +766,7 @@ def _post_sse(
         method="POST",
         headers=headers,
     )
-    with urllib.request.urlopen(request, timeout=timeout_s) as response:
+    with urllib.request.urlopen(request, timeout=timeout_s, context=ssl_context) as response:
         text = response.read().decode("utf-8")
     events: list[dict[str, Any]] = []
     done_seen = False
@@ -724,6 +807,7 @@ def run_local_http_serving_smoke(
     retry_after_ms: int = 25,
     timeout_s: float = 5.0,
     backend_mode: str = BACKEND_MODE_ADAPTER,
+    enable_tls: bool = False,
 ) -> dict[str, Any]:
     if not host or not plan_id or not plan_hash or not request_id or not model or not auth_token:
         raise ValueError("host, plan_id, plan_hash, request_id, model, and auth_token must be non-empty")
@@ -755,13 +839,25 @@ def run_local_http_serving_smoke(
         "backpressure_delay_ms": backpressure_delay_ms,
         "retry_after_ms": retry_after_ms,
         "backend_mode": backend_mode,
+        "enable_tls": enable_tls,
     }
     server = _SmokeServer((host, port), config)
     server_host, server_port = server.server_address
+    tls_tempdir: tempfile.TemporaryDirectory[str] | None = None
+    client_ssl_context: ssl.SSLContext | None = None
+    if enable_tls:
+        tls_tempdir = tempfile.TemporaryDirectory(prefix="fornax-local-http-tls-")
+        cert_path, key_path = _write_local_tls_material(Path(tls_tempdir.name))
+        server.socket = _server_tls_context(cert_path, key_path).wrap_socket(
+            server.socket,
+            server_side=True,
+        )
+        client_ssl_context = _client_tls_context()
     thread = threading.Thread(target=server.serve_forever, name="fornax-http-smoke", daemon=True)
     started_ns = time.perf_counter_ns()
     thread.start()
-    endpoint = f"http://{server_host}:{server_port}/v1/chat/completions"
+    scheme = "https" if enable_tls else "http"
+    endpoint = f"{scheme}://{server_host}:{server_port}/v1/chat/completions"
     try:
         adapter = simulate_serving_adapter(
             plan_id=plan_id,
@@ -778,6 +874,7 @@ def run_local_http_serving_smoke(
             plan_hash=plan_hash,
             auth_token=auth_token,
             timeout_s=float(timeout_s),
+            ssl_context=client_ssl_context,
         )
         stream = _post_sse(
             endpoint,
@@ -786,6 +883,7 @@ def run_local_http_serving_smoke(
             plan_hash=plan_hash,
             auth_token=auth_token,
             timeout_s=float(timeout_s),
+            ssl_context=client_ssl_context,
         )
         auth_reject = _post_json(
             endpoint,
@@ -794,6 +892,7 @@ def run_local_http_serving_smoke(
             plan_hash=plan_hash,
             auth_token=None,
             timeout_s=float(timeout_s),
+            ssl_context=client_ssl_context,
         )
         backpressure_holders: list[dict[str, Any]] = []
         backpressure_errors: list[BaseException] = []
@@ -814,6 +913,7 @@ def run_local_http_serving_smoke(
                     plan_hash=plan_hash,
                     auth_token=auth_token,
                     timeout_s=float(timeout_s),
+                    ssl_context=client_ssl_context,
                 )
                 with holder_lock:
                     backpressure_holders.append(holder)
@@ -834,6 +934,7 @@ def run_local_http_serving_smoke(
             plan_hash=plan_hash,
             auth_token=auth_token,
             timeout_s=float(timeout_s),
+            ssl_context=client_ssl_context,
         )
         for holder_thread in holder_threads:
             holder_thread.join(timeout=float(timeout_s))
@@ -848,19 +949,23 @@ def run_local_http_serving_smoke(
             plan_hash="sha256:mismatch",
             auth_token=auth_token,
             timeout_s=float(timeout_s),
+            ssl_context=client_ssl_context,
         )
         bad_path = _post_json(
-            f"http://{server_host}:{server_port}/bad/path",
+            f"{scheme}://{server_host}:{server_port}/bad/path",
             {"model": model},
             plan_id=plan_id,
             plan_hash=plan_hash,
             auth_token=auth_token,
             timeout_s=float(timeout_s),
+            ssl_context=client_ssl_context,
         )
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=float(timeout_s))
+        if tls_tempdir is not None:
+            tls_tempdir.cleanup()
     backend_summary = server.backend.summary()
     elapsed_ns = time.perf_counter_ns() - started_ns
 
@@ -945,10 +1050,20 @@ def run_local_http_serving_smoke(
         and backend_summary.get("request_count") == expected_backend_request_count
         and backend_target_ok
     )
+    tls_ok = (
+        not enable_tls
+        or (
+            endpoint.startswith("https://")
+            and client_ssl_context is not None
+            and non_stream_ok
+            and stream_ok
+        )
+    )
     checks = [
         {"name": "serving-adapter", "ok": bool(adapter_validation.get("ok")), "errors": adapter_validation.get("errors", []), "warnings": adapter_validation.get("warnings", [])},
         {"name": "fornax-backend-integration", "ok": backend_ok, "errors": [] if backend_ok else ["FornaxBackend local integration invalid"], "warnings": []},
         {"name": "endpoint-auth-reject", "ok": auth_reject_ok, "errors": [] if auth_reject_ok else ["endpoint auth rejection invalid"], "warnings": []},
+        *([{"name": "local-tls-handshake", "ok": tls_ok, "errors": [] if tls_ok else ["local TLS handshake invalid"], "warnings": ["local self-signed TLS is not product TLS/mTLS evidence"]}] if enable_tls else []),
         {"name": "backpressure-reject", "ok": backpressure_reject_ok and backpressure_holder_ok, "errors": [] if backpressure_reject_ok and backpressure_holder_ok else ["backpressure rejection invalid"], "warnings": []},
         {"name": "lifecycle-cleanup", "ok": lifecycle_ok, "errors": [] if lifecycle_ok else ["lifecycle cleanup invalid"], "warnings": []},
         *([{"name": "target-fixture-parity", "ok": target_fixture_ok, "errors": [] if target_fixture_ok else ["target fixture parity invalid"], "warnings": ["local target fixture parity is not real frontier model parity"]}] if target_fixture_enabled else []),
@@ -963,6 +1078,7 @@ def run_local_http_serving_smoke(
         "passed_count": passed_count,
         "http_endpoint_started": True,
         "endpoint": endpoint,
+        "scheme": scheme,
         "host": server_host,
         "port": server_port,
         "non_stream_status": non_stream.get("status"),
@@ -1012,7 +1128,14 @@ def run_local_http_serving_smoke(
         "localhost_only": server_host in {"127.0.0.1", "localhost"},
         "local_auth_enabled": True,
         "auth_token_redacted": True,
-        "tls_enabled": False,
+        "tls_enabled": enable_tls,
+        "local_tls_enabled": enable_tls,
+        "tls_client_verified": enable_tls,
+        "tls_mode": "local-self-signed" if enable_tls else "disabled",
+        "tls_certificate_sha256": LOCAL_TLS_CERT_SHA256 if enable_tls else None,
+        "tls_subject_alt_names": LOCAL_TLS_SUBJECT_ALT_NAMES if enable_tls else [],
+        "tls_minimum_version": LOCAL_TLS_MINIMUM_VERSION if enable_tls else None,
+        "production_tls_enabled": False,
         "production_auth_enabled": False,
         "target_model_parity": False,
         "g2_g3_gate_evidence": False,
@@ -1029,6 +1152,16 @@ def run_local_http_serving_smoke(
             "authorization_header_checked": True,
             "token_redacted": True,
             "production_auth": False,
+        },
+        "tls": {
+            "enabled": enable_tls,
+            "mode": "local-self-signed" if enable_tls else "disabled",
+            "client_certificate_verified": enable_tls,
+            "certificate_sha256": LOCAL_TLS_CERT_SHA256 if enable_tls else None,
+            "subject_alt_names": LOCAL_TLS_SUBJECT_ALT_NAMES if enable_tls else [],
+            "minimum_version": LOCAL_TLS_MINIMUM_VERSION if enable_tls else None,
+            "private_key_redacted": True,
+            "production_tls": False,
         },
         "lifecycle": lifecycle_summary,
         "backend": backend_summary,
@@ -1052,7 +1185,8 @@ def run_local_http_serving_smoke(
             "rejection, local bearer-token auth rejection, deterministic "
             "backpressure rejection, and local lifecycle cleanup. When target-fixture "
             "mode is enabled, it also proves deterministic local fixture loading and "
-            "non-stream/stream parity only; it is not TLS/product auth, real frontier "
+            "non-stream/stream parity only. TLS mode uses a local self-signed fixture "
+            "certificate with client verification; it is not product auth/mTLS, real frontier "
             "multi-host serving, or G2/G3 closure evidence."
         ),
     }
@@ -1175,6 +1309,49 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("auth.token_redacted must be true")
     if auth.get("production_auth") is not False:
         errors.append("auth.production_auth must be false")
+    tls = data.get("tls")
+    if not isinstance(tls, dict):
+        errors.append("tls must be an object")
+        tls = {}
+    tls_enabled = summary.get("tls_enabled") is True
+    if tls_enabled:
+        if summary.get("local_tls_enabled") is not True:
+            errors.append("summary.local_tls_enabled must be true when TLS is enabled")
+        if summary.get("tls_client_verified") is not True:
+            errors.append("summary.tls_client_verified must be true when TLS is enabled")
+        if summary.get("tls_mode") != "local-self-signed":
+            errors.append("summary.tls_mode must be local-self-signed when TLS is enabled")
+        if not _is_sha256(summary.get("tls_certificate_sha256")):
+            errors.append("summary.tls_certificate_sha256 must be a sha256 hash when TLS is enabled")
+        if summary.get("tls_subject_alt_names") != LOCAL_TLS_SUBJECT_ALT_NAMES:
+            errors.append("summary.tls_subject_alt_names must match local TLS SANs")
+        if summary.get("tls_minimum_version") != LOCAL_TLS_MINIMUM_VERSION:
+            errors.append("summary.tls_minimum_version must match local TLS minimum")
+        if tls.get("enabled") is not True:
+            errors.append("tls.enabled must be true when summary.tls_enabled is true")
+        if tls.get("mode") != "local-self-signed":
+            errors.append("tls.mode must be local-self-signed when TLS is enabled")
+        if tls.get("client_certificate_verified") is not True:
+            errors.append("tls.client_certificate_verified must be true when TLS is enabled")
+        if tls.get("certificate_sha256") != summary.get("tls_certificate_sha256"):
+            errors.append("tls.certificate_sha256 must match summary.tls_certificate_sha256")
+        if tls.get("subject_alt_names") != LOCAL_TLS_SUBJECT_ALT_NAMES:
+            errors.append("tls.subject_alt_names must match local TLS SANs")
+        if tls.get("private_key_redacted") is not True:
+            errors.append("tls.private_key_redacted must be true")
+    else:
+        if summary.get("local_tls_enabled") is not False:
+            errors.append("summary.local_tls_enabled must be false when TLS is disabled")
+        if summary.get("tls_client_verified") is not False:
+            errors.append("summary.tls_client_verified must be false when TLS is disabled")
+        if summary.get("tls_mode") != "disabled":
+            errors.append("summary.tls_mode must be disabled when TLS is disabled")
+        if tls.get("enabled") is not False:
+            errors.append("tls.enabled must be false when summary.tls_enabled is false")
+        if tls.get("mode") != "disabled":
+            errors.append("tls.mode must be disabled when TLS is disabled")
+    if tls.get("production_tls") is not False:
+        errors.append("tls.production_tls must be false")
     responses = data.get("responses")
     if not isinstance(responses, dict):
         errors.append("responses must be an object")
@@ -1218,6 +1395,9 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append(f"checks[{index}].name must be set")
         if check.get("ok") is not True:
             errors.append(f"checks[{index}] {check.get('name', '<unknown>')} must pass")
+    check_names = {check.get("name") for check in checks if isinstance(check, dict)}
+    if tls_enabled and "local-tls-handshake" not in check_names:
+        errors.append("checks must include local-tls-handshake when TLS is enabled")
     passed_count = sum(1 for check in checks if isinstance(check, dict) and check.get("ok") is True)
     if summary.get("check_count") != len(checks):
         errors.append("summary.check_count must match checks")
@@ -1340,8 +1520,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.local_auth_enabled must be true")
     if summary.get("auth_token_redacted") is not True:
         errors.append("summary.auth_token_redacted must be true")
-    if summary.get("tls_enabled") is not False:
-        errors.append("summary.tls_enabled must be false for local smoke")
+    if summary.get("production_tls_enabled") is not False:
+        errors.append("summary.production_tls_enabled must be false for local smoke")
     if summary.get("production_auth_enabled") is not False:
         errors.append("summary.production_auth_enabled must be false for local smoke")
     if summary.get("target_model_parity") is not False:
@@ -1362,6 +1542,10 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "endpoint": summary.get("endpoint"),
             "sse_chunk_count": summary.get("sse_chunk_count"),
             "endpoint_auth_rejected": summary.get("endpoint_auth_rejected") is True,
+            "tls_enabled": summary.get("tls_enabled") is True,
+            "local_tls_enabled": summary.get("local_tls_enabled") is True,
+            "tls_client_verified": summary.get("tls_client_verified") is True,
+            "production_tls_enabled": summary.get("production_tls_enabled") is False,
             "backpressure_rejected": summary.get("backpressure_rejected") is True,
             "backpressure_reject_count": summary.get("backpressure_reject_count"),
             "failure_semantics_verified": summary.get("failure_semantics_verified") is True,
