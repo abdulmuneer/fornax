@@ -1470,6 +1470,8 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
             model=args.model,
             max_tokens=args.max_tokens,
             auth_token=args.auth_token,
+            max_inflight=args.max_inflight,
+            backpressure_delay_ms=args.backpressure_delay_ms,
             timeout_s=args.timeout_s,
         )
     except (OSError, ValueError) as exc:
@@ -1487,6 +1489,7 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
         f"endpoint={summary['endpoint']}; "
         f"sse_chunks={summary['sse_chunk_count']}; "
         f"auth_reject={summary['endpoint_auth_rejected']}; "
+        f"backpressure={summary['backpressure_rejected']}; "
         f"plan_reject={summary['plan_integrity_rejected']}; "
         f"target_model_parity={summary['target_model_parity']}; "
         f"gate_evidence={summary['g2_g3_gate_evidence']}"
@@ -1795,6 +1798,7 @@ def _cmd_test_local_http_serving_smoke(args: argparse.Namespace) -> int:
             f"checks={summary['passed_count']}/{summary['check_count']} "
             f"sse_chunks={summary['sse_chunk_count']} "
             f"auth_reject={summary['endpoint_auth_rejected']} "
+            f"backpressure={summary['backpressure_rejected']} "
             f"plan_reject={summary['plan_integrity_rejected']} "
             f"gate_evidence={summary['g2_g3_gate_evidence']}"
             f"{suffix}"
@@ -2727,6 +2731,8 @@ def build_parser() -> argparse.ArgumentParser:
     local_http_serving.add_argument("--model", default="qwen3-moe-class-target")
     local_http_serving.add_argument("--max-tokens", type=int, default=64)
     local_http_serving.add_argument("--auth-token", default="local-smoke-token")
+    local_http_serving.add_argument("--max-inflight", type=int, default=1)
+    local_http_serving.add_argument("--backpressure-delay-ms", type=int, default=250)
     local_http_serving.add_argument("--timeout-s", type=float, default=5.0)
     local_http_serving.set_defaults(func=_cmd_program_local_http_serving_smoke)
 

@@ -53,6 +53,58 @@ class LocalFornaxBackend:
         }
 
 
+class _SmokeServer(ThreadingHTTPServer):
+    def __init__(self, server_address: tuple[str, int], config: dict[str, Any]) -> None:
+        super().__init__(server_address, _SmokeHandler)
+        self.config = config
+        self.backend = LocalFornaxBackend(
+            plan_id=config["plan_id"],
+            request_id=config["request_id"],
+            model=config["model"],
+            max_tokens=config["max_tokens"],
+        )
+        self._inflight_lock = threading.Lock()
+        self._inflight_count = 0
+        self.max_observed_inflight = 0
+        self.backpressure_reject_count = 0
+        self.inflight_cleanup_count = 0
+
+    def try_admit(self) -> bool:
+        with self._inflight_lock:
+            if self._inflight_count >= int(self.config["max_inflight"]):
+                self.backpressure_reject_count += 1
+                return False
+            self._inflight_count += 1
+            self.max_observed_inflight = max(self.max_observed_inflight, self._inflight_count)
+            return True
+
+    def release_inflight(self) -> None:
+        with self._inflight_lock:
+            if self._inflight_count > 0:
+                self._inflight_count -= 1
+            self.inflight_cleanup_count += 1
+
+    def wait_for_inflight(self, count: int, timeout_s: float) -> bool:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            with self._inflight_lock:
+                if self._inflight_count >= count:
+                    return True
+            time.sleep(0.005)
+        return False
+
+    def backpressure_summary(self) -> dict[str, Any]:
+        with self._inflight_lock:
+            current_inflight = self._inflight_count
+        return {
+            "max_inflight": self.config["max_inflight"],
+            "current_inflight": current_inflight,
+            "max_observed_inflight": self.max_observed_inflight,
+            "backpressure_reject_count": self.backpressure_reject_count,
+            "inflight_cleanup_count": self.inflight_cleanup_count,
+        }
+
+
 class _SmokeHandler(BaseHTTPRequestHandler):
     server: "_SmokeServer"
 
@@ -127,33 +179,40 @@ class _SmokeHandler(BaseHTTPRequestHandler):
         stream = bool(request.get("stream", False))
         max_tokens = int(request.get("max_tokens", config["max_tokens"]))
         model = str(request.get("model", config["model"]))
-        adapter = self.server.backend.complete(
-            {**request, "model": model, "max_tokens": max_tokens},
-            stream=stream,
-        )
-        if stream:
-            self.send_response(200)
-            self.send_header("content-type", "text/event-stream")
-            self.send_header("cache-control", "no-cache")
-            self.end_headers()
-            for chunk in adapter["openai_stream_chunks"]:
-                line = "data: " + json.dumps(chunk) + "\n\n"
-                self.wfile.write(line.encode("utf-8"))
-            self.wfile.write(b"data: [DONE]\n\n")
+        simulate_work_ms = max(0, int(request.get("simulate_work_ms", 0)))
+        if not self.server.try_admit():
+            self._json_response(
+                429,
+                {
+                    "error": {
+                        "type": "rate_limit_error",
+                        "code": "backpressure_queue_full",
+                        "message": "Local smoke inflight capacity is exhausted.",
+                    },
+                    "retry_after_ms": config["retry_after_ms"],
+                },
+            )
             return
-        self._json_response(200, adapter["openai_response"])
-
-
-class _SmokeServer(ThreadingHTTPServer):
-    def __init__(self, server_address: tuple[str, int], config: dict[str, Any]) -> None:
-        super().__init__(server_address, _SmokeHandler)
-        self.config = config
-        self.backend = LocalFornaxBackend(
-            plan_id=config["plan_id"],
-            request_id=config["request_id"],
-            model=config["model"],
-            max_tokens=config["max_tokens"],
-        )
+        try:
+            if simulate_work_ms:
+                time.sleep(simulate_work_ms / 1000.0)
+            adapter = self.server.backend.complete(
+                {**request, "model": model, "max_tokens": max_tokens},
+                stream=stream,
+            )
+            if stream:
+                self.send_response(200)
+                self.send_header("content-type", "text/event-stream")
+                self.send_header("cache-control", "no-cache")
+                self.end_headers()
+                for chunk in adapter["openai_stream_chunks"]:
+                    line = "data: " + json.dumps(chunk) + "\n\n"
+                    self.wfile.write(line.encode("utf-8"))
+                self.wfile.write(b"data: [DONE]\n\n")
+                return
+            self._json_response(200, adapter["openai_response"])
+        finally:
+            self.server.release_inflight()
 
 
 def _post_json(
@@ -255,6 +314,9 @@ def run_local_http_serving_smoke(
     model: str = "qwen3-moe-class-target",
     max_tokens: int = 64,
     auth_token: str = "local-smoke-token",
+    max_inflight: int = 1,
+    backpressure_delay_ms: int = 250,
+    retry_after_ms: int = 25,
     timeout_s: float = 5.0,
 ) -> dict[str, Any]:
     if not host or not plan_id or not plan_hash or not request_id or not model or not auth_token:
@@ -263,6 +325,12 @@ def run_local_http_serving_smoke(
         raise ValueError("port must be a non-negative integer")
     if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
         raise ValueError("max_tokens must be a positive integer")
+    if isinstance(max_inflight, bool) or not isinstance(max_inflight, int) or max_inflight <= 0:
+        raise ValueError("max_inflight must be a positive integer")
+    if isinstance(backpressure_delay_ms, bool) or not isinstance(backpressure_delay_ms, int) or backpressure_delay_ms <= 0:
+        raise ValueError("backpressure_delay_ms must be a positive integer")
+    if isinstance(retry_after_ms, bool) or not isinstance(retry_after_ms, int) or retry_after_ms <= 0:
+        raise ValueError("retry_after_ms must be a positive integer")
     if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)) or timeout_s <= 0:
         raise ValueError("timeout_s must be a positive number")
 
@@ -275,6 +343,9 @@ def run_local_http_serving_smoke(
         "model": model,
         "max_tokens": max_tokens,
         "auth_token": auth_token,
+        "max_inflight": max_inflight,
+        "backpressure_delay_ms": backpressure_delay_ms,
+        "retry_after_ms": retry_after_ms,
     }
     server = _SmokeServer((host, port), config)
     server_host, server_port = server.server_address
@@ -315,6 +386,52 @@ def run_local_http_serving_smoke(
             auth_token=None,
             timeout_s=float(timeout_s),
         )
+        backpressure_holders: list[dict[str, Any]] = []
+        backpressure_errors: list[BaseException] = []
+        holder_lock = threading.Lock()
+
+        def _hold_inflight_request() -> None:
+            try:
+                holder = _post_json(
+                    endpoint,
+                    {
+                        "model": model,
+                        "messages": adapter["openai_request"]["messages"],
+                        "max_tokens": max_tokens,
+                        "stream": False,
+                        "simulate_work_ms": backpressure_delay_ms,
+                    },
+                    plan_id=plan_id,
+                    plan_hash=plan_hash,
+                    auth_token=auth_token,
+                    timeout_s=float(timeout_s),
+                )
+                with holder_lock:
+                    backpressure_holders.append(holder)
+            except BaseException as exc:  # pragma: no cover - re-raised in the main thread.
+                backpressure_errors.append(exc)
+
+        holder_threads = [
+            threading.Thread(target=_hold_inflight_request, name=f"fornax-http-smoke-hold-{index}")
+            for index in range(max_inflight)
+        ]
+        for holder_thread in holder_threads:
+            holder_thread.start()
+        inflight_observed = server.wait_for_inflight(max_inflight, float(timeout_s))
+        backpressure_reject = _post_json(
+            endpoint,
+            {"model": model, "messages": adapter["openai_request"]["messages"], "max_tokens": max_tokens, "stream": False},
+            plan_id=plan_id,
+            plan_hash=plan_hash,
+            auth_token=auth_token,
+            timeout_s=float(timeout_s),
+        )
+        for holder_thread in holder_threads:
+            holder_thread.join(timeout=float(timeout_s))
+            if holder_thread.is_alive():
+                raise TimeoutError("timed out waiting for local backpressure holder request")
+        if backpressure_errors:
+            raise backpressure_errors[0]
         plan_reject = _post_json(
             endpoint,
             {"model": model, "messages": adapter["openai_request"]["messages"], "max_tokens": max_tokens, "stream": False},
@@ -356,11 +473,29 @@ def run_local_http_serving_smoke(
         auth_reject.get("status") == 401
         and auth_reject.get("body", {}).get("error", {}).get("code") == "endpoint_auth_required"
     )
+    backpressure_summary = server.backpressure_summary()
+    expected_backend_request_count = 2 + max_inflight
+    backpressure_holder_ok = (
+        inflight_observed
+        and len(backpressure_holders) == max_inflight
+        and all(
+            holder.get("status") == 200
+            and holder.get("body", {}).get("object") == "chat.completion"
+            for holder in backpressure_holders
+        )
+    )
+    backpressure_reject_ok = (
+        backpressure_reject.get("status") == 429
+        and backpressure_reject.get("body", {}).get("error", {}).get("code") == "backpressure_queue_full"
+        and backpressure_summary.get("backpressure_reject_count") == 1
+        and backpressure_summary.get("max_observed_inflight") == max_inflight
+        and backpressure_summary.get("current_inflight") == 0
+    )
     bad_path_ok = bad_path.get("status") == 404
     backend_ok = (
         backend_summary.get("backend") == "FornaxBackend"
         and backend_summary.get("engine_trait_compatible") is True
-        and backend_summary.get("request_count") == 2
+        and backend_summary.get("request_count") == expected_backend_request_count
         and backend_summary.get("target_model_loaded") is False
         and backend_summary.get("target_model_parity") is False
     )
@@ -368,6 +503,7 @@ def run_local_http_serving_smoke(
         {"name": "serving-adapter", "ok": bool(adapter_validation.get("ok")), "errors": adapter_validation.get("errors", []), "warnings": adapter_validation.get("warnings", [])},
         {"name": "fornax-backend-integration", "ok": backend_ok, "errors": [] if backend_ok else ["FornaxBackend local integration invalid"], "warnings": []},
         {"name": "endpoint-auth-reject", "ok": auth_reject_ok, "errors": [] if auth_reject_ok else ["endpoint auth rejection invalid"], "warnings": []},
+        {"name": "backpressure-reject", "ok": backpressure_reject_ok and backpressure_holder_ok, "errors": [] if backpressure_reject_ok and backpressure_holder_ok else ["backpressure rejection invalid"], "warnings": []},
         {"name": "non-stream-http", "ok": non_stream_ok, "errors": [] if non_stream_ok else ["non-stream HTTP response invalid"], "warnings": []},
         {"name": "stream-sse", "ok": stream_ok, "errors": [] if stream_ok else ["SSE stream response invalid"], "warnings": []},
         {"name": "plan-integrity-reject", "ok": plan_reject_ok, "errors": [] if plan_reject_ok else ["plan integrity rejection invalid"], "warnings": []},
@@ -387,6 +523,16 @@ def run_local_http_serving_smoke(
         "sse_done_seen": stream.get("done_seen"),
         "auth_reject_status": auth_reject.get("status"),
         "endpoint_auth_rejected": auth_reject_ok,
+        "backpressure_status": backpressure_reject.get("status"),
+        "backpressure_rejected": backpressure_reject_ok,
+        "backpressure_holder_count": len(backpressure_holders),
+        "backpressure_holder_statuses": [holder.get("status") for holder in backpressure_holders],
+        "backpressure_holders_completed": backpressure_holder_ok,
+        "max_inflight": max_inflight,
+        "max_observed_inflight": backpressure_summary.get("max_observed_inflight"),
+        "backpressure_reject_count": backpressure_summary.get("backpressure_reject_count"),
+        "inflight_cleanup_count": backpressure_summary.get("inflight_cleanup_count"),
+        "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok,
         "plan_integrity_rejected": plan_reject_ok,
         "bad_path_rejected": bad_path_ok,
         "fornax_backend_integrated": backend_ok,
@@ -423,6 +569,8 @@ def run_local_http_serving_smoke(
             "non_stream": non_stream,
             "stream": stream,
             "auth_reject": auth_reject,
+            "backpressure_holders": backpressure_holders,
+            "backpressure_reject": backpressure_reject,
             "plan_reject": plan_reject,
             "bad_path": bad_path,
         },
@@ -432,7 +580,8 @@ def run_local_http_serving_smoke(
         "note": (
             "Local HTTP/SSE serving smoke for the OpenAI-compatible endpoint path. "
             "This proves local endpoint request/response behavior, plan-integrity "
-            "rejection, and local bearer-token auth rejection only; it is not "
+            "rejection, local bearer-token auth rejection, and deterministic "
+            "backpressure rejection only; it is not "
             "TLS/product auth, target-model parity, real "
             "multi-host serving, or G2/G3 closure evidence."
         ),
@@ -469,8 +618,16 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("backend.mode must be local-http-smoke")
     if backend.get("engine_trait_compatible") is not True:
         errors.append("backend.engine_trait_compatible must be true")
-    if backend.get("request_count") != 2:
-        errors.append("backend.request_count must be 2")
+    summary = data.get("summary")
+    if not isinstance(summary, dict):
+        errors.append("summary must be an object")
+        summary = {}
+    max_inflight = summary.get("max_inflight")
+    expected_backend_request_count = 2 + max_inflight if isinstance(max_inflight, int) and not isinstance(max_inflight, bool) and max_inflight > 0 else None
+    if expected_backend_request_count is None:
+        errors.append("summary.max_inflight must be a positive integer")
+    elif backend.get("request_count") != expected_backend_request_count:
+        errors.append(f"backend.request_count must be {expected_backend_request_count}")
     if backend.get("target_model_loaded") is not False:
         errors.append("backend.target_model_loaded must be false")
     if backend.get("target_model_parity") is not False:
@@ -502,6 +659,25 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("responses.auth_reject.status must be 401")
         if auth_reject.get("body", {}).get("error", {}).get("code") != "endpoint_auth_required":
             errors.append("responses.auth_reject error code must be endpoint_auth_required")
+    backpressure_holders = responses.get("backpressure_holders") if isinstance(responses, dict) else None
+    if not isinstance(backpressure_holders, list):
+        errors.append("responses.backpressure_holders must be a list")
+        backpressure_holders = []
+    elif expected_backend_request_count is not None and len(backpressure_holders) != max_inflight:
+        errors.append("responses.backpressure_holders length must match summary.max_inflight")
+    for index, holder in enumerate(backpressure_holders):
+        if not isinstance(holder, dict):
+            errors.append(f"responses.backpressure_holders[{index}] must be an object")
+        elif holder.get("status") != 200:
+            errors.append(f"responses.backpressure_holders[{index}].status must be 200")
+    backpressure_reject = responses.get("backpressure_reject") if isinstance(responses, dict) else None
+    if not isinstance(backpressure_reject, dict):
+        errors.append("responses.backpressure_reject must be an object")
+    else:
+        if backpressure_reject.get("status") != 429:
+            errors.append("responses.backpressure_reject.status must be 429")
+        if backpressure_reject.get("body", {}).get("error", {}).get("code") != "backpressure_queue_full":
+            errors.append("responses.backpressure_reject error code must be backpressure_queue_full")
     checks = data.get("checks")
     if not isinstance(checks, list) or not checks:
         errors.append("checks must be a non-empty list")
@@ -514,10 +690,6 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append(f"checks[{index}].name must be set")
         if check.get("ok") is not True:
             errors.append(f"checks[{index}] {check.get('name', '<unknown>')} must pass")
-    summary = data.get("summary")
-    if not isinstance(summary, dict):
-        errors.append("summary must be an object")
-        summary = {}
     passed_count = sum(1 for check in checks if isinstance(check, dict) and check.get("ok") is True)
     if summary.get("check_count") != len(checks):
         errors.append("summary.check_count must match checks")
@@ -535,14 +707,34 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.auth_reject_status must be 401")
     if summary.get("endpoint_auth_rejected") is not True:
         errors.append("summary.endpoint_auth_rejected must be true")
+    if summary.get("backpressure_status") != 429:
+        errors.append("summary.backpressure_status must be 429")
+    if summary.get("backpressure_rejected") is not True:
+        errors.append("summary.backpressure_rejected must be true")
+    if expected_backend_request_count is not None and summary.get("backpressure_holder_count") != max_inflight:
+        errors.append("summary.backpressure_holder_count must match summary.max_inflight")
+    holder_statuses = summary.get("backpressure_holder_statuses")
+    if expected_backend_request_count is not None:
+        if not isinstance(holder_statuses, list) or holder_statuses != [200] * max_inflight:
+            errors.append("summary.backpressure_holder_statuses must all be 200")
+    if summary.get("backpressure_holders_completed") is not True:
+        errors.append("summary.backpressure_holders_completed must be true")
+    if expected_backend_request_count is not None and summary.get("max_observed_inflight") != max_inflight:
+        errors.append("summary.max_observed_inflight must match summary.max_inflight")
+    if summary.get("backpressure_reject_count") != 1:
+        errors.append("summary.backpressure_reject_count must be 1")
+    if expected_backend_request_count is not None and summary.get("inflight_cleanup_count") != expected_backend_request_count:
+        errors.append(f"summary.inflight_cleanup_count must be {expected_backend_request_count}")
+    if summary.get("failure_semantics_verified") is not True:
+        errors.append("summary.failure_semantics_verified must be true")
     if summary.get("plan_integrity_rejected") is not True:
         errors.append("summary.plan_integrity_rejected must be true")
     if summary.get("bad_path_rejected") is not True:
         errors.append("summary.bad_path_rejected must be true")
     if summary.get("fornax_backend_integrated") is not True:
         errors.append("summary.fornax_backend_integrated must be true")
-    if summary.get("backend_request_count") != 2:
-        errors.append("summary.backend_request_count must be 2")
+    if expected_backend_request_count is not None and summary.get("backend_request_count") != expected_backend_request_count:
+        errors.append(f"summary.backend_request_count must be {expected_backend_request_count}")
     if summary.get("engine_trait_compatible") is not True:
         errors.append("summary.engine_trait_compatible must be true")
     if summary.get("engine_result_emitted") is not True:
@@ -579,6 +771,9 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "endpoint": summary.get("endpoint"),
             "sse_chunk_count": summary.get("sse_chunk_count"),
             "endpoint_auth_rejected": summary.get("endpoint_auth_rejected") is True,
+            "backpressure_rejected": summary.get("backpressure_rejected") is True,
+            "backpressure_reject_count": summary.get("backpressure_reject_count"),
+            "failure_semantics_verified": summary.get("failure_semantics_verified") is True,
             "plan_integrity_rejected": summary.get("plan_integrity_rejected") is True,
             "fornax_backend_integrated": summary.get("fornax_backend_integrated") is True,
             "backend_request_count": summary.get("backend_request_count"),
