@@ -1813,3 +1813,84 @@
   --plan-hash sha256:cli-t1-remote-expert-plan --max-queue-depth 2
   --max-inflight 2 --microbatch-size 2 --timeout-ms 50` showing 18/18 checks
   passed, and `git diff --check` all passed.
+
+
+### T3 same-host MoE layer/logit parity simulation milestone
+
+- Adopted the two-local-GPU simulation method for the next G2/M4 gap: MoE
+  layer/logit parity. Added `fornax.moe_parity`, which runs deterministic
+  router top-k, expert bucketing, local plus remote expert execution, weighted
+  gather, residual layer output, and logit projection, then compares the split
+  path against a monolithic reference path.
+- Added `fornax moe parity-probe --out ...` and `fornax test
+  moe-parity-probe`; added the CPU reference golden fixture
+  `fornax/golden_vectors/moe_layer_parity/fixture.json`; expanded `make
+  fornax-golden` and `fornax program simulate-t1` so MoE layer parity is part of
+  the regular simulated-cluster evidence path. The one-command T1 bundle now
+  validates 19 checks including `moe-layer-parity`.
+- The validator enforces measured status, router trace shape, top-k weight sums,
+  local/remote expert coverage, expert-call accounting, remote-batch and transfer
+  byte accounting, next-token parity, layer and logit tolerance, distinct logical
+  hosts, source/expert hardware metadata, and rejects false
+  `T3-same-host-moe-parity-simulation` claims unless the artifact uses a distinct
+  CUDA source/expert device pair. CPU artifacts remain CI-safe reference evidence
+  only.
+- Ran the lab probe on the same-host H100 logical pair with
+  `/mnt/dataprocessing/venvs/asr-data-prep/bin/python`: artifact
+  `/tmp/fornax_moe_layer_parity_h100_pair_20260622.json` records
+  `source_device=cuda:0`, `expert_device=cuda:1`, dtype `float32`,
+  `tokens_processed=160`, `expert_calls=320`, `remote_expert_calls=160`,
+  `remote_batches=40`, `transfer_payload_bytes=81920`,
+  `tokens_s=1946.8277830395537`, `expert_calls_s=3893.6555660791073`,
+  `max_layer_abs_error=0.0`, `max_logit_abs_error=0.0`,
+  `next_tokens_match=true`, `correctness_passed=true`, H100 source/expert names,
+  torch `2.12.0+cu130`, CUDA `13.0`, and peer access true in both directions.
+- This narrows the Phase 2.5/G2 MoE correctness gap for the approved simulation
+  method: development can now validate router-to-logit parity over logical
+  source/expert hosts without waiting for a physical heterogeneous cluster. It
+  still does not close real multi-host T3, target-model MoE layer parity,
+  tokenizer/chat-template parity, live worker scheduling, migration under load,
+  or G3 real heterogeneous frontier serving.
+- Review-lens pass:
+  - Program Management: approve with comments. This directly uses the agreed
+    simulation method to unblock M4 development while keeping real T3/T4 gate
+    evidence separate.
+  - LLM/Model Architecture: approve with comments. The artifact covers
+    layer-output and logit parity for a deterministic MoE-shaped layer; target
+    frontier model parity remains future work.
+  - Distributed Runtime/Scheduler: approve with comments. The split path makes
+    local and remote expert ownership explicit, but it is not yet live worker
+    scheduling or 1F1B execution under load.
+  - Hardware/Networking: approve with comments. The H100 run records distinct
+    same-host CUDA devices and peer access; real inter-host network and mixed
+    vendor effects remain separate T3/T4 evidence.
+  - Low-level Software: approve. The validator prevents false accelerator claims,
+    same-device claims, routing/accounting drift, and failed parity artifacts
+    from being treated as milestone evidence.
+  - Testing/Quality: approve. Regression tests cover CPU reference validity,
+    false T3 claims without CUDA, same CUDA source/expert rejection, failed
+    correctness rejection, and T1 bundle integration.
+- Verification: `python3 -m py_compile fornax/moe_parity.py fornax/cli.py
+  fornax/t1_simulated_validation.py tests/test_fornax_planner.py`, `python3 -m
+  fornax moe parity-probe --backend cpu-stdlib --out
+  fornax/golden_vectors/moe_layer_parity/fixture.json --iterations 2 --warmup 1
+  --token-count 4 --hidden-dim 16 --intermediate-dim 32 --vocab-size 17
+  --expert-count 4 --top-k 2 --tolerance 0.0`, `python3 -m fornax test
+  moe-parity-probe`, focused MoE parity and T1 integration tests, `python3 -m
+  fornax moe parity-probe --backend torch --torch-python
+  /mnt/dataprocessing/venvs/asr-data-prep/bin/python --out
+  /tmp/fornax_moe_layer_parity_h100_pair_20260622.json --source-device cuda:0
+  --expert-device cuda:1 --dtype float32 --iterations 20 --warmup 3
+  --token-count 8 --hidden-dim 64 --intermediate-dim 128 --vocab-size 37
+  --expert-count 4 --top-k 2 --tolerance 0.0001 --timeout-s 180`, `python3 -m
+  fornax test moe-parity-probe --fixture
+  /tmp/fornax_moe_layer_parity_h100_pair_20260622.json`, `python3 -m fornax
+  program simulate-t1 --out-dir
+  /tmp/fornax_t1_moe_layer_parity_validation_cli_20260622 --gpu-count 2
+  --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000
+  --link-latency-s 0.0004 --slow-node-factor 0.65 --plan-id
+  cli-t1-moe-parity-plan --request-id cli-t1-moe-parity-request --plan-hash
+  sha256:cli-t1-moe-parity-plan --max-queue-depth 2 --max-inflight 2
+  --microbatch-size 2 --timeout-ms 50` showing 19/19 checks passed, `python3 -m
+  unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`,
+  `make fornax-golden`, and `make fornax-test` all passed.

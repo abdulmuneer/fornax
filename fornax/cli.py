@@ -61,6 +61,10 @@ from .program_rebaseline import (
     render_program_rebaseline_draft,
 )
 from .moe import simulated_moe_contract, validate_moe_contract
+from .moe_parity import (
+    run_moe_layer_parity_probe,
+    validate_moe_layer_parity_probe,
+)
 from .model_support import (
     render_model_support_matrix_report,
     simulated_model_support_matrix,
@@ -572,6 +576,55 @@ def _cmd_moe_remote_expert_probe(args: argparse.Namespace) -> int:
         f"batches={summary.get('remote_batches')} "
         f"expert_calls_s={summary.get('expert_calls_s'):.3f} "
         f"max_abs_error={summary.get('max_abs_error')}"
+    )
+    return 0
+
+
+def _cmd_moe_parity_probe(args: argparse.Namespace) -> int:
+    try:
+        result = run_moe_layer_parity_probe(
+            backend=args.backend,
+            torch_python=args.torch_python,
+            source_device=args.source_device,
+            expert_device=args.expert_device,
+            dtype=args.dtype,
+            iterations=args.iterations,
+            warmup=args.warmup,
+            token_count=args.token_count,
+            hidden_dim=args.hidden_dim,
+            intermediate_dim=args.intermediate_dim,
+            vocab_size=args.vocab_size,
+            expert_count=args.expert_count,
+            top_k=args.top_k,
+            tolerance=args.tolerance,
+            logical_source_host=args.logical_source_host,
+            logical_expert_host=args.logical_expert_host,
+            timeout_s=args.timeout_s,
+        )
+    except ValueError as exc:
+        print(f"moe parity-probe: {exc}")
+        return 2
+    write_json(args.out, result)
+    if not result.get("measured"):
+        print(
+            "MoE parity probe unavailable: "
+            f"backend={result.get('backend')} error={result.get('error')}"
+        )
+        return 2
+    validation = validate_moe_layer_parity_probe(args.out)
+    if not validation["ok"]:
+        print("MoE parity probe invalid: " + "; ".join(validation["errors"]))
+        return 2
+    summary = validation["summary"]
+    suffix = " accelerator" if summary.get("accelerator_measured") else " reference"
+    print(
+        "MoE layer parity probe:"
+        f"{suffix} backend={summary.get('backend')} "
+        f"{summary.get('source_device')}->{summary.get('expert_device')} "
+        f"tokens={summary.get('token_count')} "
+        f"experts={summary.get('expert_count')} "
+        f"max_layer_abs_error={summary.get('max_layer_abs_error')} "
+        f"max_logit_abs_error={summary.get('max_logit_abs_error')}"
     )
     return 0
 
@@ -1198,6 +1251,27 @@ def _cmd_test_remote_expert_probe(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_moe_parity_probe(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/moe_layer_parity"
+    result = validate_moe_layer_parity_probe(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS moe-parity-probe: {fixture} "
+            f"backend={summary['backend']} "
+            f"accelerator={summary['accelerator_measured']} "
+            f"devices={summary['source_device']}->{summary['expert_device']} "
+            f"max_logit_abs_error={summary['max_logit_abs_error']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL moe-parity-probe: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_model_support(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/model_support"
     result = validate_model_support_matrix(fixture)
@@ -1393,6 +1467,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_moe_runtime(args)
     if args.test_name == "remote-expert-probe":
         return _cmd_test_remote_expert_probe(args)
+    if args.test_name == "moe-parity-probe":
+        return _cmd_test_moe_parity_probe(args)
     if args.test_name == "model-support":
         return _cmd_test_model_support(args)
     if args.test_name == "continuous-batching":
@@ -1717,6 +1793,27 @@ def build_parser() -> argparse.ArgumentParser:
     remote_probe.add_argument("--timeout-s", type=float, default=180.0)
     remote_probe.set_defaults(func=_cmd_moe_remote_expert_probe)
 
+    parity_probe = moe_sub.add_parser("parity-probe")
+    parity_probe.add_argument("--out", required=True)
+    parity_probe.add_argument("--backend", choices=["cpu-stdlib", "torch"], default="cpu-stdlib")
+    parity_probe.add_argument("--torch-python")
+    parity_probe.add_argument("--source-device", default="cuda:0")
+    parity_probe.add_argument("--expert-device", default="cuda:1")
+    parity_probe.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    parity_probe.add_argument("--iterations", type=int, default=5)
+    parity_probe.add_argument("--warmup", type=int, default=1)
+    parity_probe.add_argument("--token-count", type=int, default=4)
+    parity_probe.add_argument("--hidden-dim", type=int, default=16)
+    parity_probe.add_argument("--intermediate-dim", type=int, default=32)
+    parity_probe.add_argument("--vocab-size", type=int, default=17)
+    parity_probe.add_argument("--expert-count", type=int, default=4)
+    parity_probe.add_argument("--top-k", type=int, default=2)
+    parity_probe.add_argument("--tolerance", type=float, default=0.0)
+    parity_probe.add_argument("--logical-source-host", default="logical-host-0")
+    parity_probe.add_argument("--logical-expert-host", default="logical-host-1")
+    parity_probe.add_argument("--timeout-s", type=float, default=180.0)
+    parity_probe.set_defaults(func=_cmd_moe_parity_probe)
+
     model_support = sub.add_parser("model-support")
     model_support_sub = model_support.add_subparsers(
         dest="model_support_command", required=True
@@ -1885,6 +1982,7 @@ def build_parser() -> argparse.ArgumentParser:
             "transport-contract",
             "moe-runtime",
             "remote-expert-probe",
+            "moe-parity-probe",
             "model-support",
             "continuous-batching",
             "scheduler-contract",

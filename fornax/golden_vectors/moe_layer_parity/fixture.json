@@ -1,0 +1,162 @@
+{
+  "accelerator_measured": false,
+  "available": true,
+  "backend": "cpu-stdlib",
+  "config": {
+    "dtype": "float64-reference",
+    "expert_count": 4,
+    "expert_device": "cpu",
+    "hidden_dim": 16,
+    "intermediate_dim": 32,
+    "iterations": 2,
+    "local_expert_ids": [
+      0,
+      2
+    ],
+    "local_token_copies_per_iteration": 4,
+    "logical_expert_host": "logical-host-1",
+    "logical_source_host": "logical-host-0",
+    "remote_bucket_count_per_iteration": 2,
+    "remote_expert_ids": [
+      1,
+      3
+    ],
+    "remote_token_copies_per_iteration": 4,
+    "source_device": "cpu",
+    "token_count": 4,
+    "tolerance": 0.0,
+    "top_k": 2,
+    "transfer_payload_bytes_per_iteration": 1024,
+    "vocab_size": 17,
+    "warmup": 1
+  },
+  "environment": {
+    "cpu_count": 208,
+    "machine": "x86_64",
+    "platform": "Linux-6.6.113+-x86_64-with-glibc2.39",
+    "python_executable": "/usr/bin/python3",
+    "python_version": "3.12.3"
+  },
+  "hardware": {
+    "device_type": "cpu-moe-layer-parity",
+    "expert_device": "cpu",
+    "expert_name": "x86_64",
+    "logical_hosts": [
+      "logical-host-0",
+      "logical-host-1"
+    ],
+    "same_physical_host": true,
+    "source_device": "cpu",
+    "source_name": "x86_64"
+  },
+  "measured": true,
+  "note": "CPU reference MoE layer/logit parity probe. Validates router top-k, local and remote expert bucketing, weighted gather, and logit parity, but is not T3 accelerator evidence.",
+  "probe_kind": "moe-layer-parity-probe",
+  "result": {
+    "correctness_passed": true,
+    "elapsed_ns": 2239026,
+    "elapsed_s": 0.002239026,
+    "expert_calls": 16,
+    "expert_calls_s": 7145.96436128924,
+    "layer_checksum": 1.4352326262327213,
+    "local_expert_calls": 8,
+    "logit_checksum": -0.09885680802037888,
+    "max_layer_abs_error": 0.0,
+    "max_logit_abs_error": 0.0,
+    "next_tokens": [
+      2,
+      11,
+      10,
+      1
+    ],
+    "next_tokens_match": true,
+    "reference_layer_checksum": 1.4352326262327213,
+    "reference_logit_checksum": -0.09885680802037888,
+    "reference_next_tokens": [
+      2,
+      11,
+      10,
+      1
+    ],
+    "remote_batches": 4,
+    "remote_expert_calls": 8,
+    "routing_match": true,
+    "timing_method": "perf_counter_ns_cpu_moe_layer_parity",
+    "tokens_processed": 8,
+    "tokens_s": 3572.98218064462,
+    "transfer_payload_bytes": 2048
+  },
+  "routing": {
+    "expert_placement": [
+      {
+        "expert_id": 0,
+        "local_to_source": true,
+        "logical_host": "logical-host-0"
+      },
+      {
+        "expert_id": 1,
+        "local_to_source": false,
+        "logical_host": "logical-host-1"
+      },
+      {
+        "expert_id": 2,
+        "local_to_source": true,
+        "logical_host": "logical-host-0"
+      },
+      {
+        "expert_id": 3,
+        "local_to_source": false,
+        "logical_host": "logical-host-1"
+      }
+    ],
+    "routes": [
+      {
+        "expert_ids": [
+          0,
+          1
+        ],
+        "token_index": 0,
+        "topk_weights": [
+          0.6153846153846154,
+          0.38461538461538464
+        ]
+      },
+      {
+        "expert_ids": [
+          1,
+          2
+        ],
+        "token_index": 1,
+        "topk_weights": [
+          0.6,
+          0.4
+        ]
+      },
+      {
+        "expert_ids": [
+          2,
+          3
+        ],
+        "token_index": 2,
+        "topk_weights": [
+          0.7142857142857143,
+          0.2857142857142857
+        ]
+      },
+      {
+        "expert_ids": [
+          3,
+          0
+        ],
+        "token_index": 3,
+        "topk_weights": [
+          0.6153846153846154,
+          0.38461538461538464
+        ]
+      }
+    ]
+  },
+  "source": "fornax.moe_parity.cpu_moe_layer_parity.stdlib",
+  "tier": "T0/T1-reference",
+  "version": 1
+}

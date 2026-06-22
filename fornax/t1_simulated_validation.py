@@ -18,6 +18,10 @@ from .golden import run_golden_plans
 from .inventory import build_logical_cluster_inventory, collect_local_inventory
 from .io import read_json, write_json
 from .moe import simulated_moe_contract, validate_moe_contract_fixture
+from .moe_parity import (
+    run_cpu_moe_layer_parity_probe,
+    validate_moe_layer_parity_probe_fixture,
+)
 from .model_support import (
     simulated_model_support_matrix,
     validate_model_support_matrix_fixture,
@@ -182,6 +186,7 @@ def run_t1_simulated_validation(
     throughput_path = bundle / "throughput-scaling.json"
     moe_path = bundle / "moe-runtime.json"
     remote_expert_path = bundle / "remote-expert-batch.json"
+    moe_parity_path = bundle / "moe-layer-parity.json"
     model_support_path = bundle / "model-support-matrix.json"
     results_path = bundle / "t1-simulated-validation.json"
 
@@ -246,6 +251,17 @@ def run_t1_simulated_validation(
         expert_id=5,
         tolerance=0.0,
     )
+    moe_parity = run_cpu_moe_layer_parity_probe(
+        iterations=2,
+        warmup=1,
+        token_count=4,
+        hidden_dim=16,
+        intermediate_dim=32,
+        vocab_size=17,
+        expert_count=4,
+        top_k=2,
+        tolerance=0.0,
+    )
     model_support = simulated_model_support_matrix(
         matrix_id=f"{plan_id}-model-support",
         target_model_id="qwen3-moe-class-target",
@@ -272,6 +288,7 @@ def run_t1_simulated_validation(
     write_json(throughput_path, throughput)
     write_json(moe_path, moe)
     write_json(remote_expert_path, remote_expert)
+    write_json(moe_parity_path, moe_parity)
     write_json(model_support_path, model_support)
 
     checks = [
@@ -348,6 +365,12 @@ def run_t1_simulated_validation(
             str(remote_expert_path),
         ),
         _check(
+            "moe-layer-parity",
+            "T1",
+            validate_moe_layer_parity_probe_fixture(moe_parity),
+            str(moe_parity_path),
+        ),
+        _check(
             "model-support",
             "T1",
             validate_model_support_matrix_fixture(model_support),
@@ -401,6 +424,7 @@ def run_t1_simulated_validation(
             "throughput_scaling": str(throughput_path),
             "moe_runtime": str(moe_path),
             "remote_expert_batch": str(remote_expert_path),
+            "moe_layer_parity": str(moe_parity_path),
             "model_support_matrix": str(model_support_path),
             "validation": str(results_path),
         },
