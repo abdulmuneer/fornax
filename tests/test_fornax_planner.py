@@ -85,6 +85,11 @@ from fornax.metrics_ledger import (
     validate_metrics_ledger,
     validate_metrics_ledger_fixture,
 )
+from fornax.trace_ledger import (
+    simulate_trace_ledger,
+    validate_trace_ledger,
+    validate_trace_ledger_fixture,
+)
 from fornax.network_security_spec import render_network_security_spec_draft
 from fornax.pipeline_probe import (
     run_cpu_pipeline_correctness_probe,
@@ -1167,6 +1172,79 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("histograms.stage_latency_ms.count", "; ".join(result["errors"]))
 
+    def test_trace_ledger_fixture_passes(self) -> None:
+        result = validate_trace_ledger("fornax/golden_vectors/trace_ledger")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(8, result["summary"]["component_count"])
+        self.assertEqual(8, result["summary"]["span_count"])
+        self.assertEqual(16, result["summary"]["event_count"])
+        self.assertEqual(7, result["summary"]["required_edge_count"])
+        self.assertTrue(result["summary"]["correlation_complete"])
+
+    def test_simulated_trace_ledger_correlates_request_plan_and_spans(self) -> None:
+        contract = simulate_trace_ledger(
+            plan_id="unit-trace-plan",
+            request_id="unit-trace-request",
+            trace_id="unit-trace-id",
+        )
+        result = validate_trace_ledger_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        kinds = {event["kind"] for event in contract["events"]}
+        self.assertIn("router_decision", kinds)
+        self.assertIn("remote_expert_dispatched", kinds)
+        self.assertIn("kv_write", kinds)
+        self.assertIn("cleanup", kinds)
+        self.assertEqual(2, result["summary"]["stage_count"])
+
+    def test_trace_ledger_rejects_trace_id_mismatch(self) -> None:
+        contract = simulate_trace_ledger()
+        contract["events"][0]["trace_id"] = "wrong-trace"
+        result = validate_trace_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("trace_id must match", "; ".join(result["errors"]))
+
+    def test_trace_ledger_rejects_missing_parent_span(self) -> None:
+        contract = simulate_trace_ledger()
+        contract["spans"][1]["parent_span_id"] = "missing-span"
+        result = validate_trace_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("parent_span_id references unknown span", "; ".join(result["errors"]))
+
+    def test_trace_ledger_rejects_event_logical_host_mismatch(self) -> None:
+        contract = simulate_trace_ledger()
+        contract["events"][0]["logical_host_id"] = "logical-host-1"
+        result = validate_trace_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("logical_host_id must match span logical_host_id", "; ".join(result["errors"]))
+
+    def test_trace_ledger_rejects_summary_count_mismatch(self) -> None:
+        contract = simulate_trace_ledger()
+        contract["summary"]["remote_expert_event_count"] = 0
+        result = validate_trace_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("summary.remote_expert_event_count", "; ".join(result["errors"]))
+
+    def test_trace_ledger_rejects_causal_order_regression(self) -> None:
+        contract = simulate_trace_ledger()
+        cleanup = contract["events"].pop()
+        contract["events"].insert(0, cleanup)
+        result = validate_trace_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        errors = "; ".join(result["errors"])
+        self.assertTrue(
+            "occurs before" in errors or "timestamp_s must be non-decreasing" in errors
+        )
+
+    def test_trace_ledger_rejects_missing_required_edge(self) -> None:
+        contract = simulate_trace_ledger()
+        for span in contract["spans"]:
+            if span["span_id"] == "span-kv":
+                span["parent_span_id"] = "span-serving"
+                break
+        result = validate_trace_ledger_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("spans missing required component edges", "; ".join(result["errors"]))
+
     def test_worker_contract_fixture_passes(self) -> None:
         result = validate_worker_contract("fornax/golden_vectors/worker_contract")
         self.assertTrue(result["ok"], result["errors"])
@@ -1251,12 +1329,13 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             trust_boundary = read_json(bundle / "trust-boundary.json")
             metrics_ledger = read_json(bundle / "metrics-ledger.json")
+            trace_ledger = read_json(bundle / "trace-ledger.json")
             stage_host = read_json(bundle / "stage-host.json")
             state_ownership = read_json(bundle / "state-ownership.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(30, result["summary"]["check_count"])
-        self.assertEqual(30, result["summary"]["passed_count"])
+        self.assertEqual(31, result["summary"]["check_count"])
+        self.assertEqual(31, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1268,12 +1347,15 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertTrue(trust_boundary["summary"]["stale_plan_rejected"])
         self.assertTrue(metrics_ledger["summary"]["correctness_passed"])
         self.assertGreaterEqual(metrics_ledger["summary"]["alert_count"], 3)
+        self.assertTrue(trace_ledger["summary"]["correlation_complete"])
+        self.assertEqual(2, trace_ledger["summary"]["stage_count"])
         self.assertEqual("planned", stage_host["stage_host"]["max_graphlet_status"])
         self.assertFalse(stage_host["stage_host"]["measured"])
         self.assertTrue(state_ownership["summary"]["correctness_passed"])
         self.assertEqual(11, state_ownership["summary"]["terminal_released_count"])
         self.assertIn("trust-boundary", {check["name"] for check in validation["checks"]})
         self.assertIn("metrics-ledger", {check["name"] for check in validation["checks"]})
+        self.assertIn("trace-ledger", {check["name"] for check in validation["checks"]})
         self.assertIn("stage-host", {check["name"] for check in validation["checks"]})
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("serving-adapter", {check["name"] for check in validation["checks"]})

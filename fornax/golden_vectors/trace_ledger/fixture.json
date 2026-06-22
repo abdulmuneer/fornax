@@ -1,0 +1,385 @@
+{
+  "components": [
+    {
+      "component": "serving_gateway",
+      "logical_host_id": "logical-host-0"
+    },
+    {
+      "component": "fornax_engine",
+      "logical_host_id": "logical-host-0"
+    },
+    {
+      "component": "scheduler",
+      "logical_host_id": "logical-host-0"
+    },
+    {
+      "component": "stage-0",
+      "logical_host_id": "logical-host-0",
+      "stage_id": 0
+    },
+    {
+      "component": "transport",
+      "logical_host_id": "logical-link-0-1"
+    },
+    {
+      "component": "stage-1",
+      "logical_host_id": "logical-host-1",
+      "stage_id": 1
+    },
+    {
+      "component": "kv_manager",
+      "logical_host_id": "logical-host-1"
+    },
+    {
+      "component": "metrics_ledger",
+      "logical_host_id": "logical-host-0"
+    }
+  ],
+  "correlation_policy": {
+    "require_cleanup": true,
+    "require_parent_spans": true,
+    "require_plan_id": true,
+    "require_request_id": true,
+    "require_trace_id": true
+  },
+  "events": [
+    {
+      "component": "serving_gateway",
+      "event_id": "evt-001",
+      "kind": "request_received",
+      "logical_host_id": "logical-host-0",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-serving",
+      "surface": "openai_chat_completions",
+      "timestamp_s": 0.001,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "fornax_engine",
+      "engine_request_id": "engine-req-001",
+      "event_id": "evt-002",
+      "kind": "engine_normalized",
+      "logical_host_id": "logical-host-0",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-engine",
+      "timestamp_s": 0.003,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "scheduler",
+      "event_id": "evt-003",
+      "kind": "scheduler_admitted",
+      "logical_host_id": "logical-host-0",
+      "plan_id": "golden-trace-ledger",
+      "queue_depth": 1,
+      "request_id": "golden-trace-request",
+      "span_id": "span-scheduler",
+      "timestamp_s": 0.005,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "scheduler",
+      "event_id": "evt-004",
+      "kind": "microbatch_started",
+      "logical_host_id": "logical-host-0",
+      "microbatch_id": "mb-001",
+      "plan_id": "golden-trace-ledger",
+      "request_count": 1,
+      "request_id": "golden-trace-request",
+      "span_id": "span-scheduler",
+      "timestamp_s": 0.006,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "stage-0",
+      "event_id": "evt-005",
+      "kind": "stage_started",
+      "logical_host_id": "logical-host-0",
+      "phase": "prefill",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-stage-0",
+      "stage_id": 0,
+      "timestamp_s": 0.007,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "stage-0",
+      "event_id": "evt-006",
+      "expert_ids": [
+        7,
+        2
+      ],
+      "kind": "router_decision",
+      "layer_id": 3,
+      "logical_host_id": "logical-host-0",
+      "plan_id": "golden-trace-ledger",
+      "remote": true,
+      "request_id": "golden-trace-request",
+      "span_id": "span-stage-0",
+      "stage_id": 0,
+      "timestamp_s": 0.009,
+      "token_id": 12,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "stage-0",
+      "event_id": "evt-007",
+      "expert_id": 7,
+      "kind": "remote_expert_dispatched",
+      "logical_host_id": "logical-host-0",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-stage-0",
+      "target_component": "stage-1",
+      "target_logical_host_id": "logical-host-1",
+      "timestamp_s": 0.01,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "transport",
+      "destination_component": "stage-1",
+      "event_id": "evt-008",
+      "kind": "activation_sent",
+      "logical_host_id": "logical-link-0-1",
+      "payload_id": "activation-001",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "source_component": "stage-0",
+      "span_id": "span-transport",
+      "timestamp_s": 0.012,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "stage-1",
+      "event_id": "evt-009",
+      "kind": "activation_received",
+      "logical_host_id": "logical-host-1",
+      "payload_id": "activation-001",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-stage-1",
+      "stage_id": 1,
+      "timestamp_s": 0.015,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "stage-1",
+      "event_id": "evt-010",
+      "kind": "stage_started",
+      "logical_host_id": "logical-host-1",
+      "phase": "decode",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-stage-1",
+      "stage_id": 1,
+      "timestamp_s": 0.016,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "kv_manager",
+      "event_id": "evt-011",
+      "kind": "kv_read",
+      "logical_host_id": "logical-host-1",
+      "page_id": "kv-page-001",
+      "pages": 4,
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-kv",
+      "stage_id": 1,
+      "timestamp_s": 0.018,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "kv_manager",
+      "event_id": "evt-012",
+      "kind": "kv_write",
+      "logical_host_id": "logical-host-1",
+      "page_id": "kv-page-002",
+      "pages": 5,
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-kv",
+      "stage_id": 1,
+      "timestamp_s": 0.021,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "metrics_ledger",
+      "event_id": "evt-013",
+      "kind": "metric_recorded",
+      "logical_host_id": "logical-host-0",
+      "metric_name": "stage_decode_latency_ms",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-metrics",
+      "timestamp_s": 0.022,
+      "trace_id": "golden-trace-id",
+      "unit": "ms",
+      "value": 6.0
+    },
+    {
+      "chunk_index": 0,
+      "component": "serving_gateway",
+      "event_id": "evt-014",
+      "kind": "stream_chunk",
+      "logical_host_id": "logical-host-0",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-serving",
+      "timestamp_s": 0.026,
+      "token_count": 1,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "fornax_engine",
+      "event_id": "evt-015",
+      "finish_reason": "stop",
+      "kind": "request_finished",
+      "logical_host_id": "logical-host-0",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-engine",
+      "timestamp_s": 0.028,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "serving_gateway",
+      "event_id": "evt-016",
+      "kind": "cleanup",
+      "logical_host_id": "logical-host-0",
+      "plan_id": "golden-trace-ledger",
+      "released_spans": 8,
+      "request_id": "golden-trace-request",
+      "span_id": "span-serving",
+      "timestamp_s": 0.03,
+      "trace_id": "golden-trace-id"
+    }
+  ],
+  "mode": "t1-simulation",
+  "note": "T1 trace-correlation simulation for request, plan, span, stage, router/expert, KV, metric, and cleanup observability. Not live runtime telemetry or G2/G3 gate evidence.",
+  "plan_id": "golden-trace-ledger",
+  "record_kind": "trace-correlation-ledger",
+  "request_id": "golden-trace-request",
+  "result": {
+    "causal_order_preserved": true,
+    "cleanup_recorded": true,
+    "correctness_passed": true,
+    "parent_child_spans_valid": true,
+    "required_events_present": true,
+    "trace_context_preserved": true
+  },
+  "simulation_method": "request-plan-span-correlation",
+  "spans": [
+    {
+      "component": "serving_gateway",
+      "end_s": 0.03,
+      "logical_host_id": "logical-host-0",
+      "parent_span_id": null,
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-serving",
+      "start_s": 0.0,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "fornax_engine",
+      "end_s": 0.028,
+      "logical_host_id": "logical-host-0",
+      "parent_span_id": "span-serving",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-engine",
+      "start_s": 0.002,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "scheduler",
+      "end_s": 0.026,
+      "logical_host_id": "logical-host-0",
+      "parent_span_id": "span-engine",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-scheduler",
+      "start_s": 0.004,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "stage-0",
+      "end_s": 0.018,
+      "logical_host_id": "logical-host-0",
+      "parent_span_id": "span-scheduler",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-stage-0",
+      "start_s": 0.006,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "transport",
+      "end_s": 0.015,
+      "logical_host_id": "logical-link-0-1",
+      "parent_span_id": "span-stage-0",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-transport",
+      "start_s": 0.011,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "stage-1",
+      "end_s": 0.024,
+      "logical_host_id": "logical-host-1",
+      "parent_span_id": "span-transport",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-stage-1",
+      "start_s": 0.015,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "kv_manager",
+      "end_s": 0.022,
+      "logical_host_id": "logical-host-1",
+      "parent_span_id": "span-stage-1",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-kv",
+      "start_s": 0.017,
+      "trace_id": "golden-trace-id"
+    },
+    {
+      "component": "metrics_ledger",
+      "end_s": 0.025,
+      "logical_host_id": "logical-host-0",
+      "parent_span_id": "span-stage-1",
+      "plan_id": "golden-trace-ledger",
+      "request_id": "golden-trace-request",
+      "span_id": "span-metrics",
+      "start_s": 0.019,
+      "trace_id": "golden-trace-id"
+    }
+  ],
+  "summary": {
+    "cleanup_event_count": 1,
+    "component_count": 8,
+    "correlation_complete": true,
+    "event_count": 16,
+    "g2_g3_gate_evidence": false,
+    "metric_event_count": 1,
+    "remote_expert_event_count": 1,
+    "required_event_count": 15,
+    "span_count": 8,
+    "stage_count": 2
+  },
+  "target_workstreams": [
+    "WS-G1",
+    "WS-H1",
+    "WS-C2",
+    "WS-E2"
+  ],
+  "trace_id": "golden-trace-id",
+  "version": 1
+}

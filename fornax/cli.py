@@ -131,6 +131,7 @@ from .throughput_scaling import (
     simulate_throughput_scaling,
     validate_throughput_scaling,
 )
+from .trace_ledger import simulate_trace_ledger, validate_trace_ledger
 from .transport import simulated_transport_contract, validate_transport_contract
 from .trust_boundary import simulate_trust_boundary, validate_trust_boundary
 from .validation import validate_target_contract
@@ -495,6 +496,35 @@ def _cmd_observability_metrics_simulate(args: argparse.Namespace) -> int:
         f"alerts={summary['alert_count']} "
         f"max_queue={summary['max_queue_depth_observed']} "
         f"memory_pressure={summary['max_memory_pressure_fraction']}"
+        f"{suffix}"
+    )
+    return 0 if validation["ok"] else 2
+
+
+
+
+def _cmd_observability_trace_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_trace_ledger(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            trace_id=args.trace_id,
+        )
+    except ValueError as exc:
+        print(f"observability trace-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    validation = validate_trace_ledger(args.out)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "observability trace-simulate: "
+        f"components={summary['component_count']} "
+        f"spans={summary['span_count']} "
+        f"events={summary['event_count']} "
+        f"edges={summary['required_edge_count']}"
         f"{suffix}"
     )
     return 0 if validation["ok"] else 2
@@ -1652,6 +1682,29 @@ def _cmd_test_metrics_ledger(args: argparse.Namespace) -> int:
     return 1
 
 
+
+
+def _cmd_test_trace_ledger(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/trace_ledger"
+    result = validate_trace_ledger(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS trace-ledger: {fixture} "
+            f"components={summary['component_count']} "
+            f"spans={summary['span_count']} "
+            f"events={summary['event_count']} "
+            f"edges={summary['required_edge_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL trace-ledger: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_worker_contract(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/worker_contract"
     result = validate_worker_contract(fixture)
@@ -2098,6 +2151,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_observability(args)
     if args.test_name == "metrics-ledger":
         return _cmd_test_metrics_ledger(args)
+    if args.test_name == "trace-ledger":
+        return _cmd_test_trace_ledger(args)
     if args.test_name == "worker-contract":
         return _cmd_test_worker_contract(args)
     if args.test_name == "transport-contract":
@@ -2430,6 +2485,13 @@ def build_parser() -> argparse.ArgumentParser:
     metrics.add_argument("--memory-critical-fraction", type=float, default=0.95)
     metrics.add_argument("--sample-period-ms", type=float, default=10.0)
     metrics.set_defaults(func=_cmd_observability_metrics_simulate)
+
+    trace = observability_sub.add_parser("trace-simulate")
+    trace.add_argument("--out", required=True)
+    trace.add_argument("--plan-id", default="trace-ledger-plan")
+    trace.add_argument("--request-id", default="req-trace-ledger")
+    trace.add_argument("--trace-id", default="trace-trace-ledger")
+    trace.set_defaults(func=_cmd_observability_trace_simulate)
 
     runtime = sub.add_parser("runtime")
     runtime_sub = runtime.add_subparsers(dest="runtime_command", required=True)
@@ -2811,6 +2873,7 @@ def build_parser() -> argparse.ArgumentParser:
             "engine-simulation",
             "observability",
             "metrics-ledger",
+            "trace-ledger",
             "worker-contract",
             "transport-contract",
             "trust-boundary",

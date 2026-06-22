@@ -7,6 +7,7 @@ Sources:
 - `docs/fornax/program_management/03-roadmap-milestones-critical-path.md`
 - `docs/fornax/program_management/04-stage-gates.md`
 - `docs/fornax/program_management/sprints/phase-0-evidence-sprint.md`
+- `docs/fornax/program_management/sprints/README.md` and phase sprint backlog files
 - `docs/fornax/program_management/05-raid-log.md`
 - `docs/fornax/program_management/08-decision-log.md`
 - Current repo evidence under `fornax/`, `fornax/golden_vectors/`, `tests/`, and `fornax_development_journal.md`
@@ -19,8 +20,8 @@ Legend:
 
 Current validation snapshot:
 - `python3 -m fornax test golden-plans`: 3/3 passed.
-- `python3 -m fornax program simulate-t1 --out-dir /tmp/fornax_todo_status_t1_20260622 --gpu-count 2 --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor 0.65`: 30/30 passed over 2 logical hosts.
-- `python3 -m unittest tests.test_fornax_planner`: 201 tests passed.
+- `python3 -m fornax program simulate-t1 --out-dir /tmp/fornax_t1_trace_ledger_validation_cli_20260622 --gpu-count 2 --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor 0.65`: 31/31 passed over 2 logical hosts.
+- `python3 -m unittest tests.test_fornax_planner`: 209 tests passed.
 - `python3 -m fornax program local-accelerator-smoke --out-dir /tmp/fornax_local_accelerator_smoke_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --expert-device cuda:0 --transfer-source-device cuda:0 --transfer-destination-device cuda:1 ...`: 3/3 checks passed on local H100s treated as logical hosts; not G2/G3 gate evidence.
 
 ## Milestones
@@ -103,7 +104,7 @@ Current validation snapshot:
 
 ### WS-G — Observability & Telemetry
 
-- [ ] G1 Request/plan-ID propagation, per-stage timings, router/expert traces. Partial: observability contract and metrics ledger fixtures exist; live runtime telemetry is open.
+- [ ] G1 Request/plan-ID propagation, per-stage timings, router/expert traces. Partial: observability contract, metrics ledger, and trace-ledger fixtures exist; live runtime telemetry is open.
 - [ ] G2 Queue depth / backpressure / memory-KV metrics. Partial: `fornax/metrics_ledger.py` T1 metrics ledger exists; live exporter/dashboard evidence is open.
 - [x] G3 Placement explanations. Evidence: planner placement explanations are implemented and propagated into target-contract drafts; live observability linkage is future work.
 
@@ -128,7 +129,7 @@ Current validation snapshot:
 ## Quality/Test Tiers
 
 - [x] T0 Planner/scheduler unit + golden plans. Evidence: `fornax test golden-plans` and unit tests pass.
-- [x] T1 Simulated workers/contracts/backpressure. Evidence: `fornax program simulate-t1` reports 30/30 checks passed over two logical hosts.
+- [x] T1 Simulated workers/contracts/backpressure. Evidence: `fornax program simulate-t1` reports 31/31 checks passed over two logical hosts, including trace-ledger correlation.
 - [ ] T2 Single-node accelerator. Partial: `fornax program local-accelerator-smoke` exists and a local H100 run passed 3/3 checks with measured expert-MLP and same-host GPU0->GPU1 transfer evidence; target-model parity and formal gate evidence remain open.
 - [ ] T3 2-3 node pipeline. Open: no real 2-3 node pipeline run found.
 - [ ] T4 Full heterogeneous lab. Open: no full lab-reference heterogeneous run found.

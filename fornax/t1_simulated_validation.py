@@ -75,6 +75,7 @@ from .throughput_scaling import (
     simulate_throughput_scaling,
     validate_throughput_scaling_fixture,
 )
+from .trace_ledger import simulate_trace_ledger, validate_trace_ledger_fixture
 from .scheduler import simulate_scheduler, validate_scheduler_contract
 from .transport import (
     simulated_transport_contract,
@@ -217,6 +218,7 @@ def run_t1_simulated_validation(
     transport_path = bundle / "transport-contract.json"
     trust_boundary_path = bundle / "trust-boundary.json"
     metrics_ledger_path = bundle / "metrics-ledger.json"
+    trace_ledger_path = bundle / "trace-ledger.json"
     engine_path = bundle / "engine-simulation.json"
     stage_host_path = bundle / "stage-host.json"
     serving_path = bundle / "serving-adapter.json"
@@ -278,6 +280,11 @@ def run_t1_simulated_validation(
         request_id=f"{request_id}-metrics",
         max_queue_depth=max_queue_depth + 2,
         max_inflight=max(max_inflight, 3),
+    )
+    trace_ledger = simulate_trace_ledger(
+        plan_id=f"{plan_id}-trace",
+        request_id=f"{request_id}-trace",
+        trace_id=f"trace-{request_id}-trace",
     )
     engine = simulated_engine_contract(
         plan_id=plan_id,
@@ -379,6 +386,7 @@ def run_t1_simulated_validation(
     write_json(transport_path, transport)
     write_json(trust_boundary_path, trust_boundary)
     write_json(metrics_ledger_path, metrics_ledger)
+    write_json(trace_ledger_path, trace_ledger)
     write_json(engine_path, engine)
     write_json(stage_host_path, stage_host)
     write_json(serving_path, serving)
@@ -451,6 +459,12 @@ def run_t1_simulated_validation(
             "T1/G2",
             validate_metrics_ledger_fixture(metrics_ledger),
             str(metrics_ledger_path),
+        ),
+        _check(
+            "trace-ledger",
+            "T1/G1",
+            validate_trace_ledger_fixture(trace_ledger),
+            str(trace_ledger_path),
         ),
         _check(
             "engine-simulation",
@@ -592,6 +606,7 @@ def run_t1_simulated_validation(
             "transport_contract": str(transport_path),
             "trust_boundary": str(trust_boundary_path),
             "metrics_ledger": str(metrics_ledger_path),
+            "trace_ledger": str(trace_ledger_path),
             "engine_simulation": str(engine_path),
             "stage_host": str(stage_host_path),
             "serving_adapter": str(serving_path),
