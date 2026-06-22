@@ -106,6 +106,7 @@ from .serving import (
     simulate_serving_adapter,
     validate_serving_adapter,
 )
+from .stage_host import simulate_stage_host, validate_stage_host
 from .stage_replication import (
     simulate_stage_replication,
     validate_stage_replication,
@@ -457,6 +458,41 @@ def _cmd_engine_simulate(args: argparse.Namespace) -> int:
         f"embedded_contracts={summary['embedded_contract_count']}"
     )
     return 0
+
+
+def _cmd_runtime_stage_host_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_stage_host(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            stage_id=args.stage_id,
+            logical_host_id=args.logical_host_id,
+            predecessor_stage_id=args.predecessor_stage_id,
+            successor_stage_id=args.successor_stage_id,
+            layer_start=args.layer_start,
+            layer_count=args.layer_count,
+            token_count=args.token_count,
+            hidden_dim=args.hidden_dim,
+            dtype=args.dtype,
+            tolerance=args.tolerance,
+        )
+    except ValueError as exc:
+        print(f"runtime stage-host-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    validation = validate_stage_host(args.out)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "stage-host simulation: "
+        f"events={summary['event_count']} "
+        f"boundary_ops={summary['boundary_op_count']} "
+        f"max_abs_error={summary['max_abs_error']}"
+        f"{suffix}"
+    )
+    return 0 if validation["ok"] else 2
 
 
 def _cmd_serving_adapter_simulate(args: argparse.Namespace) -> int:
@@ -1355,6 +1391,26 @@ def _cmd_test_engine_seam(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_stage_host(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/stage_host"
+    result = validate_stage_host(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS stage-host: {fixture} "
+            f"events={summary['event_count']} "
+            f"boundary_ops={summary['boundary_op_count']} "
+            f"max_abs_error={summary['max_abs_error']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL stage-host: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_serving_adapter(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/serving_adapter"
     result = validate_serving_adapter(fixture)
@@ -1823,6 +1879,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_network_contract(args)
     if args.test_name == "engine-seam":
         return _cmd_test_engine_seam(args)
+    if args.test_name == "stage-host":
+        return _cmd_test_stage_host(args)
     if args.test_name == "serving-adapter":
         return _cmd_test_serving_adapter(args)
     if args.test_name == "engine-simulation":
@@ -2113,6 +2171,26 @@ def build_parser() -> argparse.ArgumentParser:
     engine_simulate.add_argument("--microbatch-size", type=int, default=2)
     engine_simulate.add_argument("--timeout-ms", type=float, default=50.0)
     engine_simulate.set_defaults(func=_cmd_engine_simulate)
+
+    runtime = sub.add_parser("runtime")
+    runtime_sub = runtime.add_subparsers(dest="runtime_command", required=True)
+    stage_host = runtime_sub.add_parser("stage-host-simulate")
+    stage_host.add_argument("--out", required=True)
+    stage_host.add_argument("--plan-id", default="stage-host-plan")
+    stage_host.add_argument("--request-id", default="req-stage-host")
+    stage_host.add_argument("--stage-id", default="stage-1")
+    stage_host.add_argument("--logical-host-id", default="logical-host-1")
+    stage_host.add_argument("--predecessor-stage-id", default="stage-0")
+    stage_host.add_argument("--successor-stage-id", default="stage-2")
+    stage_host.add_argument("--layer-start", type=int, default=12)
+    stage_host.add_argument("--layer-count", type=int, default=2)
+    stage_host.add_argument("--token-count", type=int, default=3)
+    stage_host.add_argument("--hidden-dim", type=int, default=4)
+    stage_host.add_argument(
+        "--dtype", choices=["fp16", "bf16", "fp32"], default="fp16"
+    )
+    stage_host.add_argument("--tolerance", type=float, default=0.0)
+    stage_host.set_defaults(func=_cmd_runtime_stage_host_simulate)
 
     serving = sub.add_parser("serving")
     serving_sub = serving.add_subparsers(dest="serving_command", required=True)
@@ -2451,6 +2529,7 @@ def build_parser() -> argparse.ArgumentParser:
             "runtime-format",
             "network-contract",
             "engine-seam",
+            "stage-host",
             "serving-adapter",
             "engine-simulation",
             "observability",

@@ -124,6 +124,11 @@ from fornax.serving import (
     validate_serving_adapter,
     validate_serving_adapter_fixture,
 )
+from fornax.stage_host import (
+    simulate_stage_host,
+    validate_stage_host,
+    validate_stage_host_fixture,
+)
 from fornax.stage_replication import (
     simulate_stage_replication,
     validate_stage_replication,
@@ -927,6 +932,59 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("speculative decoding is out of v0", "; ".join(result["errors"]))
 
+    def test_stage_host_fixture_passes(self) -> None:
+        result = validate_stage_host("fornax/golden_vectors/stage_host")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(4, result["summary"]["boundary_op_count"])
+        self.assertEqual(0.0, result["summary"]["max_abs_error"])
+        self.assertTrue(result["summary"]["graphlet_claim_is_simulated"])
+
+    def test_simulated_stage_host_validates_boundary_and_reference(self) -> None:
+        contract = simulate_stage_host(plan_id="unit-stage-host")
+        result = validate_stage_host_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(
+            {"activation_in", "activation_out", "kv_read", "kv_write"},
+            {op["name"] for op in contract["boundary_ops"]},
+        )
+        self.assertEqual("planned", contract["stage_host"]["max_graphlet_status"])
+        self.assertFalse(contract["stage_host"]["measured"])
+
+    def test_stage_host_rejects_output_mismatch(self) -> None:
+        contract = simulate_stage_host()
+        contract["tensors"]["stage_output"][0][0] += 1.0
+        result = validate_stage_host_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("max_abs_error", "; ".join(result["errors"]))
+
+    def test_stage_host_rejects_missing_boundary_op(self) -> None:
+        contract = simulate_stage_host()
+        contract["boundary_ops"] = [
+            op for op in contract["boundary_ops"] if op["name"] != "kv_write"
+        ]
+        result = validate_stage_host_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("kv_write", "; ".join(result["errors"]))
+
+    def test_stage_host_rejects_measured_max_claim(self) -> None:
+        contract = simulate_stage_host()
+        contract["stage_host"]["measured"] = True
+        contract["graphlet_contract"]["status"] = "executed"
+        contract["graphlet_contract"]["measured"] = True
+        for event in contract["events"]:
+            if event["kind"] == "graphlet_executed":
+                event["measured"] = True
+        result = validate_stage_host_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("measured must be false", "; ".join(result["errors"]))
+
+    def test_stage_host_rejects_kv_owner_mismatch(self) -> None:
+        contract = simulate_stage_host()
+        contract["kv_cache"]["owner_after"] = "stage-99"
+        result = validate_stage_host_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("kv_cache.owner_after", "; ".join(result["errors"]))
+
     def test_backend_coverage_fixture_passes(self) -> None:
         result = validate_backend_coverage_contract("fornax/golden_vectors/backend_coverage")
         self.assertTrue(result["ok"], result["errors"])
@@ -1072,10 +1130,11 @@ class FornaxPlannerTest(unittest.TestCase):
             )
             bundle = Path(result["bundle"])
             transport = read_json(bundle / "transport-contract.json")
+            stage_host = read_json(bundle / "stage-host.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(26, result["summary"]["check_count"])
-        self.assertEqual(26, result["summary"]["passed_count"])
+        self.assertEqual(27, result["summary"]["check_count"])
+        self.assertEqual(27, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1083,6 +1142,9 @@ class FornaxPlannerTest(unittest.TestCase):
             endpoint["worker_environment"]["CUDA_VISIBLE_DEVICES"]
             for endpoint in transport["endpoints"]
         })
+        self.assertEqual("planned", stage_host["stage_host"]["max_graphlet_status"])
+        self.assertFalse(stage_host["stage_host"]["measured"])
+        self.assertIn("stage-host", {check["name"] for check in validation["checks"]})
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("serving-adapter", {check["name"] for check in validation["checks"]})
         self.assertIn("continuous-batching", {check["name"] for check in validation["checks"]})

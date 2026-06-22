@@ -61,6 +61,7 @@ from .serving import (
     simulate_serving_adapter,
     validate_serving_adapter_fixture,
 )
+from .stage_host import simulate_stage_host, validate_stage_host_fixture
 from .stage_replication import (
     simulate_stage_replication,
     validate_stage_replication_fixture,
@@ -209,6 +210,7 @@ def run_t1_simulated_validation(
     worker_path = bundle / "worker-contract.json"
     transport_path = bundle / "transport-contract.json"
     engine_path = bundle / "engine-simulation.json"
+    stage_host_path = bundle / "stage-host.json"
     serving_path = bundle / "serving-adapter.json"
     batching_path = bundle / "continuous-batching.json"
     pipeline_path = bundle / "pipeline-correctness.json"
@@ -265,6 +267,10 @@ def run_t1_simulated_validation(
         max_inflight=max_inflight,
         microbatch_size=microbatch_size,
         timeout_ms=timeout_ms,
+    )
+    stage_host = simulate_stage_host(
+        plan_id=f"{plan_id}-stage-host",
+        request_id=f"{request_id}-stage-host",
     )
     serving = simulate_serving_adapter(
         plan_id=f"{plan_id}-serving",
@@ -347,6 +353,7 @@ def run_t1_simulated_validation(
     write_json(worker_path, worker)
     write_json(transport_path, transport)
     write_json(engine_path, engine)
+    write_json(stage_host_path, stage_host)
     write_json(serving_path, serving)
     write_json(batching_path, batching)
     write_json(pipeline_path, pipeline)
@@ -392,6 +399,12 @@ def run_t1_simulated_validation(
             "T1",
             validate_engine_seam_contract("fornax/golden_vectors/engine_seam"),
             "fornax/golden_vectors/engine_seam",
+        ),
+        _check(
+            "stage-host",
+            "T1/B2-B4",
+            validate_stage_host_fixture(stage_host),
+            str(stage_host_path),
         ),
         _check(
             "observability",
@@ -532,6 +545,7 @@ def run_t1_simulated_validation(
             "worker_contract": str(worker_path),
             "transport_contract": str(transport_path),
             "engine_simulation": str(engine_path),
+            "stage_host": str(stage_host_path),
             "serving_adapter": str(serving_path),
             "continuous_batching": str(batching_path),
             "pipeline_correctness": str(pipeline_path),

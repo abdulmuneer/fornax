@@ -1,0 +1,367 @@
+{
+  "boundary_ops": [
+    {
+      "consumer": "stage-1",
+      "direction": "receive",
+      "dtype": "fp16",
+      "name": "activation_in",
+      "op_kind": "custom-boundary-op",
+      "payload_hash": "sha256:0dd0eaa05c2bfcb4ead396baaba6dca2545c223fd2594495468d0f3a3e8a7da1",
+      "payload_path": "tensors.activation_input",
+      "producer": "stage-0",
+      "shape": [
+        3,
+        4
+      ]
+    },
+    {
+      "consumer": "stage-1",
+      "direction": "read",
+      "dtype": "fp16",
+      "name": "kv_read",
+      "op_kind": "custom-boundary-op",
+      "payload_hash": "sha256:5356d0fce5811db29d5ea167ba2a210873350e07bb16c9c51b629cc2ab123a61",
+      "payload_path": "tensors.kv_read",
+      "producer": "stage-1",
+      "shape": [
+        3,
+        4
+      ]
+    },
+    {
+      "consumer": "stage-1",
+      "direction": "write",
+      "dtype": "fp16",
+      "name": "kv_write",
+      "op_kind": "custom-boundary-op",
+      "payload_hash": "sha256:333f8f446f3baaf8c63f8d1d2ca31b9754a374e8462627e788697b7c8319003f",
+      "payload_path": "tensors.kv_write",
+      "producer": "stage-1",
+      "shape": [
+        3,
+        4
+      ]
+    },
+    {
+      "consumer": "stage-2",
+      "direction": "send",
+      "dtype": "fp16",
+      "name": "activation_out",
+      "op_kind": "custom-boundary-op",
+      "payload_hash": "sha256:0bb24ea6da214759c5f3be330f12cda37fb1fd21e35c498a62ce3a7851c8330b",
+      "payload_path": "tensors.stage_output",
+      "producer": "stage-1",
+      "shape": [
+        3,
+        4
+      ]
+    }
+  ],
+  "config": {
+    "dtype": "fp16",
+    "hidden_dim": 4,
+    "token_count": 3,
+    "tolerance": 0.0
+  },
+  "events": [
+    {
+      "graphlet_id": "stage-1-layer-group-12-13",
+      "kind": "stage_loaded",
+      "layer_ids": [
+        12,
+        13
+      ],
+      "logical_host_id": "logical-host-1",
+      "plan_id": "golden-stage-host",
+      "stage_id": "stage-1",
+      "timestamp_s": 0.0
+    },
+    {
+      "boundary_op": "activation_in",
+      "kind": "activation_received",
+      "payload_hash": "sha256:0dd0eaa05c2bfcb4ead396baaba6dca2545c223fd2594495468d0f3a3e8a7da1",
+      "plan_id": "golden-stage-host",
+      "request_id": "golden-stage-host-request",
+      "stage_id": "stage-1",
+      "timestamp_s": 0.001
+    },
+    {
+      "boundary_op": "kv_read",
+      "kind": "kv_read",
+      "payload_hash": "sha256:5356d0fce5811db29d5ea167ba2a210873350e07bb16c9c51b629cc2ab123a61",
+      "plan_id": "golden-stage-host",
+      "request_id": "golden-stage-host-request",
+      "stage_id": "stage-1",
+      "timestamp_s": 0.002
+    },
+    {
+      "backend": "simulated-max-graphlet",
+      "graphlet_id": "stage-1-layer-group-12-13",
+      "kind": "graphlet_executed",
+      "measured": false,
+      "plan_id": "golden-stage-host",
+      "request_id": "golden-stage-host-request",
+      "stage_id": "stage-1",
+      "timestamp_s": 0.003
+    },
+    {
+      "boundary_op": "kv_write",
+      "kind": "kv_written",
+      "payload_hash": "sha256:333f8f446f3baaf8c63f8d1d2ca31b9754a374e8462627e788697b7c8319003f",
+      "plan_id": "golden-stage-host",
+      "request_id": "golden-stage-host-request",
+      "stage_id": "stage-1",
+      "timestamp_s": 0.004
+    },
+    {
+      "boundary_op": "activation_out",
+      "kind": "activation_emitted",
+      "payload_hash": "sha256:0bb24ea6da214759c5f3be330f12cda37fb1fd21e35c498a62ce3a7851c8330b",
+      "plan_id": "golden-stage-host",
+      "request_id": "golden-stage-host-request",
+      "stage_id": "stage-1",
+      "timestamp_s": 0.005
+    },
+    {
+      "kind": "reference_compared",
+      "max_abs_error": 0.0,
+      "plan_id": "golden-stage-host",
+      "request_id": "golden-stage-host-request",
+      "stage_id": "stage-1",
+      "timestamp_s": 0.006,
+      "tolerance": 0.0
+    },
+    {
+      "buffers_released": true,
+      "kind": "cleanup",
+      "plan_id": "golden-stage-host",
+      "request_id": "golden-stage-host-request",
+      "stage_id": "stage-1",
+      "timestamp_s": 0.007
+    }
+  ],
+  "graphlet_contract": {
+    "backend": "simulated-max-graphlet",
+    "claim": "simulation-only placeholder; no MAX graph was executed",
+    "forbidden_claims": [
+      "measured_max_execution",
+      "hardware_accelerated_execution",
+      "g2_distributed_correctness"
+    ],
+    "graphlet_id": "stage-1-layer-group-12-13",
+    "hardware_accelerated": false,
+    "measured": false,
+    "status": "planned"
+  },
+  "kv_cache": {
+    "cache_id": "golden-stage-host-request:stage-1:kv",
+    "handoff_policy": "stage-local-readwrite",
+    "owner_after": "stage-1",
+    "owner_before": "stage-1",
+    "read_count": 3,
+    "read_payload_hash": "sha256:5356d0fce5811db29d5ea167ba2a210873350e07bb16c9c51b629cc2ab123a61",
+    "write_count": 3,
+    "write_payload_hash": "sha256:333f8f446f3baaf8c63f8d1d2ca31b9754a374e8462627e788697b7c8319003f"
+  },
+  "mode": "t1-simulation",
+  "note": "T1 stage-host simulation: validates layer-group boundary formats, KV ownership, lifecycle events, and slow-correct reference parity. This is not real MAX graph execution and does not satisfy G2 distributed correctness.",
+  "plan_id": "golden-stage-host",
+  "record_kind": "stage-host-simulation-contract",
+  "request_id": "golden-stage-host-request",
+  "result": {
+    "boundary_ops_complete": true,
+    "correctness_passed": true,
+    "graphlet_claim_is_simulated": true,
+    "kv_ownership_preserved": true,
+    "max_abs_error": 0.0,
+    "output_checksum": 0.570350207927,
+    "outputs_match_reference": true,
+    "reference_checksum": 0.570350207927
+  },
+  "simulation_method": "deterministic-layer-group-stage-host",
+  "stage_host": {
+    "backend": "simulated-max-graphlet",
+    "graphlet_id": "stage-1-layer-group-12-13",
+    "hardware_accelerated": false,
+    "layer_group": {
+      "end": 13,
+      "layer_count": 2,
+      "layers": [
+        12,
+        13
+      ],
+      "start": 12
+    },
+    "logical_host_id": "logical-host-1",
+    "max_graphlet_status": "planned",
+    "measured": false,
+    "predecessor_stage_id": "stage-0",
+    "reference_path": "cpu-stdlib-slow-correct",
+    "stage_id": "stage-1",
+    "successor_stage_id": "stage-2"
+  },
+  "summary": {
+    "boundary_op_count": 4,
+    "correctness_passed": true,
+    "event_count": 8,
+    "graphlet_claim_is_simulated": true,
+    "hidden_dim": 4,
+    "kv_ownership_preserved": true,
+    "layer_count": 2,
+    "max_abs_error": 0.0,
+    "outputs_match_reference": true,
+    "token_count": 3
+  },
+  "target_workstreams": [
+    "WS-B2",
+    "WS-B3",
+    "WS-B4"
+  ],
+  "tensors": {
+    "activation_input": [
+      [
+        -0.16129,
+        -0.096774,
+        -0.032258,
+        0.032258
+      ],
+      [
+        0.0,
+        0.096774,
+        0.193548,
+        0.290323
+      ],
+      [
+        0.16129,
+        0.290323,
+        0.419355,
+        -0.451613
+      ]
+    ],
+    "kv_read": {
+      "keys": [
+        [
+          -0.172414,
+          -0.068966,
+          0.034483,
+          0.137931
+        ],
+        [
+          -0.068966,
+          0.068966,
+          0.206897,
+          0.344828
+        ],
+        [
+          0.034483,
+          0.206897,
+          0.37931,
+          -0.448276
+        ]
+      ],
+      "values": [
+        [
+          -0.354839,
+          -0.193548,
+          -0.032258,
+          0.129032
+        ],
+        [
+          -0.129032,
+          0.064516,
+          0.258065,
+          0.451613
+        ],
+        [
+          0.096774,
+          0.322581,
+          -0.451613,
+          -0.225806
+        ]
+      ]
+    },
+    "kv_write": {
+      "keys": [
+        [
+          0.275862,
+          -0.137931,
+          0.448276,
+          0.034483
+        ],
+        [
+          0.37931,
+          0.0,
+          -0.37931,
+          0.241379
+        ],
+        [
+          0.482759,
+          0.137931,
+          -0.206897,
+          0.448276
+        ]
+      ],
+      "values": [
+        [
+          -0.193548,
+          0.419355,
+          0.032258,
+          -0.354839
+        ],
+        [
+          0.032258,
+          -0.322581,
+          0.322581,
+          -0.032258
+        ],
+        [
+          0.258065,
+          -0.064516,
+          -0.387097,
+          0.290323
+        ]
+      ]
+    },
+    "reference_output": [
+      [
+        0.028597601,
+        0.072751232,
+        0.016904863,
+        0.0
+      ],
+      [
+        0.086461757,
+        0.106512044,
+        0.035104578,
+        0.0
+      ],
+      [
+        0.052230537,
+        0.0,
+        0.109233365,
+        0.055271183
+      ]
+    ],
+    "stage_output": [
+      [
+        0.028597601,
+        0.072751232,
+        0.016904863,
+        0.0
+      ],
+      [
+        0.086461757,
+        0.106512044,
+        0.035104578,
+        0.0
+      ],
+      [
+        0.052230537,
+        0.0,
+        0.109233365,
+        0.055271183
+      ]
+    ]
+  },
+  "version": 1
+}
