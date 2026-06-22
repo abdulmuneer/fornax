@@ -49,6 +49,11 @@ from fornax.engine_simulation import (
 from fornax.golden import run_golden_plans
 from fornax.g1_review import render_g1_gate_review_draft
 from fornax.io import load_inventory, read_json, write_json
+from fornax.local_accelerator_smoke import (
+    run_local_accelerator_smoke,
+    validate_local_accelerator_smoke,
+    validate_local_accelerator_smoke_fixture,
+)
 from fornax.inventory import build_logical_cluster_inventory
 from fornax.inventory.local import (
     collect_local_inventory,
@@ -581,6 +586,51 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_expert_mlp_probe_fixture(artifact)
         self.assertFalse(result["ok"])
         self.assertIn("correctness_passed", "; ".join(result["errors"]))
+
+
+    def test_local_accelerator_smoke_allows_reference_for_ci(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = run_local_accelerator_smoke(
+                out_dir=d,
+                expert_backend="cpu-stdlib",
+                expert_iterations=1,
+                expert_warmup=0,
+                expert_batch_tokens=1,
+                expert_hidden_dim=4,
+                expert_intermediate_dim=6,
+                expert_count=2,
+                expert_top_k=1,
+                include_activation_transfer=False,
+                require_accelerator=False,
+            )
+            result = validate_local_accelerator_smoke(d)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(bundle["summary"]["local_smoke_passed"])
+        self.assertFalse(bundle["summary"]["expert_accelerator_measured"])
+        self.assertFalse(bundle["summary"]["t2_smoke_passed"])
+        self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+
+    def test_local_accelerator_smoke_rejects_reference_as_required_accelerator(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = run_local_accelerator_smoke(
+                out_dir=d,
+                expert_backend="cpu-stdlib",
+                expert_iterations=1,
+                expert_warmup=0,
+                expert_batch_tokens=1,
+                expert_hidden_dim=4,
+                expert_intermediate_dim=6,
+                expert_count=2,
+                expert_top_k=1,
+                include_activation_transfer=False,
+                require_accelerator=True,
+            )
+            result = validate_local_accelerator_smoke_fixture(bundle)
+        self.assertFalse(bundle["ok"])
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("bundle-policy", text)
+        self.assertIn("t2_smoke_passed", text)
 
 
     def test_cpu_activation_transfer_probe_validates_reference_not_accelerator(self) -> None:

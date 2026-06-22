@@ -49,6 +49,10 @@ from .continuous_batching import (
 )
 from .contracts import load_target_contract
 from .io import load_inventory, load_model_target, read_json, write_json
+from .local_accelerator_smoke import (
+    run_local_accelerator_smoke,
+    validate_local_accelerator_smoke,
+)
 from .planner import plan_placement
 from .preflight import run_phase0_preflight
 from .remote_expert_probe import (
@@ -1300,6 +1304,58 @@ def _cmd_program_simulate_t1(args: argparse.Namespace) -> int:
     return 0 if result["ok"] else 2
 
 
+
+
+def _cmd_program_local_accelerator_smoke(args: argparse.Namespace) -> int:
+    try:
+        result = run_local_accelerator_smoke(
+            out_dir=args.out_dir,
+            torch_python=args.torch_python,
+            expert_backend=args.expert_backend,
+            expert_device=args.expert_device,
+            expert_dtype=args.expert_dtype,
+            expert_iterations=args.expert_iterations,
+            expert_warmup=args.expert_warmup,
+            expert_batch_tokens=args.expert_batch_tokens,
+            expert_hidden_dim=args.expert_hidden_dim,
+            expert_intermediate_dim=args.expert_intermediate_dim,
+            expert_count=args.expert_count,
+            expert_top_k=args.expert_top_k,
+            expert_tolerance=args.expert_tolerance,
+            include_activation_transfer=not args.skip_activation_transfer,
+            transfer_backend=args.transfer_backend,
+            transfer_source_device=args.transfer_source_device,
+            transfer_destination_device=args.transfer_destination_device,
+            transfer_dtype=args.transfer_dtype,
+            transfer_iterations=args.transfer_iterations,
+            transfer_warmup=args.transfer_warmup,
+            transfer_payload_bytes=args.transfer_payload_mib * 1024 * 1024,
+            transfer_tolerance=args.transfer_tolerance,
+            logical_source_host=args.logical_source_host,
+            logical_destination_host=args.logical_destination_host,
+            require_accelerator=not args.allow_reference,
+            timeout_s=args.timeout_s,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program local-accelerator-smoke: {exc}")
+        return 2
+    validation = validate_local_accelerator_smoke(result["artifacts"]["validation"])
+    summary = result["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "local accelerator smoke: "
+        f"bundle={result['bundle']}; "
+        f"checks={summary['passed_count']}/{summary['check_count']} passed; "
+        f"expert_accelerator={summary['expert_accelerator_measured']}; "
+        f"transfer_accelerator={summary['activation_transfer_accelerator_measured']}; "
+        f"gate_evidence={summary['g2_g3_gate_evidence']}"
+        f"{suffix}"
+    )
+    return 0 if validation["ok"] else 2
+
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     if args.requests and args.trace and args.requests != args.trace:
         print("preflight: pass only one of --requests or --trace")
@@ -2301,6 +2357,35 @@ def build_parser() -> argparse.ArgumentParser:
     simulate_t1.add_argument("--microbatch-size", type=int, default=2)
     simulate_t1.add_argument("--timeout-ms", type=float, default=50.0)
     simulate_t1.set_defaults(func=_cmd_program_simulate_t1)
+
+    local_accel = program_sub.add_parser("local-accelerator-smoke")
+    local_accel.add_argument("--out-dir", required=True)
+    local_accel.add_argument("--torch-python")
+    local_accel.add_argument("--expert-backend", choices=["cpu-stdlib", "torch"], default="torch")
+    local_accel.add_argument("--expert-device", default="cuda:0")
+    local_accel.add_argument("--expert-dtype", choices=["float32", "float16", "bfloat16"], default="float16")
+    local_accel.add_argument("--expert-iterations", type=int, default=25)
+    local_accel.add_argument("--expert-warmup", type=int, default=3)
+    local_accel.add_argument("--expert-batch-tokens", type=int, default=8)
+    local_accel.add_argument("--expert-hidden-dim", type=int, default=64)
+    local_accel.add_argument("--expert-intermediate-dim", type=int, default=128)
+    local_accel.add_argument("--expert-count", type=int, default=4)
+    local_accel.add_argument("--expert-top-k", type=int, default=2)
+    local_accel.add_argument("--expert-tolerance", type=float, default=0.1)
+    local_accel.add_argument("--skip-activation-transfer", action="store_true")
+    local_accel.add_argument("--transfer-backend", choices=["cpu-stdlib", "torch"], default="torch")
+    local_accel.add_argument("--transfer-source-device", default="cuda:0")
+    local_accel.add_argument("--transfer-destination-device", default="cuda:1")
+    local_accel.add_argument("--transfer-dtype", choices=["float32", "float16", "bfloat16"], default="float16")
+    local_accel.add_argument("--transfer-iterations", type=int, default=20)
+    local_accel.add_argument("--transfer-warmup", type=int, default=3)
+    local_accel.add_argument("--transfer-payload-mib", type=int, default=16)
+    local_accel.add_argument("--transfer-tolerance", type=float, default=0.0)
+    local_accel.add_argument("--logical-source-host", default="logical-host-0")
+    local_accel.add_argument("--logical-destination-host", default="logical-host-1")
+    local_accel.add_argument("--allow-reference", action="store_true")
+    local_accel.add_argument("--timeout-s", type=float, default=180.0)
+    local_accel.set_defaults(func=_cmd_program_local_accelerator_smoke)
 
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)

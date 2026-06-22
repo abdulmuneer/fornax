@@ -20,7 +20,8 @@ Legend:
 Current validation snapshot:
 - `python3 -m fornax test golden-plans`: 3/3 passed.
 - `python3 -m fornax program simulate-t1 --out-dir /tmp/fornax_todo_status_t1_20260622 --gpu-count 2 --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor 0.65`: 30/30 passed over 2 logical hosts.
-- `python3 -m unittest tests.test_fornax_planner`: 199 tests passed.
+- `python3 -m unittest tests.test_fornax_planner`: 201 tests passed.
+- `python3 -m fornax program local-accelerator-smoke --out-dir /tmp/fornax_local_accelerator_smoke_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --expert-device cuda:0 --transfer-source-device cuda:0 --transfer-destination-device cuda:1 ...`: 3/3 checks passed on local H100s treated as logical hosts; not G2/G3 gate evidence.
 
 ## Milestones
 
@@ -128,7 +129,7 @@ Current validation snapshot:
 
 - [x] T0 Planner/scheduler unit + golden plans. Evidence: `fornax test golden-plans` and unit tests pass.
 - [x] T1 Simulated workers/contracts/backpressure. Evidence: `fornax program simulate-t1` reports 30/30 checks passed over two logical hosts.
-- [ ] T2 Single-node accelerator. Partial: local/external calibration and CPU probe plumbing exist; no complete T2 gate evidence found.
+- [ ] T2 Single-node accelerator. Partial: `fornax program local-accelerator-smoke` exists and a local H100 run passed 3/3 checks with measured expert-MLP and same-host GPU0->GPU1 transfer evidence; target-model parity and formal gate evidence remain open.
 - [ ] T3 2-3 node pipeline. Open: no real 2-3 node pipeline run found.
 - [ ] T4 Full heterogeneous lab. Open: no full lab-reference heterogeneous run found.
 
@@ -172,9 +173,10 @@ Current validation snapshot:
 
 ## Immediate Next Open Items
 
-1. Run or record the rank-1 Apple expert-MLP probe on pinned build, or explicitly demote Apple role for G1.
+1. Continue implementing the WBS simulation-first using two local GPUs as two logical machines; do not block on Mac/AMD availability.
 2. Materialize and review/sign off `v0-target-contract.md` with memory budget, throughput bar, concurrency/persona evidence, and seed acceptance/replacement rationale.
 3. Materialize/review `runtime-format-and-invariants.md`, `networking-security-and-backpressure.md`, and `adr/0001-max-mojo-substrate.md` from the existing generators.
-4. Close the KER/Apple staffing answer and record Sponsor scope acceptance if narrowed.
-5. Prepare DEC-005/G1 gate review from the current preflight/G1-review tooling once the missing evidence above is attached.
-6. After G1, move simulation-complete T1 items into real T2/T3 hardware validation rather than adding more simulated proof for the same scope.
+4. Keep Apple/Mac evidence as a deferred validation lane: run or record the rank-1 Apple expert-MLP probe on pinned build later, or explicitly demote Apple role for G1 when the Sponsor chooses.
+5. Close the KER/Apple staffing answer and record Sponsor scope acceptance if narrowed.
+6. Prepare DEC-005/G1 gate review from the current preflight/G1-review tooling once the missing evidence above is attached.
+7. Continue moving simulation-complete T1 items into local H100 smoke/T2-style validation where this machine can provide real evidence, while preserving the distinction from final T3/T4 heterogeneous lab closure.
