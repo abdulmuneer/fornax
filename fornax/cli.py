@@ -1525,6 +1525,19 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
             backend_mode=args.backend_mode,
             enable_tls=args.enable_tls,
             enable_mtls=args.enable_mtls,
+            include_target_fixture_execution_probe=args.include_target_fixture_execution_probe,
+            target_fixture_execution_backend=args.target_fixture_execution_backend,
+            target_fixture_execution_torch_python=args.target_fixture_execution_torch_python,
+            target_fixture_execution_device=args.target_fixture_execution_device,
+            target_fixture_execution_dtype=args.target_fixture_execution_dtype,
+            target_fixture_execution_iterations=args.target_fixture_execution_iterations,
+            target_fixture_execution_warmup=args.target_fixture_execution_warmup,
+            target_fixture_execution_vocab_size=args.target_fixture_execution_vocab_size,
+            target_fixture_execution_new_tokens=args.target_fixture_execution_new_tokens,
+            target_fixture_execution_stop_token_id=args.target_fixture_execution_stop_token_id,
+            target_fixture_execution_tolerance=args.target_fixture_execution_tolerance,
+            target_fixture_execution_logical_host=args.target_fixture_execution_logical_host,
+            target_fixture_execution_timeout_s=args.target_fixture_execution_timeout_s,
         )
     except (OSError, ValueError) as exc:
         print(f"program local-http-serving-smoke: {exc}")
@@ -1546,6 +1559,7 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
         f"backpressure={summary['backpressure_rejected']}; "
         f"lifecycle={summary['lifecycle_all_released']}; "
         f"target_fixture={summary['target_fixture_parity']}; "
+        f"target_fixture_execution={summary['target_fixture_execution_probe_ok']}; "
         f"plan_reject={summary['plan_integrity_rejected']}; "
         f"target_model_parity={summary['target_model_parity']}; "
         f"gate_evidence={summary['g2_g3_gate_evidence']}"
@@ -2829,6 +2843,19 @@ def build_parser() -> argparse.ArgumentParser:
     local_http_serving.add_argument("--backend-mode", choices=["adapter", "target-fixture"], default="adapter")
     local_http_serving.add_argument("--enable-tls", action="store_true")
     local_http_serving.add_argument("--enable-mtls", action="store_true")
+    local_http_serving.add_argument("--include-target-fixture-execution-probe", action="store_true")
+    local_http_serving.add_argument("--target-fixture-execution-backend", choices=["cpu-stdlib", "torch"], default="cpu-stdlib")
+    local_http_serving.add_argument("--target-fixture-execution-torch-python")
+    local_http_serving.add_argument("--target-fixture-execution-device", default="cuda:0")
+    local_http_serving.add_argument("--target-fixture-execution-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    local_http_serving.add_argument("--target-fixture-execution-iterations", type=int, default=5)
+    local_http_serving.add_argument("--target-fixture-execution-warmup", type=int, default=1)
+    local_http_serving.add_argument("--target-fixture-execution-vocab-size", type=int, default=17)
+    local_http_serving.add_argument("--target-fixture-execution-new-tokens", type=int, default=4)
+    local_http_serving.add_argument("--target-fixture-execution-stop-token-id", type=int, default=9)
+    local_http_serving.add_argument("--target-fixture-execution-tolerance", type=float, default=1e-4)
+    local_http_serving.add_argument("--target-fixture-execution-logical-host", default="logical-host-0")
+    local_http_serving.add_argument("--target-fixture-execution-timeout-s", type=float, default=180.0)
     local_http_serving.add_argument("--timeout-s", type=float, default=5.0)
     local_http_serving.set_defaults(func=_cmd_program_local_http_serving_smoke)
 

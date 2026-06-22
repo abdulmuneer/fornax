@@ -14,6 +14,13 @@ from typing import Any
 
 from .io import read_json, write_json
 from .serving import simulate_serving_adapter, validate_serving_adapter_fixture
+from .target_fixture_probe import (
+    BACKENDS as TARGET_FIXTURE_EXECUTION_BACKENDS,
+    DEFAULT_STOP_TOKEN_ID as TARGET_FIXTURE_EXECUTION_DEFAULT_STOP_TOKEN_ID,
+    DTYPES as TARGET_FIXTURE_EXECUTION_DTYPES,
+    run_target_fixture_execution_probe,
+    validate_target_fixture_execution_probe_fixture,
+)
 
 
 RECORD_KIND = "local-http-serving-smoke"
@@ -1088,6 +1095,19 @@ def run_local_http_serving_smoke(
     backend_mode: str = BACKEND_MODE_ADAPTER,
     enable_tls: bool = False,
     enable_mtls: bool = False,
+    include_target_fixture_execution_probe: bool = False,
+    target_fixture_execution_backend: str = "cpu-stdlib",
+    target_fixture_execution_torch_python: str | None = None,
+    target_fixture_execution_device: str = "cuda:0",
+    target_fixture_execution_dtype: str = "float32",
+    target_fixture_execution_iterations: int = 5,
+    target_fixture_execution_warmup: int = 1,
+    target_fixture_execution_vocab_size: int = 17,
+    target_fixture_execution_new_tokens: int = 4,
+    target_fixture_execution_stop_token_id: int = TARGET_FIXTURE_EXECUTION_DEFAULT_STOP_TOKEN_ID,
+    target_fixture_execution_tolerance: float = 1e-4,
+    target_fixture_execution_logical_host: str = "logical-host-0",
+    target_fixture_execution_timeout_s: float = 180.0,
 ) -> dict[str, Any]:
     if not host or not plan_id or not plan_hash or not request_id or not model or not auth_token:
         raise ValueError("host, plan_id, plan_hash, request_id, model, and auth_token must be non-empty")
@@ -1105,6 +1125,36 @@ def run_local_http_serving_smoke(
         raise ValueError("timeout_s must be a positive number")
     if backend_mode not in BACKEND_MODES:
         raise ValueError(f"backend_mode must be one of {BACKEND_MODES}")
+    if include_target_fixture_execution_probe and backend_mode != BACKEND_MODE_TARGET_FIXTURE:
+        raise ValueError("target fixture execution probe requires backend_mode=target-fixture")
+    if target_fixture_execution_backend not in TARGET_FIXTURE_EXECUTION_BACKENDS:
+        raise ValueError(
+            f"target_fixture_execution_backend must be one of {sorted(TARGET_FIXTURE_EXECUTION_BACKENDS)}"
+        )
+    if target_fixture_execution_dtype not in TARGET_FIXTURE_EXECUTION_DTYPES:
+        raise ValueError(
+            f"target_fixture_execution_dtype must be one of {sorted(TARGET_FIXTURE_EXECUTION_DTYPES)}"
+        )
+    if (
+        isinstance(target_fixture_execution_iterations, bool)
+        or not isinstance(target_fixture_execution_iterations, int)
+        or target_fixture_execution_iterations <= 0
+    ):
+        raise ValueError("target_fixture_execution_iterations must be a positive integer")
+    if (
+        isinstance(target_fixture_execution_warmup, bool)
+        or not isinstance(target_fixture_execution_warmup, int)
+        or target_fixture_execution_warmup < 0
+    ):
+        raise ValueError("target_fixture_execution_warmup must be a non-negative integer")
+    if (
+        isinstance(target_fixture_execution_timeout_s, bool)
+        or not isinstance(target_fixture_execution_timeout_s, (int, float))
+        or target_fixture_execution_timeout_s <= 0
+    ):
+        raise ValueError("target_fixture_execution_timeout_s must be a positive number")
+    if not target_fixture_execution_logical_host:
+        raise ValueError("target_fixture_execution_logical_host must be non-empty")
     if enable_mtls:
         enable_tls = True
 
@@ -1123,6 +1173,13 @@ def run_local_http_serving_smoke(
         "backend_mode": backend_mode,
         "enable_tls": enable_tls,
         "enable_mtls": enable_mtls,
+        "include_target_fixture_execution_probe": include_target_fixture_execution_probe,
+        "target_fixture_execution_backend": target_fixture_execution_backend,
+        "target_fixture_execution_device": target_fixture_execution_device,
+        "target_fixture_execution_dtype": target_fixture_execution_dtype,
+        "target_fixture_execution_iterations": target_fixture_execution_iterations,
+        "target_fixture_execution_warmup": target_fixture_execution_warmup,
+        "target_fixture_execution_logical_host": target_fixture_execution_logical_host,
     }
     server = _SmokeServer((host, port), config)
     server_host, server_port = server.server_address
@@ -1296,6 +1353,27 @@ def run_local_http_serving_smoke(
         thread.join(timeout=float(timeout_s))
         if tls_tempdir is not None:
             tls_tempdir.cleanup()
+    target_fixture_execution_probe: dict[str, Any] | None = None
+    target_fixture_execution_validation: dict[str, Any] | None = None
+    if include_target_fixture_execution_probe:
+        target_fixture_execution_probe = run_target_fixture_execution_probe(
+            backend=target_fixture_execution_backend,
+            torch_python=target_fixture_execution_torch_python,
+            device=target_fixture_execution_device,
+            dtype=target_fixture_execution_dtype,
+            iterations=target_fixture_execution_iterations,
+            warmup=target_fixture_execution_warmup,
+            vocab_size=target_fixture_execution_vocab_size,
+            new_tokens=target_fixture_execution_new_tokens,
+            stop_token_id=target_fixture_execution_stop_token_id,
+            tolerance=target_fixture_execution_tolerance,
+            logical_host=target_fixture_execution_logical_host,
+            timeout_s=target_fixture_execution_timeout_s,
+        )
+        target_fixture_execution_validation = validate_target_fixture_execution_probe_fixture(
+            target_fixture_execution_probe
+        )
+
     backend_summary = server.backend.summary()
     elapsed_ns = time.perf_counter_ns() - started_ns
 
@@ -1382,6 +1460,20 @@ def run_local_http_serving_smoke(
         and target_fixture_summary.get("real_frontier_model_loaded") is False
         and target_fixture_summary.get("real_frontier_model_parity") is False
     )
+    target_fixture_execution_summary = (
+        target_fixture_execution_validation.get("summary", {})
+        if isinstance(target_fixture_execution_validation, dict)
+        else {}
+    )
+    target_fixture_execution_ok = (
+        not include_target_fixture_execution_probe
+        or (
+            isinstance(target_fixture_execution_validation, dict)
+            and target_fixture_execution_validation.get("ok") is True
+            and target_fixture_execution_summary.get("measured") is True
+            and target_fixture_execution_summary.get("real_frontier_model") is False
+        )
+    )
     backend_target_ok = target_fixture_ok if target_fixture_enabled else (
         backend_summary.get("target_model_loaded") is False
         and backend_summary.get("target_model_parity") is False
@@ -1420,6 +1512,14 @@ def run_local_http_serving_smoke(
         {"name": "admitted-cancel-cleanup", "ok": cancel_ok, "errors": [] if cancel_ok else ["admitted cancellation cleanup invalid"], "warnings": ["local admitted cancellation is not distributed partition or client-disconnect evidence"]},
         {"name": "lifecycle-cleanup", "ok": lifecycle_ok, "errors": [] if lifecycle_ok else ["lifecycle cleanup invalid"], "warnings": []},
         *([{"name": "target-fixture-parity", "ok": target_fixture_ok, "errors": [] if target_fixture_ok else ["target fixture parity invalid"], "warnings": ["local target fixture parity is not real frontier model parity"]}] if target_fixture_enabled else []),
+        *([
+            {
+                "name": "target-fixture-execution-probe",
+                "ok": target_fixture_execution_ok,
+                "errors": [] if target_fixture_execution_ok else ["target fixture execution probe invalid"],
+                "warnings": ["target fixture execution probe is not real frontier target-model parity"],
+            }
+        ] if include_target_fixture_execution_probe else []),
         {"name": "non-stream-http", "ok": non_stream_ok, "errors": [] if non_stream_ok else ["non-stream HTTP response invalid"], "warnings": []},
         {"name": "stream-sse", "ok": stream_ok, "errors": [] if stream_ok else ["SSE stream response invalid"], "warnings": []},
         {"name": "plan-integrity-reject", "ok": plan_reject_ok, "errors": [] if plan_reject_ok else ["plan integrity rejection invalid"], "warnings": []},
@@ -1478,6 +1578,16 @@ def run_local_http_serving_smoke(
         "target_fixture_non_stream_matches_stream": target_fixture_summary.get("non_stream_matches_stream") if isinstance(target_fixture_summary, dict) else False,
         "target_fixture_template_hash": target_fixture_summary.get("template_hash") if isinstance(target_fixture_summary, dict) else None,
         "target_fixture_tokenizer_hash": target_fixture_summary.get("tokenizer_hash") if isinstance(target_fixture_summary, dict) else None,
+        "target_fixture_execution_probe_included": include_target_fixture_execution_probe,
+        "target_fixture_execution_probe_ok": target_fixture_execution_ok if include_target_fixture_execution_probe else False,
+        "target_fixture_execution_backend": target_fixture_execution_summary.get("backend"),
+        "target_fixture_execution_accelerator_measured": target_fixture_execution_summary.get("accelerator_measured") is True,
+        "target_fixture_execution_device": target_fixture_execution_summary.get("device"),
+        "target_fixture_execution_logical_host": target_fixture_execution_summary.get("logical_host"),
+        "target_fixture_execution_generated_text": target_fixture_execution_summary.get("generated_text"),
+        "target_fixture_execution_tokens_s": target_fixture_execution_summary.get("tokens_s"),
+        "target_fixture_execution_max_abs_error": target_fixture_execution_summary.get("max_abs_error"),
+        "target_fixture_execution_real_frontier_model": target_fixture_execution_summary.get("real_frontier_model") if include_target_fixture_execution_probe else False,
         "real_frontier_model_loaded": False,
         "real_frontier_model_parity": False,
         "elapsed_s": elapsed_ns / 1_000_000_000.0,
@@ -1564,6 +1674,8 @@ def run_local_http_serving_smoke(
         "lifecycle": lifecycle_summary,
         "backend": backend_summary,
         "target_fixture": target_fixture_summary,
+        "target_fixture_execution_probe": target_fixture_execution_probe,
+        "target_fixture_execution_validation": target_fixture_execution_validation,
         "serving_adapter": adapter,
         "responses": {
             "non_stream": non_stream,
@@ -1585,7 +1697,8 @@ def run_local_http_serving_smoke(
             "rejection, local bearer-token auth rejection, deterministic "
             "backpressure rejection, admitted cancellation cleanup, and local lifecycle cleanup. When target-fixture "
             "mode is enabled, it also proves deterministic local fixture loading and "
-            "non-stream/stream parity only. TLS mode uses a local self-signed fixture "
+            "non-stream/stream parity only. When target-fixture execution probe mode is enabled, "
+            "it records measured local fixture execution only. TLS mode uses a local self-signed fixture "
             "certificate with client verification; mTLS mode additionally requires a local "
             "client certificate and records the peer identity. It is not product auth/mTLS, real frontier "
             "multi-host serving, or G2/G3 closure evidence."
@@ -1685,6 +1798,44 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("backend.target_model_parity must be false")
         if target_fixture is not None:
             errors.append("target_fixture must be null unless target-fixture mode is enabled")
+    target_fixture_execution_probe_included = summary.get("target_fixture_execution_probe_included") is True
+    target_fixture_execution_probe = data.get("target_fixture_execution_probe")
+    target_fixture_execution_validation = data.get("target_fixture_execution_validation")
+    if target_fixture_execution_probe_included:
+        if not target_fixture_enabled:
+            errors.append("target fixture execution probe requires target-fixture backend mode")
+        if not isinstance(target_fixture_execution_probe, dict):
+            errors.append("target_fixture_execution_probe must be an object when included")
+            target_fixture_execution_probe = {}
+        probe_validation = validate_target_fixture_execution_probe_fixture(target_fixture_execution_probe)
+        errors.extend(f"target_fixture_execution_probe: {error}" for error in probe_validation["errors"])
+        warnings.extend(f"target_fixture_execution_probe: {warning}" for warning in probe_validation["warnings"])
+        probe_summary = probe_validation.get("summary", {})
+        if summary.get("target_fixture_execution_probe_ok") is not True:
+            errors.append("summary.target_fixture_execution_probe_ok must be true when included")
+        if summary.get("target_fixture_execution_backend") != probe_summary.get("backend"):
+            errors.append("summary.target_fixture_execution_backend must match probe backend")
+        if summary.get("target_fixture_execution_device") != probe_summary.get("device"):
+            errors.append("summary.target_fixture_execution_device must match probe device")
+        if summary.get("target_fixture_execution_logical_host") != probe_summary.get("logical_host"):
+            errors.append("summary.target_fixture_execution_logical_host must match probe logical host")
+        if summary.get("target_fixture_execution_generated_text") != probe_summary.get("generated_text"):
+            errors.append("summary.target_fixture_execution_generated_text must match probe generated text")
+        if summary.get("target_fixture_execution_real_frontier_model") is not False:
+            errors.append("summary.target_fixture_execution_real_frontier_model must be false")
+        if not isinstance(target_fixture_execution_validation, dict):
+            errors.append("target_fixture_execution_validation must be an object when included")
+        elif target_fixture_execution_validation.get("ok") is not True:
+            errors.append("target_fixture_execution_validation.ok must be true when included")
+    else:
+        if summary.get("target_fixture_execution_probe_included") is not False:
+            errors.append("summary.target_fixture_execution_probe_included must be false when omitted")
+        if summary.get("target_fixture_execution_probe_ok") is not False:
+            errors.append("summary.target_fixture_execution_probe_ok must be false when omitted")
+        if target_fixture_execution_probe is not None:
+            errors.append("target_fixture_execution_probe must be null unless included")
+        if target_fixture_execution_validation is not None:
+            errors.append("target_fixture_execution_validation must be null unless included")
     config = data.get("config")
     if isinstance(config, dict) and "auth_token" in config:
         errors.append("config.auth_token must be redacted")
@@ -1895,6 +2046,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("checks must include local-tls-handshake when TLS is enabled")
     if mtls_enabled and "local-mtls-node-identity" not in check_names:
         errors.append("checks must include local-mtls-node-identity when mTLS is enabled")
+    if target_fixture_execution_probe_included and "target-fixture-execution-probe" not in check_names:
+        errors.append("checks must include target-fixture-execution-probe when included")
     if "admitted-cancel-cleanup" not in check_names:
         errors.append("checks must include admitted-cancel-cleanup")
     passed_count = sum(1 for check in checks if isinstance(check, dict) and check.get("ok") is True)
@@ -2006,6 +2159,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         check_names = {check.get("name") for check in checks if isinstance(check, dict)}
         if "target-fixture-parity" not in check_names:
             errors.append("checks must include target-fixture-parity in target-fixture mode")
+        if summary.get("target_fixture_execution_probe_included") is True and summary.get("target_fixture_execution_probe_ok") is not True:
+            errors.append("summary.target_fixture_execution_probe_ok must be true when execution probe is included")
     if not target_fixture_enabled:
         if summary.get("backend_target_model_loaded") is not False:
             errors.append("summary.backend_target_model_loaded must be false")
@@ -2077,6 +2232,11 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "engine_result_emitted": summary.get("engine_result_emitted") is True,
             "backend_target_model_loaded": summary.get("backend_target_model_loaded") is True,
             "target_fixture_parity": summary.get("target_fixture_parity") is True,
+            "target_fixture_execution_probe_included": summary.get("target_fixture_execution_probe_included") is True,
+            "target_fixture_execution_probe_ok": summary.get("target_fixture_execution_probe_ok") is True,
+            "target_fixture_execution_accelerator_measured": summary.get("target_fixture_execution_accelerator_measured") is True,
+            "target_fixture_execution_generated_text": summary.get("target_fixture_execution_generated_text"),
+            "target_fixture_execution_real_frontier_model": summary.get("target_fixture_execution_real_frontier_model"),
             "real_frontier_model_parity": summary.get("real_frontier_model_parity") is True,
             "live_http_endpoint": summary.get("live_http_endpoint") is True,
             "target_model_parity": summary.get("target_model_parity") is True,
