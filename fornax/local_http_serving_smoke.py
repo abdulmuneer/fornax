@@ -524,6 +524,7 @@ class _SmokeServer(ThreadingHTTPServer):
         self._lifecycle_accepted: set[str] = set()
         self._lifecycle_cleanup_count = 0
         self._lifecycle_rejected_count = 0
+        self._lifecycle_cancelled_count = 0
         self.lifecycle_events: list[dict[str, Any]] = []
         self._mtls_lock = threading.Lock()
         self._mtls_peer_subjects: list[str] = []
@@ -671,6 +672,26 @@ class _SmokeServer(ThreadingHTTPServer):
             )
             return request_label
 
+    def record_cancellation(self, request_label: str, reason: str) -> None:
+        with self._lifecycle_lock:
+            self._lifecycle_cancelled_count += 1
+            self._append_lifecycle_event(
+                kind="request_cancelled",
+                request_label=request_label,
+                resource_kind="request_envelope",
+                owner="serving_gateway",
+                state="cancelled",
+                reason=reason,
+            )
+            self._append_lifecycle_event(
+                kind="scheduler_cancelled",
+                request_label=request_label,
+                resource_kind="scheduler_slot",
+                owner="scheduler",
+                state="cancelled",
+                reason="local smoke cancellation propagated before backend execution",
+            )
+
     def release_lifecycle(self, request_label: str) -> None:
         with self._lifecycle_lock:
             released_any = False
@@ -696,6 +717,7 @@ class _SmokeServer(ThreadingHTTPServer):
             active_resource_count = len(self._lifecycle_active_resources)
             accepted_request_count = len(self._lifecycle_accepted)
             rejected_request_count = self._lifecycle_rejected_count
+            cancelled_request_count = self._lifecycle_cancelled_count
             cleanup_count = self._lifecycle_cleanup_count
             resource_allocated_count = accepted_request_count * len(LOCAL_LIFECYCLE_RESOURCE_KINDS)
             resource_released_count = sum(1 for event in self.lifecycle_events if event["kind"] == "cleanup")
@@ -706,6 +728,7 @@ class _SmokeServer(ThreadingHTTPServer):
             "event_count": event_count,
             "accepted_request_count": accepted_request_count,
             "rejected_request_count": rejected_request_count,
+            "cancelled_request_count": cancelled_request_count,
             "cleanup_count": cleanup_count,
             "resource_allocated_count": resource_allocated_count,
             "resource_released_count": resource_released_count,
@@ -811,6 +834,7 @@ class _SmokeHandler(BaseHTTPRequestHandler):
         max_tokens = int(request.get("max_tokens", config["max_tokens"]))
         model = str(request.get("model", config["model"]))
         simulate_work_ms = max(0, int(request.get("simulate_work_ms", 0)))
+        simulate_cancel_after_admit = request.get("simulate_cancel_after_admit") is True
         if not self.server.try_admit():
             self.server.record_rejection("backpressure_queue_full")
             self._json_response(
@@ -827,6 +851,23 @@ class _SmokeHandler(BaseHTTPRequestHandler):
             return
         request_label = self.server.allocate_lifecycle(stream=stream)
         try:
+            if simulate_cancel_after_admit:
+                self.server.record_cancellation(
+                    request_label,
+                    "local smoke request cancelled after admission and before backend execution",
+                )
+                self._json_response(
+                    409,
+                    {
+                        "error": {
+                            "type": "cancelled_error",
+                            "code": "request_cancelled",
+                            "message": "Local smoke request was cancelled after admission before backend execution.",
+                        },
+                        "cancelled": True,
+                    },
+                )
+                return
             if simulate_work_ms:
                 time.sleep(simulate_work_ms / 1000.0)
             adapter = self.server.backend.complete(
@@ -1168,6 +1209,21 @@ def run_local_http_serving_smoke(
             if enable_mtls
             else None
         )
+        cancel_after_admit = _post_json(
+            endpoint,
+            {
+                "model": model,
+                "messages": adapter["openai_request"]["messages"],
+                "max_tokens": max_tokens,
+                "stream": False,
+                "simulate_cancel_after_admit": True,
+            },
+            plan_id=plan_id,
+            plan_hash=plan_hash,
+            auth_token=auth_token,
+            timeout_s=float(timeout_s),
+            ssl_context=client_ssl_context,
+        )
         backpressure_holders: list[dict[str, Any]] = []
         backpressure_errors: list[BaseException] = []
         holder_lock = threading.Lock()
@@ -1270,7 +1326,10 @@ def run_local_http_serving_smoke(
     lifecycle_summary = server.lifecycle_summary()
     mtls_summary = server.mtls_summary()
     expected_backend_request_count = 2 + max_inflight
-    expected_endpoint_request_count = expected_backend_request_count + 4
+    expected_cancelled_request_count = 1
+    expected_lifecycle_request_count = expected_backend_request_count + expected_cancelled_request_count
+    expected_rejected_request_count = 4
+    expected_endpoint_request_count = expected_lifecycle_request_count + expected_rejected_request_count
     backpressure_holder_ok = (
         inflight_observed
         and len(backpressure_holders) == max_inflight
@@ -1287,11 +1346,18 @@ def run_local_http_serving_smoke(
         and backpressure_summary.get("max_observed_inflight") == max_inflight
         and backpressure_summary.get("current_inflight") == 0
     )
+    cancel_ok = (
+        cancel_after_admit.get("status") == 409
+        and cancel_after_admit.get("body", {}).get("error", {}).get("code") == "request_cancelled"
+        and cancel_after_admit.get("body", {}).get("cancelled") is True
+        and lifecycle_summary.get("cancelled_request_count") == expected_cancelled_request_count
+    )
     lifecycle_ok = (
-        lifecycle_summary.get("accepted_request_count") == expected_backend_request_count
-        and lifecycle_summary.get("rejected_request_count") == 4
-        and lifecycle_summary.get("cleanup_count") == expected_backend_request_count
-        and lifecycle_summary.get("resource_allocated_count") == expected_backend_request_count * len(LOCAL_LIFECYCLE_RESOURCE_KINDS)
+        lifecycle_summary.get("accepted_request_count") == expected_lifecycle_request_count
+        and lifecycle_summary.get("rejected_request_count") == expected_rejected_request_count
+        and lifecycle_summary.get("cancelled_request_count") == expected_cancelled_request_count
+        and lifecycle_summary.get("cleanup_count") == expected_lifecycle_request_count
+        and lifecycle_summary.get("resource_allocated_count") == expected_lifecycle_request_count * len(LOCAL_LIFECYCLE_RESOURCE_KINDS)
         and lifecycle_summary.get("resource_released_count") == lifecycle_summary.get("resource_allocated_count")
         and lifecycle_summary.get("active_resource_count") == 0
         and lifecycle_summary.get("all_required_resources_released") is True
@@ -1351,6 +1417,7 @@ def run_local_http_serving_smoke(
         *([{"name": "local-tls-handshake", "ok": tls_ok, "errors": [] if tls_ok else ["local TLS handshake invalid"], "warnings": ["local self-signed TLS is not product TLS/mTLS evidence"]}] if enable_tls else []),
         *([{"name": "local-mtls-node-identity", "ok": mtls_ok, "errors": [] if mtls_ok else ["local mTLS node identity invalid"], "warnings": ["local mTLS client identity is not production node identity evidence"]}] if enable_mtls else []),
         {"name": "backpressure-reject", "ok": backpressure_reject_ok and backpressure_holder_ok, "errors": [] if backpressure_reject_ok and backpressure_holder_ok else ["backpressure rejection invalid"], "warnings": []},
+        {"name": "admitted-cancel-cleanup", "ok": cancel_ok, "errors": [] if cancel_ok else ["admitted cancellation cleanup invalid"], "warnings": ["local admitted cancellation is not distributed partition or client-disconnect evidence"]},
         {"name": "lifecycle-cleanup", "ok": lifecycle_ok, "errors": [] if lifecycle_ok else ["lifecycle cleanup invalid"], "warnings": []},
         *([{"name": "target-fixture-parity", "ok": target_fixture_ok, "errors": [] if target_fixture_ok else ["target fixture parity invalid"], "warnings": ["local target fixture parity is not real frontier model parity"]}] if target_fixture_enabled else []),
         {"name": "non-stream-http", "ok": non_stream_ok, "errors": [] if non_stream_ok else ["non-stream HTTP response invalid"], "warnings": []},
@@ -1382,10 +1449,14 @@ def run_local_http_serving_smoke(
         "max_observed_inflight": backpressure_summary.get("max_observed_inflight"),
         "backpressure_reject_count": backpressure_summary.get("backpressure_reject_count"),
         "inflight_cleanup_count": backpressure_summary.get("inflight_cleanup_count"),
-        "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok,
+        "cancel_after_admit_status": cancel_after_admit.get("status"),
+        "request_cancelled_after_admit": cancel_ok,
+        "request_cancelled_before_backend": cancel_ok,
+        "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok and cancel_ok,
         "lifecycle_tracked": True,
         "lifecycle_request_count": lifecycle_summary.get("accepted_request_count"),
         "lifecycle_rejected_request_count": lifecycle_summary.get("rejected_request_count"),
+        "lifecycle_cancelled_request_count": lifecycle_summary.get("cancelled_request_count"),
         "lifecycle_cleanup_count": lifecycle_summary.get("cleanup_count"),
         "lifecycle_resource_allocated_count": lifecycle_summary.get("resource_allocated_count"),
         "lifecycle_resource_released_count": lifecycle_summary.get("resource_released_count"),
@@ -1465,6 +1536,15 @@ def run_local_http_serving_smoke(
             "private_key_redacted": True,
             "production_tls": False,
         },
+        "failure_semantics": {
+            "mode": "local-http-failure-semantics-smoke",
+            "backpressure_rejected": backpressure_reject_ok and backpressure_holder_ok,
+            "cancel_after_admit_verified": cancel_ok,
+            "cancelled_before_backend": cancel_ok,
+            "cancelled_request_count": lifecycle_summary.get("cancelled_request_count"),
+            "production_partition_evidence": False,
+            "distributed_cancel_evidence": False,
+        },
         "mtls": {
             "enabled": enable_mtls,
             "mode": "local-mutual-tls" if enable_mtls else "disabled",
@@ -1492,6 +1572,7 @@ def run_local_http_serving_smoke(
             "mtls_reject": mtls_reject,
             "backpressure_holders": backpressure_holders,
             "backpressure_reject": backpressure_reject,
+            "cancel_after_admit": cancel_after_admit,
             "plan_reject": plan_reject,
             "bad_path": bad_path,
         },
@@ -1502,7 +1583,7 @@ def run_local_http_serving_smoke(
             "Local HTTP/SSE serving smoke for the OpenAI-compatible endpoint path. "
             "This proves local endpoint request/response behavior, plan-integrity "
             "rejection, local bearer-token auth rejection, deterministic "
-            "backpressure rejection, and local lifecycle cleanup. When target-fixture "
+            "backpressure rejection, admitted cancellation cleanup, and local lifecycle cleanup. When target-fixture "
             "mode is enabled, it also proves deterministic local fixture loading and "
             "non-stream/stream parity only. TLS mode uses a local self-signed fixture "
             "certificate with client verification; mTLS mode additionally requires a local "
@@ -1549,6 +1630,12 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         summary = {}
     max_inflight = summary.get("max_inflight")
     expected_backend_request_count = 2 + max_inflight if isinstance(max_inflight, int) and not isinstance(max_inflight, bool) and max_inflight > 0 else None
+    expected_cancelled_request_count = 1 if expected_backend_request_count is not None else None
+    expected_lifecycle_request_count = (
+        expected_backend_request_count + expected_cancelled_request_count
+        if expected_backend_request_count is not None and expected_cancelled_request_count is not None
+        else None
+    )
     if expected_backend_request_count is None:
         errors.append("summary.max_inflight must be a positive integer")
     elif backend.get("request_count") != expected_backend_request_count:
@@ -1726,6 +1813,22 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("mtls.mode must be disabled when mTLS is disabled")
     if mtls.get("production_mtls") is not False:
         errors.append("mtls.production_mtls must be false")
+    failure_semantics = data.get("failure_semantics")
+    if not isinstance(failure_semantics, dict):
+        errors.append("failure_semantics must be an object")
+        failure_semantics = {}
+    if failure_semantics.get("mode") != "local-http-failure-semantics-smoke":
+        errors.append("failure_semantics.mode must be local-http-failure-semantics-smoke")
+    if failure_semantics.get("backpressure_rejected") is not True:
+        errors.append("failure_semantics.backpressure_rejected must be true")
+    if failure_semantics.get("cancel_after_admit_verified") is not True:
+        errors.append("failure_semantics.cancel_after_admit_verified must be true")
+    if failure_semantics.get("cancelled_before_backend") is not True:
+        errors.append("failure_semantics.cancelled_before_backend must be true")
+    if failure_semantics.get("production_partition_evidence") is not False:
+        errors.append("failure_semantics.production_partition_evidence must be false")
+    if failure_semantics.get("distributed_cancel_evidence") is not False:
+        errors.append("failure_semantics.distributed_cancel_evidence must be false")
     responses = data.get("responses")
     if not isinstance(responses, dict):
         errors.append("responses must be an object")
@@ -1765,6 +1868,16 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("responses.backpressure_reject.status must be 429")
         if backpressure_reject.get("body", {}).get("error", {}).get("code") != "backpressure_queue_full":
             errors.append("responses.backpressure_reject error code must be backpressure_queue_full")
+    cancel_after_admit = responses.get("cancel_after_admit") if isinstance(responses, dict) else None
+    if not isinstance(cancel_after_admit, dict):
+        errors.append("responses.cancel_after_admit must be an object")
+    else:
+        if cancel_after_admit.get("status") != 409:
+            errors.append("responses.cancel_after_admit.status must be 409")
+        if cancel_after_admit.get("body", {}).get("error", {}).get("code") != "request_cancelled":
+            errors.append("responses.cancel_after_admit error code must be request_cancelled")
+        if cancel_after_admit.get("body", {}).get("cancelled") is not True:
+            errors.append("responses.cancel_after_admit.cancelled must be true")
     checks = data.get("checks")
     if not isinstance(checks, list) or not checks:
         errors.append("checks must be a non-empty list")
@@ -1782,6 +1895,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("checks must include local-tls-handshake when TLS is enabled")
     if mtls_enabled and "local-mtls-node-identity" not in check_names:
         errors.append("checks must include local-mtls-node-identity when mTLS is enabled")
+    if "admitted-cancel-cleanup" not in check_names:
+        errors.append("checks must include admitted-cancel-cleanup")
     passed_count = sum(1 for check in checks if isinstance(check, dict) and check.get("ok") is True)
     if summary.get("check_count") != len(checks):
         errors.append("summary.check_count must match checks")
@@ -1815,20 +1930,28 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.max_observed_inflight must match summary.max_inflight")
     if summary.get("backpressure_reject_count") != 1:
         errors.append("summary.backpressure_reject_count must be 1")
-    if expected_backend_request_count is not None and summary.get("inflight_cleanup_count") != expected_backend_request_count:
-        errors.append(f"summary.inflight_cleanup_count must be {expected_backend_request_count}")
+    if expected_lifecycle_request_count is not None and summary.get("inflight_cleanup_count") != expected_lifecycle_request_count:
+        errors.append(f"summary.inflight_cleanup_count must be {expected_lifecycle_request_count}")
+    if summary.get("cancel_after_admit_status") != 409:
+        errors.append("summary.cancel_after_admit_status must be 409")
+    if summary.get("request_cancelled_after_admit") is not True:
+        errors.append("summary.request_cancelled_after_admit must be true")
+    if summary.get("request_cancelled_before_backend") is not True:
+        errors.append("summary.request_cancelled_before_backend must be true")
     if summary.get("failure_semantics_verified") is not True:
         errors.append("summary.failure_semantics_verified must be true")
-    if expected_backend_request_count is not None:
-        expected_resource_count = expected_backend_request_count * len(LOCAL_LIFECYCLE_RESOURCE_KINDS)
+    if expected_lifecycle_request_count is not None:
+        expected_resource_count = expected_lifecycle_request_count * len(LOCAL_LIFECYCLE_RESOURCE_KINDS)
         if summary.get("lifecycle_tracked") is not True:
             errors.append("summary.lifecycle_tracked must be true")
-        if summary.get("lifecycle_request_count") != expected_backend_request_count:
-            errors.append(f"summary.lifecycle_request_count must be {expected_backend_request_count}")
+        if summary.get("lifecycle_request_count") != expected_lifecycle_request_count:
+            errors.append(f"summary.lifecycle_request_count must be {expected_lifecycle_request_count}")
         if summary.get("lifecycle_rejected_request_count") != 4:
             errors.append("summary.lifecycle_rejected_request_count must be 4")
-        if summary.get("lifecycle_cleanup_count") != expected_backend_request_count:
-            errors.append(f"summary.lifecycle_cleanup_count must be {expected_backend_request_count}")
+        if summary.get("lifecycle_cancelled_request_count") != expected_cancelled_request_count:
+            errors.append(f"summary.lifecycle_cancelled_request_count must be {expected_cancelled_request_count}")
+        if summary.get("lifecycle_cleanup_count") != expected_lifecycle_request_count:
+            errors.append(f"summary.lifecycle_cleanup_count must be {expected_lifecycle_request_count}")
         if summary.get("lifecycle_resource_allocated_count") != expected_resource_count:
             errors.append(f"summary.lifecycle_resource_allocated_count must be {expected_resource_count}")
         if summary.get("lifecycle_resource_released_count") != expected_resource_count:
@@ -1839,12 +1962,14 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("summary.lifecycle_all_released must be true")
         if summary.get("lifecycle_single_owner_preserved") is not True:
             errors.append("summary.lifecycle_single_owner_preserved must be true")
-        if lifecycle.get("accepted_request_count") != expected_backend_request_count:
-            errors.append(f"lifecycle.accepted_request_count must be {expected_backend_request_count}")
+        if lifecycle.get("accepted_request_count") != expected_lifecycle_request_count:
+            errors.append(f"lifecycle.accepted_request_count must be {expected_lifecycle_request_count}")
         if lifecycle.get("rejected_request_count") != 4:
             errors.append("lifecycle.rejected_request_count must be 4")
-        if lifecycle.get("cleanup_count") != expected_backend_request_count:
-            errors.append(f"lifecycle.cleanup_count must be {expected_backend_request_count}")
+        if lifecycle.get("cancelled_request_count") != expected_cancelled_request_count:
+            errors.append(f"lifecycle.cancelled_request_count must be {expected_cancelled_request_count}")
+        if lifecycle.get("cleanup_count") != expected_lifecycle_request_count:
+            errors.append(f"lifecycle.cleanup_count must be {expected_lifecycle_request_count}")
         if lifecycle.get("resource_allocated_count") != expected_resource_count:
             errors.append(f"lifecycle.resource_allocated_count must be {expected_resource_count}")
         if lifecycle.get("resource_released_count") != expected_resource_count:
@@ -1938,9 +2063,12 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "production_mtls_enabled": summary.get("production_mtls_enabled") is False,
             "backpressure_rejected": summary.get("backpressure_rejected") is True,
             "backpressure_reject_count": summary.get("backpressure_reject_count"),
+            "request_cancelled_after_admit": summary.get("request_cancelled_after_admit") is True,
+            "request_cancelled_before_backend": summary.get("request_cancelled_before_backend") is True,
             "failure_semantics_verified": summary.get("failure_semantics_verified") is True,
             "lifecycle_tracked": summary.get("lifecycle_tracked") is True,
             "lifecycle_request_count": summary.get("lifecycle_request_count"),
+            "lifecycle_cancelled_request_count": summary.get("lifecycle_cancelled_request_count"),
             "lifecycle_all_released": summary.get("lifecycle_all_released") is True,
             "plan_integrity_rejected": summary.get("plan_integrity_rejected") is True,
             "fornax_backend_integrated": summary.get("fornax_backend_integrated") is True,
