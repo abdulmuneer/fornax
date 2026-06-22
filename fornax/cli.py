@@ -86,6 +86,10 @@ from .pipeline_probe import (
     validate_pipeline_correctness_probe,
 )
 from .observability import validate_observability_contract
+from .onboarding import (
+    simulate_onboarding_methodology,
+    validate_onboarding_methodology,
+)
 from .ops_lifecycle import (
     simulate_ops_lifecycle,
     validate_ops_lifecycle,
@@ -609,6 +613,29 @@ def _cmd_ops_lifecycle_simulate(args: argparse.Namespace) -> int:
         f"dropped={summary['dropped_in_flight_count']} "
         f"rollback={summary['rollback_verified']} "
         f"node_replace={summary['node_replace_verified']}"
+    )
+    return 0
+
+
+def _cmd_ops_onboarding_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_onboarding_methodology(
+            plan_id=args.plan_id,
+            package_id=args.package_id,
+            benchmark_id=args.benchmark_id,
+        )
+    except ValueError as exc:
+        print(f"ops onboarding-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "ops onboarding-simulate: "
+        f"tracks={summary['track_count']} "
+        f"docs={summary['document_count']} "
+        f"glossary={summary['glossary_term_count']} "
+        f"lab_reference={summary['lab_reference_required']} "
+        f"product_ga={summary['product_ga_complete']}"
     )
     return 0
 
@@ -1647,6 +1674,28 @@ def _cmd_test_ops_lifecycle(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_onboarding_methodology(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/onboarding_methodology"
+    result = validate_onboarding_methodology(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS onboarding-methodology: {fixture} "
+            f"tracks={summary['track_count']} "
+            f"docs={summary['document_count']} "
+            f"glossary={summary['glossary_term_count']} "
+            f"lab_reference={summary['lab_reference_required']} "
+            f"product_ga={summary['product_ga_complete']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL onboarding-methodology: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_throughput_scaling(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/throughput_scaling"
     result = validate_throughput_scaling(fixture)
@@ -1754,6 +1803,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_resilience_replay(args)
     if args.test_name == "ops-lifecycle":
         return _cmd_test_ops_lifecycle(args)
+    if args.test_name == "onboarding-methodology":
+        return _cmd_test_onboarding_methodology(args)
     if args.test_name == "backend-coverage":
         return _cmd_test_backend_coverage(args)
     if args.test_name == "benchmark-ledger":
@@ -2088,6 +2139,13 @@ def build_parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--in-flight-requests", type=int, default=4)
     lifecycle.set_defaults(func=_cmd_ops_lifecycle_simulate)
 
+    onboarding = ops_sub.add_parser("onboarding-simulate")
+    onboarding.add_argument("--out", required=True)
+    onboarding.add_argument("--plan-id", default="onboarding-methodology-plan")
+    onboarding.add_argument("--package-id", default="fornax-operator-onboarding")
+    onboarding.add_argument("--benchmark-id", default="fornax-benchmark-of-record-methodology")
+    onboarding.set_defaults(func=_cmd_ops_onboarding_simulate)
+
     scheduler = sub.add_parser("scheduler")
     scheduler_sub = scheduler.add_subparsers(dest="scheduler_command", required=True)
     scheduler_simulate = scheduler_sub.add_parser("simulate")
@@ -2348,6 +2406,7 @@ def build_parser() -> argparse.ArgumentParser:
             "stage-replication",
             "resilience-replay",
             "ops-lifecycle",
+            "onboarding-methodology",
             "backend-coverage",
             "benchmark-ledger",
             "expert-mlp-probe",

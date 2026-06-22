@@ -84,6 +84,11 @@ from fornax.observability import (
     validate_observability_contract,
     validate_observability_fixture,
 )
+from fornax.onboarding import (
+    simulate_onboarding_methodology,
+    validate_onboarding_methodology,
+    validate_onboarding_methodology_fixture,
+)
 from fornax.ops_lifecycle import (
     simulate_ops_lifecycle,
     validate_ops_lifecycle,
@@ -1064,8 +1069,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(24, result["summary"]["check_count"])
-        self.assertEqual(24, result["summary"]["passed_count"])
+        self.assertEqual(25, result["summary"]["check_count"])
+        self.assertEqual(25, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1081,6 +1086,7 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("stage-replication", {check["name"] for check in validation["checks"]})
         self.assertIn("resilience-replay", {check["name"] for check in validation["checks"]})
         self.assertIn("ops-lifecycle", {check["name"] for check in validation["checks"]})
+        self.assertIn("onboarding-methodology", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-migration", {check["name"] for check in validation["checks"]})
         self.assertIn("remote-expert-batch", {check["name"] for check in validation["checks"]})
@@ -1632,6 +1638,57 @@ class FornaxPlannerTest(unittest.TestCase):
         text = "; ".join(result["errors"])
         self.assertIn("model.yaml", text)
         self.assertIn("config_artifacts_present", text)
+
+    def test_onboarding_methodology_fixture_passes(self) -> None:
+        result = validate_onboarding_methodology("fornax/golden_vectors/onboarding_methodology")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(4, result["summary"]["track_count"])
+        self.assertEqual(5, result["summary"]["document_count"])
+        self.assertFalse(result["summary"]["product_ga_complete"])
+
+    def test_simulated_onboarding_methodology_validates_required_materials(self) -> None:
+        contract = simulate_onboarding_methodology(plan_id="unit-onboarding")
+        result = validate_onboarding_methodology_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(contract["summary"]["required_tracks_present"])
+        self.assertTrue(contract["summary"]["required_documents_present"])
+        self.assertTrue(contract["benchmark_methodology"]["lab_reference_required"])
+        self.assertTrue(contract["benchmark_methodology"]["correctness_first"])
+
+    def test_onboarding_methodology_rejects_missing_glossary_term(self) -> None:
+        contract = simulate_onboarding_methodology()
+        contract["glossary_terms"] = [
+            term for term in contract["glossary_terms"] if term["term_id"] != "benchmark_of_record"
+        ]
+        contract["summary"]["glossary_term_count"] = len(contract["glossary_terms"])
+        contract["summary"]["required_glossary_terms_present"] = False
+        result = validate_onboarding_methodology_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("benchmark_of_record", "; ".join(result["errors"]))
+
+    def test_onboarding_methodology_rejects_missing_lab_reference_boundary(self) -> None:
+        contract = simulate_onboarding_methodology()
+        contract["benchmark_methodology"]["lab_reference_required"] = False
+        contract["summary"]["lab_reference_required"] = False
+        result = validate_onboarding_methodology_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("lab_reference_required", "; ".join(result["errors"]))
+
+    def test_onboarding_methodology_rejects_track_without_first_run_command(self) -> None:
+        contract = simulate_onboarding_methodology()
+        contract["tracks"][0]["first_run_commands"] = []
+        result = validate_onboarding_methodology_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("first_run_commands", "; ".join(result["errors"]))
+
+    def test_onboarding_methodology_rejects_missing_required_document(self) -> None:
+        contract = simulate_onboarding_methodology()
+        del contract["documents"]["glossary.md"]
+        contract["summary"]["document_count"] = len(contract["documents"])
+        contract["summary"]["required_documents_present"] = False
+        result = validate_onboarding_methodology_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("glossary.md", "; ".join(result["errors"]))
 
     def test_continuous_batching_fixture_passes(self) -> None:
         result = validate_continuous_batching("fornax/golden_vectors/continuous_batching")
