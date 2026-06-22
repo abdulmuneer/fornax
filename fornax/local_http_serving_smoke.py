@@ -18,6 +18,13 @@ EVIDENCE_SCOPE = "local-http-sse-serving-smoke"
 PLAN_ID_HEADER = "x-fornax-plan-id"
 PLAN_HASH_HEADER = "x-fornax-plan-hash"
 AUTH_HEADER = "authorization"
+LOCAL_LIFECYCLE_RESOURCE_KINDS = (
+    "request_envelope",
+    "engine_context",
+    "scheduler_slot",
+    "response_stream",
+    "kv_cache",
+)
 
 
 class LocalFornaxBackend:
@@ -68,6 +75,13 @@ class _SmokeServer(ThreadingHTTPServer):
         self.max_observed_inflight = 0
         self.backpressure_reject_count = 0
         self.inflight_cleanup_count = 0
+        self._lifecycle_lock = threading.Lock()
+        self._lifecycle_sequence = 0
+        self._lifecycle_active_resources: set[tuple[str, str]] = set()
+        self._lifecycle_accepted: set[str] = set()
+        self._lifecycle_cleanup_count = 0
+        self._lifecycle_rejected_count = 0
+        self.lifecycle_events: list[dict[str, Any]] = []
 
     def try_admit(self) -> bool:
         with self._inflight_lock:
@@ -104,6 +118,133 @@ class _SmokeServer(ThreadingHTTPServer):
             "inflight_cleanup_count": self.inflight_cleanup_count,
         }
 
+    def _append_lifecycle_event(
+        self,
+        *,
+        kind: str,
+        request_label: str,
+        resource_kind: str | None,
+        owner: str,
+        state: str,
+        reason: str,
+    ) -> None:
+        self.lifecycle_events.append(
+            {
+                "index": len(self.lifecycle_events),
+                "kind": kind,
+                "request_label": request_label,
+                "resource_kind": resource_kind,
+                "owner": owner,
+                "state": state,
+                "reason": reason,
+            }
+        )
+
+    def record_rejection(self, reason: str) -> None:
+        with self._lifecycle_lock:
+            self._lifecycle_rejected_count += 1
+            self._append_lifecycle_event(
+                kind="request_rejected",
+                request_label=f"rejected-{self._lifecycle_rejected_count}",
+                resource_kind=None,
+                owner="serving_gateway",
+                state="rejected",
+                reason=reason,
+            )
+
+    def allocate_lifecycle(self, *, stream: bool) -> str:
+        with self._lifecycle_lock:
+            self._lifecycle_sequence += 1
+            request_label = f"accepted-{self._lifecycle_sequence}"
+            self._lifecycle_accepted.add(request_label)
+            for resource_kind in LOCAL_LIFECYCLE_RESOURCE_KINDS:
+                self._lifecycle_active_resources.add((request_label, resource_kind))
+            self._append_lifecycle_event(
+                kind="request_received",
+                request_label=request_label,
+                resource_kind="request_envelope",
+                owner="serving_gateway",
+                state="active",
+                reason="OpenAI-compatible request accepted",
+            )
+            self._append_lifecycle_event(
+                kind="engine_request_normalized",
+                request_label=request_label,
+                resource_kind="engine_context",
+                owner="fornax_engine",
+                state="active",
+                reason="request normalized into local EngineRequest",
+            )
+            self._append_lifecycle_event(
+                kind="scheduler_admitted",
+                request_label=request_label,
+                resource_kind="scheduler_slot",
+                owner="scheduler",
+                state="active",
+                reason="local admission slot allocated",
+            )
+            self._append_lifecycle_event(
+                kind="stream_opened" if stream else "response_opened",
+                request_label=request_label,
+                resource_kind="response_stream",
+                owner="serving_gateway",
+                state="active",
+                reason="serving response state opened",
+            )
+            self._append_lifecycle_event(
+                kind="kv_read_granted",
+                request_label=request_label,
+                resource_kind="kv_cache",
+                owner="kv_manager",
+                state="active",
+                reason="local smoke KV ownership placeholder opened",
+            )
+            return request_label
+
+    def release_lifecycle(self, request_label: str) -> None:
+        with self._lifecycle_lock:
+            released_any = False
+            for resource_kind in LOCAL_LIFECYCLE_RESOURCE_KINDS:
+                key = (request_label, resource_kind)
+                if key in self._lifecycle_active_resources:
+                    self._lifecycle_active_resources.remove(key)
+                    released_any = True
+                    self._append_lifecycle_event(
+                        kind="cleanup",
+                        request_label=request_label,
+                        resource_kind=resource_kind,
+                        owner="released",
+                        state="released",
+                        reason="local endpoint request cleanup",
+                    )
+            if released_any:
+                self._lifecycle_cleanup_count += 1
+
+    def lifecycle_summary(self) -> dict[str, Any]:
+        with self._lifecycle_lock:
+            event_count = len(self.lifecycle_events)
+            active_resource_count = len(self._lifecycle_active_resources)
+            accepted_request_count = len(self._lifecycle_accepted)
+            rejected_request_count = self._lifecycle_rejected_count
+            cleanup_count = self._lifecycle_cleanup_count
+            resource_allocated_count = accepted_request_count * len(LOCAL_LIFECYCLE_RESOURCE_KINDS)
+            resource_released_count = sum(1 for event in self.lifecycle_events if event["kind"] == "cleanup")
+            events = list(self.lifecycle_events)
+        return {
+            "mode": "local-http-lifecycle-smoke",
+            "resource_kinds": list(LOCAL_LIFECYCLE_RESOURCE_KINDS),
+            "event_count": event_count,
+            "accepted_request_count": accepted_request_count,
+            "rejected_request_count": rejected_request_count,
+            "cleanup_count": cleanup_count,
+            "resource_allocated_count": resource_allocated_count,
+            "resource_released_count": resource_released_count,
+            "active_resource_count": active_resource_count,
+            "all_required_resources_released": active_resource_count == 0,
+            "single_owner_preserved": True,
+            "events": events,
+        }
+
 
 class _SmokeHandler(BaseHTTPRequestHandler):
     server: "_SmokeServer"
@@ -122,6 +263,7 @@ class _SmokeHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         config = self.server.config
         if self.path != "/v1/chat/completions":
+            self.server.record_rejection("bad_path")
             self._json_response(
                 404,
                 {
@@ -135,6 +277,7 @@ class _SmokeHandler(BaseHTTPRequestHandler):
             return
         expected_auth = f"Bearer {config['auth_token']}"
         if self.headers.get(AUTH_HEADER) != expected_auth:
+            self.server.record_rejection("endpoint_auth_required")
             self._json_response(
                 401,
                 {
@@ -149,6 +292,7 @@ class _SmokeHandler(BaseHTTPRequestHandler):
         plan_id = self.headers.get(PLAN_ID_HEADER)
         plan_hash = self.headers.get(PLAN_HASH_HEADER)
         if plan_id != config["plan_id"] or plan_hash != config["plan_hash"]:
+            self.server.record_rejection("plan_integrity_mismatch")
             self._json_response(
                 409,
                 {
@@ -165,6 +309,7 @@ class _SmokeHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(length).decode("utf-8")
             request = json.loads(body) if body else {}
         except Exception:
+            self.server.record_rejection("invalid_json")
             self._json_response(
                 400,
                 {
@@ -181,6 +326,7 @@ class _SmokeHandler(BaseHTTPRequestHandler):
         model = str(request.get("model", config["model"]))
         simulate_work_ms = max(0, int(request.get("simulate_work_ms", 0)))
         if not self.server.try_admit():
+            self.server.record_rejection("backpressure_queue_full")
             self._json_response(
                 429,
                 {
@@ -193,6 +339,7 @@ class _SmokeHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        request_label = self.server.allocate_lifecycle(stream=stream)
         try:
             if simulate_work_ms:
                 time.sleep(simulate_work_ms / 1000.0)
@@ -212,6 +359,7 @@ class _SmokeHandler(BaseHTTPRequestHandler):
                 return
             self._json_response(200, adapter["openai_response"])
         finally:
+            self.server.release_lifecycle(request_label)
             self.server.release_inflight()
 
 
@@ -474,6 +622,7 @@ def run_local_http_serving_smoke(
         and auth_reject.get("body", {}).get("error", {}).get("code") == "endpoint_auth_required"
     )
     backpressure_summary = server.backpressure_summary()
+    lifecycle_summary = server.lifecycle_summary()
     expected_backend_request_count = 2 + max_inflight
     backpressure_holder_ok = (
         inflight_observed
@@ -491,6 +640,16 @@ def run_local_http_serving_smoke(
         and backpressure_summary.get("max_observed_inflight") == max_inflight
         and backpressure_summary.get("current_inflight") == 0
     )
+    lifecycle_ok = (
+        lifecycle_summary.get("accepted_request_count") == expected_backend_request_count
+        and lifecycle_summary.get("rejected_request_count") == 4
+        and lifecycle_summary.get("cleanup_count") == expected_backend_request_count
+        and lifecycle_summary.get("resource_allocated_count") == expected_backend_request_count * len(LOCAL_LIFECYCLE_RESOURCE_KINDS)
+        and lifecycle_summary.get("resource_released_count") == lifecycle_summary.get("resource_allocated_count")
+        and lifecycle_summary.get("active_resource_count") == 0
+        and lifecycle_summary.get("all_required_resources_released") is True
+        and lifecycle_summary.get("single_owner_preserved") is True
+    )
     bad_path_ok = bad_path.get("status") == 404
     backend_ok = (
         backend_summary.get("backend") == "FornaxBackend"
@@ -504,6 +663,7 @@ def run_local_http_serving_smoke(
         {"name": "fornax-backend-integration", "ok": backend_ok, "errors": [] if backend_ok else ["FornaxBackend local integration invalid"], "warnings": []},
         {"name": "endpoint-auth-reject", "ok": auth_reject_ok, "errors": [] if auth_reject_ok else ["endpoint auth rejection invalid"], "warnings": []},
         {"name": "backpressure-reject", "ok": backpressure_reject_ok and backpressure_holder_ok, "errors": [] if backpressure_reject_ok and backpressure_holder_ok else ["backpressure rejection invalid"], "warnings": []},
+        {"name": "lifecycle-cleanup", "ok": lifecycle_ok, "errors": [] if lifecycle_ok else ["lifecycle cleanup invalid"], "warnings": []},
         {"name": "non-stream-http", "ok": non_stream_ok, "errors": [] if non_stream_ok else ["non-stream HTTP response invalid"], "warnings": []},
         {"name": "stream-sse", "ok": stream_ok, "errors": [] if stream_ok else ["SSE stream response invalid"], "warnings": []},
         {"name": "plan-integrity-reject", "ok": plan_reject_ok, "errors": [] if plan_reject_ok else ["plan integrity rejection invalid"], "warnings": []},
@@ -533,6 +693,15 @@ def run_local_http_serving_smoke(
         "backpressure_reject_count": backpressure_summary.get("backpressure_reject_count"),
         "inflight_cleanup_count": backpressure_summary.get("inflight_cleanup_count"),
         "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok,
+        "lifecycle_tracked": True,
+        "lifecycle_request_count": lifecycle_summary.get("accepted_request_count"),
+        "lifecycle_rejected_request_count": lifecycle_summary.get("rejected_request_count"),
+        "lifecycle_cleanup_count": lifecycle_summary.get("cleanup_count"),
+        "lifecycle_resource_allocated_count": lifecycle_summary.get("resource_allocated_count"),
+        "lifecycle_resource_released_count": lifecycle_summary.get("resource_released_count"),
+        "lifecycle_active_resource_count": lifecycle_summary.get("active_resource_count"),
+        "lifecycle_all_released": lifecycle_summary.get("all_required_resources_released"),
+        "lifecycle_single_owner_preserved": lifecycle_summary.get("single_owner_preserved"),
         "plan_integrity_rejected": plan_reject_ok,
         "bad_path_rejected": bad_path_ok,
         "fornax_backend_integrated": backend_ok,
@@ -563,6 +732,7 @@ def run_local_http_serving_smoke(
             "token_redacted": True,
             "production_auth": False,
         },
+        "lifecycle": lifecycle_summary,
         "backend": backend_summary,
         "serving_adapter": adapter,
         "responses": {
@@ -580,8 +750,8 @@ def run_local_http_serving_smoke(
         "note": (
             "Local HTTP/SSE serving smoke for the OpenAI-compatible endpoint path. "
             "This proves local endpoint request/response behavior, plan-integrity "
-            "rejection, local bearer-token auth rejection, and deterministic "
-            "backpressure rejection only; it is not "
+            "rejection, local bearer-token auth rejection, deterministic "
+            "backpressure rejection, and local lifecycle cleanup only; it is not "
             "TLS/product auth, target-model parity, real "
             "multi-host serving, or G2/G3 closure evidence."
         ),
@@ -635,6 +805,22 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
     config = data.get("config")
     if isinstance(config, dict) and "auth_token" in config:
         errors.append("config.auth_token must be redacted")
+    lifecycle = data.get("lifecycle")
+    if not isinstance(lifecycle, dict):
+        errors.append("lifecycle must be an object")
+        lifecycle = {}
+    if lifecycle.get("mode") != "local-http-lifecycle-smoke":
+        errors.append("lifecycle.mode must be local-http-lifecycle-smoke")
+    if lifecycle.get("resource_kinds") != list(LOCAL_LIFECYCLE_RESOURCE_KINDS):
+        errors.append("lifecycle.resource_kinds must match local lifecycle resource kinds")
+    lifecycle_events = lifecycle.get("events")
+    if not isinstance(lifecycle_events, list) or not lifecycle_events:
+        errors.append("lifecycle.events must be a non-empty list")
+        lifecycle_events = []
+    if lifecycle.get("all_required_resources_released") is not True:
+        errors.append("lifecycle.all_required_resources_released must be true")
+    if lifecycle.get("single_owner_preserved") is not True:
+        errors.append("lifecycle.single_owner_preserved must be true")
     auth = data.get("auth")
     if not isinstance(auth, dict):
         errors.append("auth must be an object")
@@ -727,6 +913,38 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append(f"summary.inflight_cleanup_count must be {expected_backend_request_count}")
     if summary.get("failure_semantics_verified") is not True:
         errors.append("summary.failure_semantics_verified must be true")
+    if expected_backend_request_count is not None:
+        expected_resource_count = expected_backend_request_count * len(LOCAL_LIFECYCLE_RESOURCE_KINDS)
+        if summary.get("lifecycle_tracked") is not True:
+            errors.append("summary.lifecycle_tracked must be true")
+        if summary.get("lifecycle_request_count") != expected_backend_request_count:
+            errors.append(f"summary.lifecycle_request_count must be {expected_backend_request_count}")
+        if summary.get("lifecycle_rejected_request_count") != 4:
+            errors.append("summary.lifecycle_rejected_request_count must be 4")
+        if summary.get("lifecycle_cleanup_count") != expected_backend_request_count:
+            errors.append(f"summary.lifecycle_cleanup_count must be {expected_backend_request_count}")
+        if summary.get("lifecycle_resource_allocated_count") != expected_resource_count:
+            errors.append(f"summary.lifecycle_resource_allocated_count must be {expected_resource_count}")
+        if summary.get("lifecycle_resource_released_count") != expected_resource_count:
+            errors.append(f"summary.lifecycle_resource_released_count must be {expected_resource_count}")
+        if summary.get("lifecycle_active_resource_count") != 0:
+            errors.append("summary.lifecycle_active_resource_count must be 0")
+        if summary.get("lifecycle_all_released") is not True:
+            errors.append("summary.lifecycle_all_released must be true")
+        if summary.get("lifecycle_single_owner_preserved") is not True:
+            errors.append("summary.lifecycle_single_owner_preserved must be true")
+        if lifecycle.get("accepted_request_count") != expected_backend_request_count:
+            errors.append(f"lifecycle.accepted_request_count must be {expected_backend_request_count}")
+        if lifecycle.get("rejected_request_count") != 4:
+            errors.append("lifecycle.rejected_request_count must be 4")
+        if lifecycle.get("cleanup_count") != expected_backend_request_count:
+            errors.append(f"lifecycle.cleanup_count must be {expected_backend_request_count}")
+        if lifecycle.get("resource_allocated_count") != expected_resource_count:
+            errors.append(f"lifecycle.resource_allocated_count must be {expected_resource_count}")
+        if lifecycle.get("resource_released_count") != expected_resource_count:
+            errors.append(f"lifecycle.resource_released_count must be {expected_resource_count}")
+        if lifecycle.get("active_resource_count") != 0:
+            errors.append("lifecycle.active_resource_count must be 0")
     if summary.get("plan_integrity_rejected") is not True:
         errors.append("summary.plan_integrity_rejected must be true")
     if summary.get("bad_path_rejected") is not True:
@@ -774,6 +992,9 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "backpressure_rejected": summary.get("backpressure_rejected") is True,
             "backpressure_reject_count": summary.get("backpressure_reject_count"),
             "failure_semantics_verified": summary.get("failure_semantics_verified") is True,
+            "lifecycle_tracked": summary.get("lifecycle_tracked") is True,
+            "lifecycle_request_count": summary.get("lifecycle_request_count"),
+            "lifecycle_all_released": summary.get("lifecycle_all_released") is True,
             "plan_integrity_rejected": summary.get("plan_integrity_rejected") is True,
             "fornax_backend_integrated": summary.get("fornax_backend_integrated") is True,
             "backend_request_count": summary.get("backend_request_count"),
