@@ -99,6 +99,11 @@ from fornax.remote_expert_probe import (
     validate_remote_expert_batch_probe_fixture,
 )
 from fornax.runtime_format_spec import render_runtime_format_spec_draft
+from fornax.stage_replication import (
+    simulate_stage_replication,
+    validate_stage_replication,
+    validate_stage_replication_fixture,
+)
 from fornax.scheduler import (
     simulate_scheduler,
     simulate_scheduler_from_paths,
@@ -1044,8 +1049,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(20, result["summary"]["check_count"])
-        self.assertEqual(20, result["summary"]["passed_count"])
+        self.assertEqual(21, result["summary"]["check_count"])
+        self.assertEqual(21, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1057,6 +1062,7 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("continuous-batching", {check["name"] for check in validation["checks"]})
         self.assertIn("pipeline-correctness", {check["name"] for check in validation["checks"]})
         self.assertIn("throughput-scaling", {check["name"] for check in validation["checks"]})
+        self.assertIn("stage-replication", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-migration", {check["name"] for check in validation["checks"]})
         self.assertIn("remote-expert-batch", {check["name"] for check in validation["checks"]})
@@ -1413,6 +1419,50 @@ class FornaxPlannerTest(unittest.TestCase):
         text = "; ".join(result["errors"])
         self.assertIn("evidence must be measured", text)
         self.assertIn("cannot be passed", text)
+
+
+    def test_stage_replication_fixture_passes(self) -> None:
+        result = validate_stage_replication("fornax/golden_vectors/stage_replication")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(2, result["summary"]["replica_count"])
+        self.assertGreater(result["summary"]["speedup"], 1.0)
+
+    def test_simulated_stage_replication_uses_all_replicas_and_matches_outputs(self) -> None:
+        contract = simulate_stage_replication(plan_id="unit-stage-replication")
+        result = validate_stage_replication_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual({"stage-1-replica-0", "stage-1-replica-1"}, set(contract["result"]["used_replica_ids"]))
+        self.assertTrue(contract["result"]["outputs_match_reference"])
+        self.assertGreaterEqual(contract["result"]["speedup"], contract["config"]["speedup_floor"])
+
+    def test_stage_replication_rejects_unused_replica(self) -> None:
+        contract = simulate_stage_replication()
+        for assignment in contract["assignments"]:
+            assignment["replica_id"] = "stage-1-replica-0"
+        contract["result"]["used_replica_ids"] = ["stage-1-replica-0"]
+        result = validate_stage_replication_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("use every replicated replica", "; ".join(result["errors"]))
+
+    def test_stage_replication_rejects_speedup_below_floor(self) -> None:
+        contract = simulate_stage_replication(speedup_floor=2.1)
+        result = validate_stage_replication_fixture(contract)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("speedup", text)
+        self.assertIn("correctness_passed", text)
+
+    def test_stage_replication_rejects_output_mismatch(self) -> None:
+        contract = simulate_stage_replication()
+        contract["assignments"][0]["max_abs_error"] = 1.0
+        contract["result"]["max_abs_error"] = 1.0
+        contract["result"]["outputs_match_reference"] = False
+        contract["result"]["correctness_passed"] = False
+        contract["summary"]["max_abs_error"] = 1.0
+        contract["summary"]["correctness_passed"] = False
+        result = validate_stage_replication_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("outputs_match_reference", "; ".join(result["errors"]))
 
     def test_continuous_batching_fixture_passes(self) -> None:
         result = validate_continuous_batching("fornax/golden_vectors/continuous_batching")

@@ -86,6 +86,10 @@ from .phase0_status import render_phase0_status_report
 from .phase0_simulated_validation import run_phase0_simulated_validation
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
+from .stage_replication import (
+    simulate_stage_replication,
+    validate_stage_replication,
+)
 from .scheduler import simulate_scheduler_from_paths, validate_scheduler_contract
 from .simulate import simulation_result, summarize_request_trace
 from .substrate_adr import (
@@ -480,6 +484,36 @@ def _cmd_transport_simulate(args: argparse.Namespace) -> int:
         f"acks={summary['ack_count']} "
         f"timeouts={summary['timeout_count']} "
         f"cancels={summary['cancel_count']}"
+    )
+    return 0
+
+
+def _cmd_replication_simulate(args: argparse.Namespace) -> int:
+    try:
+        token_counts = [int(item.strip()) for item in args.microbatch_token_counts.split(",") if item.strip()]
+        result = simulate_stage_replication(
+            plan_id=args.plan_id,
+            bottleneck_stage_index=args.bottleneck_stage_index,
+            microbatch_token_counts=token_counts,
+            baseline_replica_id=args.baseline_replica_id,
+            added_replica_id=args.added_replica_id,
+            baseline_stage_time_s_per_token=args.baseline_stage_time_s_per_token,
+            replicated_stage_time_s_per_token=args.replicated_stage_time_s_per_token,
+            transfer_overhead_s=args.transfer_overhead_s,
+            speedup_floor=args.speedup_floor,
+            tolerance=args.tolerance,
+        )
+    except ValueError as exc:
+        print(f"replication simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "replication simulate: "
+        f"replicas={summary['replica_count']} "
+        f"microbatches={summary['microbatch_count']} "
+        f"speedup={summary['speedup']:.3f} "
+        f"max_abs_error={summary['max_abs_error']}"
     )
     return 0
 
@@ -1435,6 +1469,26 @@ def _cmd_test_activation_transfer_probe(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_stage_replication(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/stage_replication"
+    result = validate_stage_replication(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS stage-replication: {fixture} "
+            f"replicas={summary['replica_count']} "
+            f"microbatches={summary['microbatch_count']} "
+            f"speedup={summary['speedup']:.3f}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL stage-replication: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_throughput_scaling(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/throughput_scaling"
     result = validate_throughput_scaling(fixture)
@@ -1534,6 +1588,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_continuous_batching(args)
     if args.test_name == "scheduler-contract":
         return _cmd_test_scheduler_contract(args)
+    if args.test_name == "stage-replication":
+        return _cmd_test_stage_replication(args)
     if args.test_name == "backend-coverage":
         return _cmd_test_backend_coverage(args)
     if args.test_name == "benchmark-ledger":
@@ -1808,6 +1864,23 @@ def build_parser() -> argparse.ArgumentParser:
     transport_simulate.set_defaults(func=_cmd_transport_simulate)
 
 
+
+    replication = sub.add_parser("replication")
+    replication_sub = replication.add_subparsers(dest="replication_command", required=True)
+    replication_simulate = replication_sub.add_parser("simulate")
+    replication_simulate.add_argument("--out", required=True)
+    replication_simulate.add_argument("--plan-id", default="stage-replication-plan")
+    replication_simulate.add_argument("--bottleneck-stage-index", type=int, default=1)
+    replication_simulate.add_argument("--microbatch-token-counts", default="4,4,3,3,2,2")
+    replication_simulate.add_argument("--baseline-replica-id", default="stage-1-replica-0")
+    replication_simulate.add_argument("--added-replica-id", default="stage-1-replica-1")
+    replication_simulate.add_argument("--baseline-stage-time-s-per-token", type=float, default=0.014)
+    replication_simulate.add_argument("--replicated-stage-time-s-per-token", type=float, default=0.014)
+    replication_simulate.add_argument("--transfer-overhead-s", type=float, default=0.001)
+    replication_simulate.add_argument("--speedup-floor", type=float, default=1.25)
+    replication_simulate.add_argument("--tolerance", type=float, default=0.0)
+    replication_simulate.set_defaults(func=_cmd_replication_simulate)
+
     scheduler = sub.add_parser("scheduler")
     scheduler_sub = scheduler.add_subparsers(dest="scheduler_command", required=True)
     scheduler_simulate = scheduler_sub.add_parser("simulate")
@@ -2064,6 +2137,7 @@ def build_parser() -> argparse.ArgumentParser:
             "model-support",
             "continuous-batching",
             "scheduler-contract",
+            "stage-replication",
             "backend-coverage",
             "benchmark-ledger",
             "expert-mlp-probe",

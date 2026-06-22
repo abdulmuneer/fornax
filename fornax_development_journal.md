@@ -1963,3 +1963,67 @@
   --microbatch-size 2 --timeout-ms 50` showing 20/20 checks passed, `python3 -m
   unittest tests.test_fornax_planner`, `python3 -m compileall -q fornax tests`,
   `make fornax-golden`, and `make fornax-test` all passed.
+
+
+### T1 stage-replication simulation milestone
+
+- Added `fornax.stage_replication` for the WS-F F3 data-parallel stage
+  replication gap. The artifact simulates adding a second replica to a bottleneck
+  pipeline stage, assigns microbatches across replicas, compares each replica
+  output against the single-replica reference checksum, and checks simulated
+  throughput gain against a floor.
+- Added `fornax replication simulate --out ...` and `fornax test
+  stage-replication`; added the golden fixture
+  `fornax/golden_vectors/stage_replication/fixture.json`; expanded `make
+  fornax-golden` and `fornax program simulate-t1` so stage replication is part of
+  the regular two-logical-host simulated-cluster evidence path. The one-command
+  T1 bundle now validates 21 checks including `stage-replication`.
+- The validator enforces baseline vs replicated replica sets, use of every
+  replicated replica, per-microbatch assignment shape, stage start/end events,
+  output comparison events, speedup math, replicated makespan improvement,
+  output-reference tolerance, summary/result consistency, and a simulation-only
+  warning so this cannot be mistaken for real added-node scaling evidence.
+- The golden fixture records `record_kind=stage-replication-simulation-contract`,
+  `mode=t1-simulation`, `simulation_method=deterministic-stage-data-parallel-replication`,
+  `replica_count=2`, `microbatch_count=6`, baseline/replicated makespan
+  `0.258s -> 0.129s`, `speedup=2.0` against floor `1.25`, baseline/replicated
+  throughput `69.76744186046511 -> 139.53488372093022` tokens/s, both replica
+  IDs used, `total_tokens=18`, `max_abs_error=0.0`, `outputs_match_reference=true`,
+  `correctness_passed=true`, and 28 events.
+- This narrows the Phase 3/F3 and later G4 scaling path for the approved
+  simulation method: development can validate replica assignment, deterministic
+  output parity, and expected scaling math before real added-node lab evidence.
+  It remains T1 simulation only; live replicated workers, real memory pressure,
+  cross-node scheduling, and T4 elasticity/zero-drop evidence remain open.
+- Review-lens pass:
+  - Distributed Runtime/Scheduler: approve with comments. The assignment and
+    stage-replica lifecycle are explicit and machine-checked; live worker routing
+    and backpressure under replicated load remain future work.
+  - Analytical Performance: approve with comments. The artifact proves the
+    speedup math and throughput comparison in simulation; real added-node
+    scaling still needs benchmark-of-record evidence.
+  - Program Management: approve. This gives F3 a concrete T1 milestone and keeps
+    it separate from G4/T4 real elasticity closure.
+  - Testing/Quality: approve. Regression tests cover fixture validity, all
+    replicas used, speedup below floor, output mismatch, and T1 bundle
+    integration.
+- Verification: `python3 -m py_compile fornax/stage_replication.py fornax/cli.py
+  fornax/t1_simulated_validation.py tests/test_fornax_planner.py`, `python3 -m
+  fornax replication simulate --out
+  fornax/golden_vectors/stage_replication/fixture.json --plan-id
+  golden-stage-replication --bottleneck-stage-index 1 --microbatch-token-counts
+  4,4,3,3,2,2 --baseline-replica-id stage-1-replica-0 --added-replica-id
+  stage-1-replica-1 --baseline-stage-time-s-per-token 0.014
+  --replicated-stage-time-s-per-token 0.014 --transfer-overhead-s 0.001
+  --speedup-floor 1.25 --tolerance 0.0`, `python3 -m fornax test
+  stage-replication`, focused stage-replication and T1 bundle tests, `python3 -m
+  fornax program simulate-t1 --out-dir
+  /tmp/fornax_t1_stage_replication_validation_cli_20260622 --gpu-count 2
+  --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000
+  --link-latency-s 0.0004 --slow-node-factor 0.65 --plan-id
+  cli-t1-stage-replication-plan --request-id cli-t1-stage-replication-request
+  --plan-hash sha256:cli-t1-stage-replication-plan --max-queue-depth 2
+  --max-inflight 2 --microbatch-size 2 --timeout-ms 50` showing 21/21 checks
+  passed, `python3 -m unittest tests.test_fornax_planner`, `python3 -m
+  compileall -q fornax tests`, `make fornax-golden`, and `make fornax-test` all
+  passed.
