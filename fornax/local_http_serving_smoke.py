@@ -1570,6 +1570,20 @@ def run_local_http_serving_smoke(
                 raise TimeoutError("timed out waiting for local backpressure holder request")
         if backpressure_errors:
             raise backpressure_errors[0]
+        backpressure_retry = _post_json(
+            endpoint,
+            {
+                "model": model,
+                "messages": adapter["openai_request"]["messages"],
+                "max_tokens": max_tokens,
+                "stream": False,
+            },
+            plan_id=plan_id,
+            plan_hash=plan_hash,
+            auth_token=auth_token,
+            timeout_s=float(timeout_s),
+            ssl_context=client_ssl_context,
+        )
         plan_reject = _post_json(
             endpoint,
             {"model": model, "messages": adapter["openai_request"]["messages"], "max_tokens": max_tokens, "stream": False},
@@ -1712,7 +1726,7 @@ def run_local_http_serving_smoke(
     backpressure_summary = server.backpressure_summary()
     lifecycle_summary = server.lifecycle_summary()
     mtls_summary = server.mtls_summary()
-    expected_backend_request_count = 2 + max_inflight
+    expected_backend_request_count = 3 + max_inflight
     expected_cancelled_request_count = 1
     expected_timed_out_request_count = 1
     expected_lifecycle_request_count = (
@@ -1734,9 +1748,15 @@ def run_local_http_serving_smoke(
     backpressure_reject_ok = (
         backpressure_reject.get("status") == 429
         and backpressure_reject.get("body", {}).get("error", {}).get("code") == "backpressure_queue_full"
+        and backpressure_reject.get("body", {}).get("retry_after_ms") == retry_after_ms
         and backpressure_summary.get("backpressure_reject_count") == 1
         and backpressure_summary.get("max_observed_inflight") == max_inflight
         and backpressure_summary.get("current_inflight") == 0
+    )
+    backpressure_retry_ok = (
+        backpressure_retry.get("status") == 200
+        and backpressure_retry.get("body", {}).get("object") == "chat.completion"
+        and backpressure_retry.get("body", {}).get("model") == model
     )
     cancel_ok = (
         cancel_after_admit.get("status") == 409
@@ -1869,6 +1889,7 @@ def run_local_http_serving_smoke(
         *([{"name": "local-tls-handshake", "ok": tls_ok, "errors": [] if tls_ok else ["local TLS handshake invalid"], "warnings": ["local self-signed TLS is not product TLS/mTLS evidence"]}] if enable_tls else []),
         *([{"name": "local-mtls-node-identity", "ok": mtls_ok, "errors": [] if mtls_ok else ["local mTLS node identity invalid"], "warnings": ["local mTLS client identity is not production node identity evidence"]}] if enable_mtls else []),
         {"name": "backpressure-reject", "ok": backpressure_reject_ok and backpressure_holder_ok, "errors": [] if backpressure_reject_ok and backpressure_holder_ok else ["backpressure rejection invalid"], "warnings": []},
+        {"name": "backpressure-retry-after", "ok": backpressure_retry_ok, "errors": [] if backpressure_retry_ok else ["backpressure retry-after recovery invalid"], "warnings": ["local retry-after recovery is not distributed retry evidence"]},
         {"name": "admitted-cancel-cleanup", "ok": cancel_ok, "errors": [] if cancel_ok else ["admitted cancellation cleanup invalid"], "warnings": ["local admitted cancellation is not distributed partition or client-disconnect evidence"]},
         {"name": "admitted-timeout-cleanup", "ok": timeout_ok, "errors": [] if timeout_ok else ["admitted timeout cleanup invalid"], "warnings": ["local admitted timeout is not distributed partition evidence"]},
         {"name": "lifecycle-cleanup", "ok": lifecycle_ok, "errors": [] if lifecycle_ok else ["lifecycle cleanup invalid"], "warnings": []},
@@ -1925,6 +1946,10 @@ def run_local_http_serving_smoke(
         "endpoint_auth_rejected": auth_reject_ok,
         "backpressure_status": backpressure_reject.get("status"),
         "backpressure_rejected": backpressure_reject_ok,
+        "backpressure_retry_after_ms": backpressure_reject.get("body", {}).get("retry_after_ms"),
+        "backpressure_retry_status": backpressure_retry.get("status"),
+        "backpressure_retry_admitted": backpressure_retry_ok,
+        "backpressure_retry_after_capacity_clear": backpressure_retry_ok,
         "backpressure_holder_count": len(backpressure_holders),
         "backpressure_holder_statuses": [holder.get("status") for holder in backpressure_holders],
         "backpressure_holders_completed": backpressure_holder_ok,
@@ -1938,7 +1963,7 @@ def run_local_http_serving_smoke(
         "timeout_after_admit_status": timeout_after_admit.get("status"),
         "request_timed_out_after_admit": timeout_ok,
         "request_timed_out_before_backend": timeout_ok,
-        "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok and cancel_ok and timeout_ok,
+        "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok and backpressure_retry_ok and cancel_ok and timeout_ok,
         "lifecycle_tracked": True,
         "lifecycle_request_count": lifecycle_summary.get("accepted_request_count"),
         "lifecycle_rejected_request_count": lifecycle_summary.get("rejected_request_count"),
@@ -2073,6 +2098,9 @@ def run_local_http_serving_smoke(
         "failure_semantics": {
             "mode": "local-http-failure-semantics-smoke",
             "backpressure_rejected": backpressure_reject_ok and backpressure_holder_ok,
+            "retry_after_ms": backpressure_reject.get("body", {}).get("retry_after_ms"),
+            "retry_after_recovered": backpressure_retry_ok,
+            "retry_after_capacity_cleared": backpressure_retry_ok,
             "cancel_after_admit_verified": cancel_ok,
             "cancelled_before_backend": cancel_ok,
             "cancelled_request_count": lifecycle_summary.get("cancelled_request_count"),
@@ -2117,6 +2145,7 @@ def run_local_http_serving_smoke(
             "mtls_reject": mtls_reject,
             "backpressure_holders": backpressure_holders,
             "backpressure_reject": backpressure_reject,
+            "backpressure_retry": backpressure_retry,
             "cancel_after_admit": cancel_after_admit,
             "timeout_after_admit": timeout_after_admit,
             "plan_reject": plan_reject,
@@ -2129,7 +2158,7 @@ def run_local_http_serving_smoke(
             "Local HTTP/SSE serving smoke for the OpenAI-compatible endpoint path. "
             "This proves local endpoint request/response behavior, plan-integrity "
             "rejection, local bearer-token auth rejection, deterministic "
-            "backpressure rejection, admitted cancellation cleanup, admitted timeout cleanup, and local lifecycle cleanup. When target-fixture "
+            "backpressure rejection, retry-after recovery, admitted cancellation cleanup, admitted timeout cleanup, and local lifecycle cleanup. When target-fixture "
             "mode is enabled, it also proves deterministic local fixture loading and "
             "non-stream/stream parity only. When activation-transfer probe mode is enabled, "
             "it records measured same-host transfer timing only. When runtime probe mode is enabled, "
@@ -2179,7 +2208,7 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary must be an object")
         summary = {}
     max_inflight = summary.get("max_inflight")
-    expected_backend_request_count = 2 + max_inflight if isinstance(max_inflight, int) and not isinstance(max_inflight, bool) and max_inflight > 0 else None
+    expected_backend_request_count = 3 + max_inflight if isinstance(max_inflight, int) and not isinstance(max_inflight, bool) and max_inflight > 0 else None
     expected_cancelled_request_count = 1 if expected_backend_request_count is not None else None
     expected_timed_out_request_count = 1 if expected_backend_request_count is not None else None
     expected_lifecycle_request_count = (
@@ -2520,6 +2549,10 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("failure_semantics.mode must be local-http-failure-semantics-smoke")
     if failure_semantics.get("backpressure_rejected") is not True:
         errors.append("failure_semantics.backpressure_rejected must be true")
+    if failure_semantics.get("retry_after_recovered") is not True:
+        errors.append("failure_semantics.retry_after_recovered must be true")
+    if failure_semantics.get("retry_after_capacity_cleared") is not True:
+        errors.append("failure_semantics.retry_after_capacity_cleared must be true")
     if failure_semantics.get("cancel_after_admit_verified") is not True:
         errors.append("failure_semantics.cancel_after_admit_verified must be true")
     if failure_semantics.get("cancelled_before_backend") is not True:
@@ -2575,6 +2608,14 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("responses.backpressure_reject.status must be 429")
         if backpressure_reject.get("body", {}).get("error", {}).get("code") != "backpressure_queue_full":
             errors.append("responses.backpressure_reject error code must be backpressure_queue_full")
+    backpressure_retry = responses.get("backpressure_retry") if isinstance(responses, dict) else None
+    if not isinstance(backpressure_retry, dict):
+        errors.append("responses.backpressure_retry must be an object")
+    else:
+        if backpressure_retry.get("status") != 200:
+            errors.append("responses.backpressure_retry.status must be 200")
+        if backpressure_retry.get("body", {}).get("object") != "chat.completion":
+            errors.append("responses.backpressure_retry object must be chat.completion")
     cancel_after_admit = responses.get("cancel_after_admit") if isinstance(responses, dict) else None
     if not isinstance(cancel_after_admit, dict):
         errors.append("responses.cancel_after_admit must be an object")
@@ -2621,6 +2662,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("checks must include pipeline-correctness-probe when runtime probes are included")
         if "moe-layer-parity-probe" not in check_names:
             errors.append("checks must include moe-layer-parity-probe when runtime probes are included")
+    if "backpressure-retry-after" not in check_names:
+        errors.append("checks must include backpressure-retry-after")
     if "admitted-cancel-cleanup" not in check_names:
         errors.append("checks must include admitted-cancel-cleanup")
     if "admitted-timeout-cleanup" not in check_names:
@@ -2646,6 +2689,15 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.backpressure_status must be 429")
     if summary.get("backpressure_rejected") is not True:
         errors.append("summary.backpressure_rejected must be true")
+    config_retry_after_ms = config.get("retry_after_ms") if isinstance(config, dict) else None
+    if summary.get("backpressure_retry_after_ms") != config_retry_after_ms:
+        errors.append("summary.backpressure_retry_after_ms must match config.retry_after_ms")
+    if summary.get("backpressure_retry_status") != 200:
+        errors.append("summary.backpressure_retry_status must be 200")
+    if summary.get("backpressure_retry_admitted") is not True:
+        errors.append("summary.backpressure_retry_admitted must be true")
+    if summary.get("backpressure_retry_after_capacity_clear") is not True:
+        errors.append("summary.backpressure_retry_after_capacity_clear must be true")
     if expected_backend_request_count is not None and summary.get("backpressure_holder_count") != max_inflight:
         errors.append("summary.backpressure_holder_count must match summary.max_inflight")
     holder_statuses = summary.get("backpressure_holder_statuses")
@@ -2803,6 +2855,9 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "production_mtls_enabled": summary.get("production_mtls_enabled") is False,
             "backpressure_rejected": summary.get("backpressure_rejected") is True,
             "backpressure_reject_count": summary.get("backpressure_reject_count"),
+            "backpressure_retry_after_ms": summary.get("backpressure_retry_after_ms"),
+            "backpressure_retry_admitted": summary.get("backpressure_retry_admitted") is True,
+            "backpressure_retry_after_capacity_clear": summary.get("backpressure_retry_after_capacity_clear") is True,
             "request_cancelled_after_admit": summary.get("request_cancelled_after_admit") is True,
             "request_cancelled_before_backend": summary.get("request_cancelled_before_backend") is True,
             "request_timed_out_after_admit": summary.get("request_timed_out_after_admit") is True,
