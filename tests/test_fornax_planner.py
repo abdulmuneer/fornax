@@ -814,6 +814,51 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(bundle["summary"]["target_model_parity"])
         self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
 
+    def test_local_http_serving_smoke_validates_runtime_probe_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            artifact = Path(d) / "local-http-serving-runtime-probe-smoke.json"
+            bundle = run_local_http_serving_smoke(
+                out=artifact,
+                backend_mode="target-fixture",
+                include_runtime_probes=True,
+                runtime_probe_backend="cpu-stdlib",
+                runtime_probe_iterations=2,
+                runtime_probe_warmup=0,
+                pipeline_probe_hidden_dim=4,
+                pipeline_probe_new_tokens=2,
+                moe_probe_token_count=2,
+                moe_probe_hidden_dim=4,
+                moe_probe_intermediate_dim=6,
+                moe_probe_vocab_size=11,
+                moe_probe_expert_count=2,
+                moe_probe_top_k=1,
+            )
+            result = validate_local_http_serving_smoke(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(bundle["ok"])
+        self.assertEqual(13, bundle["summary"]["check_count"])
+        self.assertEqual(13, bundle["summary"]["passed_count"])
+        self.assertTrue(bundle["summary"]["runtime_probes_included"])
+        self.assertEqual("cpu-stdlib", bundle["summary"]["runtime_probe_backend"])
+        self.assertEqual(0, bundle["summary"]["runtime_probe_accelerator_probe_count"])
+        self.assertEqual(2, bundle["summary"]["runtime_probe_required_count"])
+        self.assertTrue(bundle["summary"]["pipeline_correctness_probe_included"])
+        self.assertTrue(bundle["summary"]["pipeline_correctness_probe_ok"])
+        self.assertFalse(bundle["summary"]["pipeline_correctness_accelerator_measured"])
+        self.assertEqual("cpu", bundle["summary"]["pipeline_correctness_source_device"])
+        self.assertEqual("cpu", bundle["summary"]["pipeline_correctness_destination_device"])
+        self.assertTrue(bundle["summary"]["moe_layer_parity_probe_included"])
+        self.assertTrue(bundle["summary"]["moe_layer_parity_probe_ok"])
+        self.assertFalse(bundle["summary"]["moe_layer_parity_accelerator_measured"])
+        self.assertEqual("cpu", bundle["summary"]["moe_layer_parity_source_device"])
+        self.assertEqual("cpu", bundle["summary"]["moe_layer_parity_expert_device"])
+        self.assertEqual("pipeline-correctness-probe", bundle["pipeline_correctness_probe"]["probe_kind"])
+        self.assertEqual("moe-layer-parity-probe", bundle["moe_layer_parity_probe"]["probe_kind"])
+        self.assertTrue(bundle["pipeline_correctness_validation"]["ok"])
+        self.assertTrue(bundle["moe_layer_parity_validation"]["ok"])
+        self.assertFalse(bundle["summary"]["target_model_parity"])
+        self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+
     def test_local_http_serving_smoke_validates_local_tls_target_fixture(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             artifact = Path(d) / "local-http-serving-tls-target-fixture-smoke.json"

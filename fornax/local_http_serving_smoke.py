@@ -13,6 +13,18 @@ from pathlib import Path
 from typing import Any
 
 from .io import read_json, write_json
+from .moe_parity import (
+    BACKENDS as MOE_PARITY_BACKENDS,
+    DTYPES as MOE_PARITY_DTYPES,
+    run_moe_layer_parity_probe,
+    validate_moe_layer_parity_probe_fixture,
+)
+from .pipeline_probe import (
+    BACKENDS as PIPELINE_CORRECTNESS_BACKENDS,
+    DTYPES as PIPELINE_CORRECTNESS_DTYPES,
+    run_pipeline_correctness_probe,
+    validate_pipeline_correctness_probe_fixture,
+)
 from .serving import simulate_serving_adapter, validate_serving_adapter_fixture
 from .target_fixture_probe import (
     BACKENDS as TARGET_FIXTURE_EXECUTION_BACKENDS,
@@ -1095,6 +1107,27 @@ def run_local_http_serving_smoke(
     backend_mode: str = BACKEND_MODE_ADAPTER,
     enable_tls: bool = False,
     enable_mtls: bool = False,
+    include_runtime_probes: bool = False,
+    runtime_probe_backend: str = "cpu-stdlib",
+    runtime_probe_torch_python: str | None = None,
+    runtime_probe_source_device: str = "cuda:0",
+    runtime_probe_destination_device: str = "cuda:1",
+    runtime_probe_dtype: str = "float32",
+    runtime_probe_iterations: int = 5,
+    runtime_probe_warmup: int = 1,
+    runtime_probe_tolerance: float = 1e-4,
+    runtime_probe_logical_source_host: str = "logical-host-0",
+    runtime_probe_logical_destination_host: str = "logical-host-1",
+    runtime_probe_timeout_s: float = 180.0,
+    pipeline_probe_vocab_size: int = 17,
+    pipeline_probe_hidden_dim: int = 16,
+    pipeline_probe_new_tokens: int = 4,
+    moe_probe_token_count: int = 4,
+    moe_probe_hidden_dim: int = 16,
+    moe_probe_intermediate_dim: int = 32,
+    moe_probe_vocab_size: int = 17,
+    moe_probe_expert_count: int = 4,
+    moe_probe_top_k: int = 2,
     include_target_fixture_execution_probe: bool = False,
     target_fixture_execution_backend: str = "cpu-stdlib",
     target_fixture_execution_torch_python: str | None = None,
@@ -1127,6 +1160,57 @@ def run_local_http_serving_smoke(
         raise ValueError(f"backend_mode must be one of {BACKEND_MODES}")
     if include_target_fixture_execution_probe and backend_mode != BACKEND_MODE_TARGET_FIXTURE:
         raise ValueError("target fixture execution probe requires backend_mode=target-fixture")
+    if runtime_probe_backend not in PIPELINE_CORRECTNESS_BACKENDS or runtime_probe_backend not in MOE_PARITY_BACKENDS:
+        raise ValueError(
+            f"runtime_probe_backend must be one of {sorted(PIPELINE_CORRECTNESS_BACKENDS & MOE_PARITY_BACKENDS)}"
+        )
+    if runtime_probe_dtype not in PIPELINE_CORRECTNESS_DTYPES or runtime_probe_dtype not in MOE_PARITY_DTYPES:
+        raise ValueError(
+            f"runtime_probe_dtype must be one of {sorted(PIPELINE_CORRECTNESS_DTYPES & MOE_PARITY_DTYPES)}"
+        )
+    if (
+        isinstance(runtime_probe_iterations, bool)
+        or not isinstance(runtime_probe_iterations, int)
+        or runtime_probe_iterations <= 0
+    ):
+        raise ValueError("runtime_probe_iterations must be a positive integer")
+    if (
+        isinstance(runtime_probe_warmup, bool)
+        or not isinstance(runtime_probe_warmup, int)
+        or runtime_probe_warmup < 0
+    ):
+        raise ValueError("runtime_probe_warmup must be a non-negative integer")
+    if (
+        isinstance(runtime_probe_tolerance, bool)
+        or not isinstance(runtime_probe_tolerance, (int, float))
+        or runtime_probe_tolerance < 0
+    ):
+        raise ValueError("runtime_probe_tolerance must be a non-negative number")
+    if (
+        isinstance(runtime_probe_timeout_s, bool)
+        or not isinstance(runtime_probe_timeout_s, (int, float))
+        or runtime_probe_timeout_s <= 0
+    ):
+        raise ValueError("runtime_probe_timeout_s must be a positive number")
+    if not runtime_probe_logical_source_host or not runtime_probe_logical_destination_host:
+        raise ValueError("runtime probe logical host names must be non-empty")
+    if runtime_probe_logical_source_host == runtime_probe_logical_destination_host:
+        raise ValueError("runtime probe logical host names must differ")
+    for name, value in (
+        ("pipeline_probe_vocab_size", pipeline_probe_vocab_size),
+        ("pipeline_probe_hidden_dim", pipeline_probe_hidden_dim),
+        ("pipeline_probe_new_tokens", pipeline_probe_new_tokens),
+        ("moe_probe_token_count", moe_probe_token_count),
+        ("moe_probe_hidden_dim", moe_probe_hidden_dim),
+        ("moe_probe_intermediate_dim", moe_probe_intermediate_dim),
+        ("moe_probe_vocab_size", moe_probe_vocab_size),
+        ("moe_probe_expert_count", moe_probe_expert_count),
+        ("moe_probe_top_k", moe_probe_top_k),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+    if moe_probe_top_k > moe_probe_expert_count:
+        raise ValueError("moe_probe_top_k must be <= moe_probe_expert_count")
     if target_fixture_execution_backend not in TARGET_FIXTURE_EXECUTION_BACKENDS:
         raise ValueError(
             f"target_fixture_execution_backend must be one of {sorted(TARGET_FIXTURE_EXECUTION_BACKENDS)}"
@@ -1173,6 +1257,15 @@ def run_local_http_serving_smoke(
         "backend_mode": backend_mode,
         "enable_tls": enable_tls,
         "enable_mtls": enable_mtls,
+        "include_runtime_probes": include_runtime_probes,
+        "runtime_probe_backend": runtime_probe_backend,
+        "runtime_probe_source_device": runtime_probe_source_device,
+        "runtime_probe_destination_device": runtime_probe_destination_device,
+        "runtime_probe_dtype": runtime_probe_dtype,
+        "runtime_probe_iterations": runtime_probe_iterations,
+        "runtime_probe_warmup": runtime_probe_warmup,
+        "runtime_probe_logical_source_host": runtime_probe_logical_source_host,
+        "runtime_probe_logical_destination_host": runtime_probe_logical_destination_host,
         "include_target_fixture_execution_probe": include_target_fixture_execution_probe,
         "target_fixture_execution_backend": target_fixture_execution_backend,
         "target_fixture_execution_device": target_fixture_execution_device,
@@ -1353,6 +1446,53 @@ def run_local_http_serving_smoke(
         thread.join(timeout=float(timeout_s))
         if tls_tempdir is not None:
             tls_tempdir.cleanup()
+    pipeline_correctness_probe: dict[str, Any] | None = None
+    pipeline_correctness_validation: dict[str, Any] | None = None
+    moe_layer_parity_probe: dict[str, Any] | None = None
+    moe_layer_parity_validation: dict[str, Any] | None = None
+    if include_runtime_probes:
+        pipeline_correctness_probe = run_pipeline_correctness_probe(
+            backend=runtime_probe_backend,
+            torch_python=runtime_probe_torch_python,
+            source_device=runtime_probe_source_device,
+            destination_device=runtime_probe_destination_device,
+            dtype=runtime_probe_dtype,
+            iterations=runtime_probe_iterations,
+            warmup=runtime_probe_warmup,
+            vocab_size=pipeline_probe_vocab_size,
+            hidden_dim=pipeline_probe_hidden_dim,
+            new_tokens=pipeline_probe_new_tokens,
+            tolerance=runtime_probe_tolerance,
+            logical_source_host=runtime_probe_logical_source_host,
+            logical_destination_host=runtime_probe_logical_destination_host,
+            timeout_s=runtime_probe_timeout_s,
+        )
+        pipeline_correctness_validation = validate_pipeline_correctness_probe_fixture(
+            pipeline_correctness_probe
+        )
+        moe_layer_parity_probe = run_moe_layer_parity_probe(
+            backend=runtime_probe_backend,
+            torch_python=runtime_probe_torch_python,
+            source_device=runtime_probe_source_device,
+            expert_device=runtime_probe_destination_device,
+            dtype=runtime_probe_dtype,
+            iterations=runtime_probe_iterations,
+            warmup=runtime_probe_warmup,
+            token_count=moe_probe_token_count,
+            hidden_dim=moe_probe_hidden_dim,
+            intermediate_dim=moe_probe_intermediate_dim,
+            vocab_size=moe_probe_vocab_size,
+            expert_count=moe_probe_expert_count,
+            top_k=moe_probe_top_k,
+            tolerance=runtime_probe_tolerance,
+            logical_source_host=runtime_probe_logical_source_host,
+            logical_expert_host=runtime_probe_logical_destination_host,
+            timeout_s=runtime_probe_timeout_s,
+        )
+        moe_layer_parity_validation = validate_moe_layer_parity_probe_fixture(
+            moe_layer_parity_probe
+        )
+
     target_fixture_execution_probe: dict[str, Any] | None = None
     target_fixture_execution_validation: dict[str, Any] | None = None
     if include_target_fixture_execution_probe:
@@ -1460,6 +1600,32 @@ def run_local_http_serving_smoke(
         and target_fixture_summary.get("real_frontier_model_loaded") is False
         and target_fixture_summary.get("real_frontier_model_parity") is False
     )
+    pipeline_correctness_summary = (
+        pipeline_correctness_validation.get("summary", {})
+        if isinstance(pipeline_correctness_validation, dict)
+        else {}
+    )
+    moe_layer_parity_summary = (
+        moe_layer_parity_validation.get("summary", {})
+        if isinstance(moe_layer_parity_validation, dict)
+        else {}
+    )
+    pipeline_correctness_ok = (
+        not include_runtime_probes
+        or (
+            isinstance(pipeline_correctness_validation, dict)
+            and pipeline_correctness_validation.get("ok") is True
+            and pipeline_correctness_summary.get("measured") is True
+        )
+    )
+    moe_layer_parity_ok = (
+        not include_runtime_probes
+        or (
+            isinstance(moe_layer_parity_validation, dict)
+            and moe_layer_parity_validation.get("ok") is True
+            and moe_layer_parity_summary.get("measured") is True
+        )
+    )
     target_fixture_execution_summary = (
         target_fixture_execution_validation.get("summary", {})
         if isinstance(target_fixture_execution_validation, dict)
@@ -1512,6 +1678,20 @@ def run_local_http_serving_smoke(
         {"name": "admitted-cancel-cleanup", "ok": cancel_ok, "errors": [] if cancel_ok else ["admitted cancellation cleanup invalid"], "warnings": ["local admitted cancellation is not distributed partition or client-disconnect evidence"]},
         {"name": "lifecycle-cleanup", "ok": lifecycle_ok, "errors": [] if lifecycle_ok else ["lifecycle cleanup invalid"], "warnings": []},
         *([{"name": "target-fixture-parity", "ok": target_fixture_ok, "errors": [] if target_fixture_ok else ["target fixture parity invalid"], "warnings": ["local target fixture parity is not real frontier model parity"]}] if target_fixture_enabled else []),
+        *([
+            {
+                "name": "pipeline-correctness-probe",
+                "ok": pipeline_correctness_ok,
+                "errors": [] if pipeline_correctness_ok else ["pipeline correctness probe invalid"],
+                "warnings": ["same-host pipeline probe is not real multi-host frontier serving evidence"],
+            },
+            {
+                "name": "moe-layer-parity-probe",
+                "ok": moe_layer_parity_ok,
+                "errors": [] if moe_layer_parity_ok else ["MoE layer parity probe invalid"],
+                "warnings": ["same-host MoE parity probe is not real multi-host frontier serving evidence"],
+            },
+        ] if include_runtime_probes else []),
         *([
             {
                 "name": "target-fixture-execution-probe",
@@ -1578,6 +1758,33 @@ def run_local_http_serving_smoke(
         "target_fixture_non_stream_matches_stream": target_fixture_summary.get("non_stream_matches_stream") if isinstance(target_fixture_summary, dict) else False,
         "target_fixture_template_hash": target_fixture_summary.get("template_hash") if isinstance(target_fixture_summary, dict) else None,
         "target_fixture_tokenizer_hash": target_fixture_summary.get("tokenizer_hash") if isinstance(target_fixture_summary, dict) else None,
+        "runtime_probes_included": include_runtime_probes,
+        "runtime_probe_backend": runtime_probe_backend if include_runtime_probes else None,
+        "runtime_probe_accelerator_probe_count": sum(
+            1
+            for probe_summary in (pipeline_correctness_summary, moe_layer_parity_summary)
+            if probe_summary.get("accelerator_measured") is True
+        ) if include_runtime_probes else 0,
+        "runtime_probe_required_count": 2 if include_runtime_probes else 0,
+        "pipeline_correctness_probe_included": include_runtime_probes,
+        "pipeline_correctness_probe_ok": pipeline_correctness_ok if include_runtime_probes else False,
+        "pipeline_correctness_backend": pipeline_correctness_summary.get("backend"),
+        "pipeline_correctness_accelerator_measured": pipeline_correctness_summary.get("accelerator_measured") is True,
+        "pipeline_correctness_source_device": pipeline_correctness_summary.get("source_device"),
+        "pipeline_correctness_destination_device": pipeline_correctness_summary.get("destination_device"),
+        "pipeline_correctness_tokens_s": pipeline_correctness_summary.get("tokens_s"),
+        "pipeline_correctness_tokens_generated": pipeline_correctness_summary.get("tokens_generated"),
+        "pipeline_correctness_activation_bytes_transferred": pipeline_correctness_summary.get("activation_bytes_transferred"),
+        "pipeline_correctness_max_abs_error": pipeline_correctness_summary.get("max_abs_error"),
+        "moe_layer_parity_probe_included": include_runtime_probes,
+        "moe_layer_parity_probe_ok": moe_layer_parity_ok if include_runtime_probes else False,
+        "moe_layer_parity_backend": moe_layer_parity_summary.get("backend"),
+        "moe_layer_parity_accelerator_measured": moe_layer_parity_summary.get("accelerator_measured") is True,
+        "moe_layer_parity_source_device": moe_layer_parity_summary.get("source_device"),
+        "moe_layer_parity_expert_device": moe_layer_parity_summary.get("expert_device"),
+        "moe_layer_parity_tokens_s": moe_layer_parity_summary.get("tokens_s"),
+        "moe_layer_parity_expert_calls_s": moe_layer_parity_summary.get("expert_calls_s"),
+        "moe_layer_parity_max_logit_abs_error": moe_layer_parity_summary.get("max_logit_abs_error"),
         "target_fixture_execution_probe_included": include_target_fixture_execution_probe,
         "target_fixture_execution_probe_ok": target_fixture_execution_ok if include_target_fixture_execution_probe else False,
         "target_fixture_execution_backend": target_fixture_execution_summary.get("backend"),
@@ -1674,6 +1881,10 @@ def run_local_http_serving_smoke(
         "lifecycle": lifecycle_summary,
         "backend": backend_summary,
         "target_fixture": target_fixture_summary,
+        "pipeline_correctness_probe": pipeline_correctness_probe,
+        "pipeline_correctness_validation": pipeline_correctness_validation,
+        "moe_layer_parity_probe": moe_layer_parity_probe,
+        "moe_layer_parity_validation": moe_layer_parity_validation,
         "target_fixture_execution_probe": target_fixture_execution_probe,
         "target_fixture_execution_validation": target_fixture_execution_validation,
         "serving_adapter": adapter,
@@ -1697,7 +1908,9 @@ def run_local_http_serving_smoke(
             "rejection, local bearer-token auth rejection, deterministic "
             "backpressure rejection, admitted cancellation cleanup, and local lifecycle cleanup. When target-fixture "
             "mode is enabled, it also proves deterministic local fixture loading and "
-            "non-stream/stream parity only. When target-fixture execution probe mode is enabled, "
+            "non-stream/stream parity only. When runtime probe mode is enabled, "
+            "it records measured split-pipeline and MoE-layer parity probes only. "
+            "When target-fixture execution probe mode is enabled, "
             "it records measured local fixture execution only. TLS mode uses a local self-signed fixture "
             "certificate with client verification; mTLS mode additionally requires a local "
             "client certificate and records the peer identity. It is not product auth/mTLS, real frontier "
@@ -1836,6 +2049,79 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("target_fixture_execution_probe must be null unless included")
         if target_fixture_execution_validation is not None:
             errors.append("target_fixture_execution_validation must be null unless included")
+
+    runtime_probes_included = summary.get("runtime_probes_included") is True
+    pipeline_correctness_probe = data.get("pipeline_correctness_probe")
+    pipeline_correctness_validation = data.get("pipeline_correctness_validation")
+    moe_layer_parity_probe = data.get("moe_layer_parity_probe")
+    moe_layer_parity_validation = data.get("moe_layer_parity_validation")
+    if runtime_probes_included:
+        if not isinstance(pipeline_correctness_probe, dict):
+            errors.append("pipeline_correctness_probe must be an object when runtime probes are included")
+            pipeline_correctness_probe = {}
+        pipeline_validation = validate_pipeline_correctness_probe_fixture(pipeline_correctness_probe)
+        errors.extend(f"pipeline_correctness_probe: {error}" for error in pipeline_validation["errors"])
+        warnings.extend(f"pipeline_correctness_probe: {warning}" for warning in pipeline_validation["warnings"])
+        pipeline_summary = pipeline_validation.get("summary", {})
+        if summary.get("pipeline_correctness_probe_included") is not True:
+            errors.append("summary.pipeline_correctness_probe_included must be true when runtime probes are included")
+        if summary.get("pipeline_correctness_probe_ok") is not True:
+            errors.append("summary.pipeline_correctness_probe_ok must be true when runtime probes are included")
+        if summary.get("pipeline_correctness_backend") != pipeline_summary.get("backend"):
+            errors.append("summary.pipeline_correctness_backend must match probe backend")
+        if summary.get("pipeline_correctness_source_device") != pipeline_summary.get("source_device"):
+            errors.append("summary.pipeline_correctness_source_device must match probe source device")
+        if summary.get("pipeline_correctness_destination_device") != pipeline_summary.get("destination_device"):
+            errors.append("summary.pipeline_correctness_destination_device must match probe destination device")
+        if summary.get("pipeline_correctness_accelerator_measured") != (pipeline_summary.get("accelerator_measured") is True):
+            errors.append("summary.pipeline_correctness_accelerator_measured must match probe accelerator flag")
+        if not isinstance(pipeline_correctness_validation, dict):
+            errors.append("pipeline_correctness_validation must be an object when runtime probes are included")
+        elif pipeline_correctness_validation.get("ok") is not True:
+            errors.append("pipeline_correctness_validation.ok must be true when runtime probes are included")
+
+        if not isinstance(moe_layer_parity_probe, dict):
+            errors.append("moe_layer_parity_probe must be an object when runtime probes are included")
+            moe_layer_parity_probe = {}
+        moe_validation = validate_moe_layer_parity_probe_fixture(moe_layer_parity_probe)
+        errors.extend(f"moe_layer_parity_probe: {error}" for error in moe_validation["errors"])
+        warnings.extend(f"moe_layer_parity_probe: {warning}" for warning in moe_validation["warnings"])
+        moe_summary = moe_validation.get("summary", {})
+        if summary.get("moe_layer_parity_probe_included") is not True:
+            errors.append("summary.moe_layer_parity_probe_included must be true when runtime probes are included")
+        if summary.get("moe_layer_parity_probe_ok") is not True:
+            errors.append("summary.moe_layer_parity_probe_ok must be true when runtime probes are included")
+        if summary.get("moe_layer_parity_backend") != moe_summary.get("backend"):
+            errors.append("summary.moe_layer_parity_backend must match probe backend")
+        if summary.get("moe_layer_parity_source_device") != moe_summary.get("source_device"):
+            errors.append("summary.moe_layer_parity_source_device must match probe source device")
+        if summary.get("moe_layer_parity_expert_device") != moe_summary.get("expert_device"):
+            errors.append("summary.moe_layer_parity_expert_device must match probe expert device")
+        if summary.get("moe_layer_parity_accelerator_measured") != (moe_summary.get("accelerator_measured") is True):
+            errors.append("summary.moe_layer_parity_accelerator_measured must match probe accelerator flag")
+        if not isinstance(moe_layer_parity_validation, dict):
+            errors.append("moe_layer_parity_validation must be an object when runtime probes are included")
+        elif moe_layer_parity_validation.get("ok") is not True:
+            errors.append("moe_layer_parity_validation.ok must be true when runtime probes are included")
+    else:
+        if summary.get("runtime_probes_included") is not False:
+            errors.append("summary.runtime_probes_included must be false when omitted")
+        if summary.get("pipeline_correctness_probe_included") is not False:
+            errors.append("summary.pipeline_correctness_probe_included must be false when omitted")
+        if summary.get("pipeline_correctness_probe_ok") is not False:
+            errors.append("summary.pipeline_correctness_probe_ok must be false when omitted")
+        if summary.get("moe_layer_parity_probe_included") is not False:
+            errors.append("summary.moe_layer_parity_probe_included must be false when omitted")
+        if summary.get("moe_layer_parity_probe_ok") is not False:
+            errors.append("summary.moe_layer_parity_probe_ok must be false when omitted")
+        if pipeline_correctness_probe is not None:
+            errors.append("pipeline_correctness_probe must be null unless runtime probes are included")
+        if pipeline_correctness_validation is not None:
+            errors.append("pipeline_correctness_validation must be null unless runtime probes are included")
+        if moe_layer_parity_probe is not None:
+            errors.append("moe_layer_parity_probe must be null unless runtime probes are included")
+        if moe_layer_parity_validation is not None:
+            errors.append("moe_layer_parity_validation must be null unless runtime probes are included")
     config = data.get("config")
     if isinstance(config, dict) and "auth_token" in config:
         errors.append("config.auth_token must be redacted")
@@ -2048,6 +2334,11 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("checks must include local-mtls-node-identity when mTLS is enabled")
     if target_fixture_execution_probe_included and "target-fixture-execution-probe" not in check_names:
         errors.append("checks must include target-fixture-execution-probe when included")
+    if runtime_probes_included:
+        if "pipeline-correctness-probe" not in check_names:
+            errors.append("checks must include pipeline-correctness-probe when runtime probes are included")
+        if "moe-layer-parity-probe" not in check_names:
+            errors.append("checks must include moe-layer-parity-probe when runtime probes are included")
     if "admitted-cancel-cleanup" not in check_names:
         errors.append("checks must include admitted-cancel-cleanup")
     passed_count = sum(1 for check in checks if isinstance(check, dict) and check.get("ok") is True)
@@ -2232,6 +2523,22 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "engine_result_emitted": summary.get("engine_result_emitted") is True,
             "backend_target_model_loaded": summary.get("backend_target_model_loaded") is True,
             "target_fixture_parity": summary.get("target_fixture_parity") is True,
+            "runtime_probes_included": summary.get("runtime_probes_included") is True,
+            "runtime_probe_backend": summary.get("runtime_probe_backend"),
+            "runtime_probe_accelerator_probe_count": summary.get("runtime_probe_accelerator_probe_count"),
+            "runtime_probe_required_count": summary.get("runtime_probe_required_count"),
+            "pipeline_correctness_probe_included": summary.get("pipeline_correctness_probe_included") is True,
+            "pipeline_correctness_probe_ok": summary.get("pipeline_correctness_probe_ok") is True,
+            "pipeline_correctness_accelerator_measured": summary.get("pipeline_correctness_accelerator_measured") is True,
+            "pipeline_correctness_source_device": summary.get("pipeline_correctness_source_device"),
+            "pipeline_correctness_destination_device": summary.get("pipeline_correctness_destination_device"),
+            "pipeline_correctness_tokens_s": summary.get("pipeline_correctness_tokens_s"),
+            "moe_layer_parity_probe_included": summary.get("moe_layer_parity_probe_included") is True,
+            "moe_layer_parity_probe_ok": summary.get("moe_layer_parity_probe_ok") is True,
+            "moe_layer_parity_accelerator_measured": summary.get("moe_layer_parity_accelerator_measured") is True,
+            "moe_layer_parity_source_device": summary.get("moe_layer_parity_source_device"),
+            "moe_layer_parity_expert_device": summary.get("moe_layer_parity_expert_device"),
+            "moe_layer_parity_tokens_s": summary.get("moe_layer_parity_tokens_s"),
             "target_fixture_execution_probe_included": summary.get("target_fixture_execution_probe_included") is True,
             "target_fixture_execution_probe_ok": summary.get("target_fixture_execution_probe_ok") is True,
             "target_fixture_execution_accelerator_measured": summary.get("target_fixture_execution_accelerator_measured") is True,

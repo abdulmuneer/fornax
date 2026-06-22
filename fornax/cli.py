@@ -1525,6 +1525,27 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
             backend_mode=args.backend_mode,
             enable_tls=args.enable_tls,
             enable_mtls=args.enable_mtls,
+            include_runtime_probes=args.include_runtime_probes,
+            runtime_probe_backend=args.runtime_probe_backend,
+            runtime_probe_torch_python=args.runtime_probe_torch_python,
+            runtime_probe_source_device=args.runtime_probe_source_device,
+            runtime_probe_destination_device=args.runtime_probe_destination_device,
+            runtime_probe_dtype=args.runtime_probe_dtype,
+            runtime_probe_iterations=args.runtime_probe_iterations,
+            runtime_probe_warmup=args.runtime_probe_warmup,
+            runtime_probe_tolerance=args.runtime_probe_tolerance,
+            runtime_probe_logical_source_host=args.runtime_probe_logical_source_host,
+            runtime_probe_logical_destination_host=args.runtime_probe_logical_destination_host,
+            runtime_probe_timeout_s=args.runtime_probe_timeout_s,
+            pipeline_probe_vocab_size=args.pipeline_probe_vocab_size,
+            pipeline_probe_hidden_dim=args.pipeline_probe_hidden_dim,
+            pipeline_probe_new_tokens=args.pipeline_probe_new_tokens,
+            moe_probe_token_count=args.moe_probe_token_count,
+            moe_probe_hidden_dim=args.moe_probe_hidden_dim,
+            moe_probe_intermediate_dim=args.moe_probe_intermediate_dim,
+            moe_probe_vocab_size=args.moe_probe_vocab_size,
+            moe_probe_expert_count=args.moe_probe_expert_count,
+            moe_probe_top_k=args.moe_probe_top_k,
             include_target_fixture_execution_probe=args.include_target_fixture_execution_probe,
             target_fixture_execution_backend=args.target_fixture_execution_backend,
             target_fixture_execution_torch_python=args.target_fixture_execution_torch_python,
@@ -1559,6 +1580,9 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
         f"backpressure={summary['backpressure_rejected']}; "
         f"lifecycle={summary['lifecycle_all_released']}; "
         f"target_fixture={summary['target_fixture_parity']}; "
+        f"runtime_probes={summary['runtime_probes_included']}; "
+        f"pipeline_accelerator={summary['pipeline_correctness_accelerator_measured']}; "
+        f"moe_accelerator={summary['moe_layer_parity_accelerator_measured']}; "
         f"target_fixture_execution={summary['target_fixture_execution_probe_ok']}; "
         f"plan_reject={summary['plan_integrity_rejected']}; "
         f"target_model_parity={summary['target_model_parity']}; "
@@ -2843,6 +2867,27 @@ def build_parser() -> argparse.ArgumentParser:
     local_http_serving.add_argument("--backend-mode", choices=["adapter", "target-fixture"], default="adapter")
     local_http_serving.add_argument("--enable-tls", action="store_true")
     local_http_serving.add_argument("--enable-mtls", action="store_true")
+    local_http_serving.add_argument("--include-runtime-probes", action="store_true")
+    local_http_serving.add_argument("--runtime-probe-backend", choices=["cpu-stdlib", "torch"], default="cpu-stdlib")
+    local_http_serving.add_argument("--runtime-probe-torch-python")
+    local_http_serving.add_argument("--runtime-probe-source-device", default="cuda:0")
+    local_http_serving.add_argument("--runtime-probe-destination-device", default="cuda:1")
+    local_http_serving.add_argument("--runtime-probe-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    local_http_serving.add_argument("--runtime-probe-iterations", type=int, default=5)
+    local_http_serving.add_argument("--runtime-probe-warmup", type=int, default=1)
+    local_http_serving.add_argument("--runtime-probe-tolerance", type=float, default=1e-4)
+    local_http_serving.add_argument("--runtime-probe-logical-source-host", default="logical-host-0")
+    local_http_serving.add_argument("--runtime-probe-logical-destination-host", default="logical-host-1")
+    local_http_serving.add_argument("--runtime-probe-timeout-s", type=float, default=180.0)
+    local_http_serving.add_argument("--pipeline-probe-vocab-size", type=int, default=17)
+    local_http_serving.add_argument("--pipeline-probe-hidden-dim", type=int, default=16)
+    local_http_serving.add_argument("--pipeline-probe-new-tokens", type=int, default=4)
+    local_http_serving.add_argument("--moe-probe-token-count", type=int, default=4)
+    local_http_serving.add_argument("--moe-probe-hidden-dim", type=int, default=16)
+    local_http_serving.add_argument("--moe-probe-intermediate-dim", type=int, default=32)
+    local_http_serving.add_argument("--moe-probe-vocab-size", type=int, default=17)
+    local_http_serving.add_argument("--moe-probe-expert-count", type=int, default=4)
+    local_http_serving.add_argument("--moe-probe-top-k", type=int, default=2)
     local_http_serving.add_argument("--include-target-fixture-execution-probe", action="store_true")
     local_http_serving.add_argument("--target-fixture-execution-backend", choices=["cpu-stdlib", "torch"], default="cpu-stdlib")
     local_http_serving.add_argument("--target-fixture-execution-torch-python")
