@@ -27,10 +27,10 @@ NVIDIA/AMD/Mac fleet when available.
 | S3-1 | Open for real Apple evidence; simulation must not pretend to close this gate item. |
 | S3-2 | Partial: simulated transport/topology placement and measured same-host two-H100 activation-transfer evidence inside the endpoint artifact exist; real heterogeneous fabric remains open. |
 | S3-3 | Partial: trust-boundary simulation exists and localhost mTLS/HTTPS bearer-token/plan-hash smoke now passes with local client-certificate node identity; production auth/keying and product mTLS remain open. |
-| S3-4 | Partial: backpressure and replay simulations exist, and localhost mTLS endpoint smoke now validates deterministic 429 backpressure plus admitted cancellation cleanup before backend execution; real distributed partition/failure proof remains open. |
+| S3-4 | Partial: backpressure and replay simulations exist, and localhost mTLS endpoint smoke now validates deterministic 429 backpressure plus admitted cancellation and admitted timeout cleanup before backend execution; real distributed partition/failure proof remains open. |
 | S3-5 | Partial: stage-replication simulation exists; real replicated runtime remains open. |
 | S3-6 | Done at planner artifact scope; live runtime linkage remains future work. |
-| S3-7 | Partial: state-ownership simulation exists; localhost mTLS/HTTPS lifecycle cleanup, admitted cancellation cleanup, local target-fixture parity, measured two-H100 activation transfer, split-pipeline, and MoE parity inside the endpoint artifact, measured H100 target-fixture execution inside the endpoint artifact, and a 5/5 H100 local serving-runtime bundle with integrated target-fixture execution evidence exist; live distributed lifecycle proof remains open. |
+| S3-7 | Partial: state-ownership simulation exists; localhost mTLS/HTTPS lifecycle cleanup, admitted cancellation cleanup, admitted timeout cleanup, local target-fixture parity, measured two-H100 activation transfer, split-pipeline, and MoE parity inside the endpoint artifact, measured H100 target-fixture execution inside the endpoint artifact, and a 5/5 H100 local serving-runtime bundle with integrated target-fixture execution evidence exist; live distributed lifecycle proof remains open. |
 
 ## Validation
 
@@ -46,7 +46,7 @@ NVIDIA/AMD/Mac fleet when available.
 ## Exit Criteria
 
 - Local two-GPU logical-host validation no longer blocks implementation.
-- Security, topology, replication, local failure semantics, lifecycle, local mTLS/HTTPS target-fixture parity, measured local H100 fixture execution inside both endpoint and serving-runtime artifacts, measured endpoint-level two-H100 activation-transfer/split-pipeline/MoE runtime probes, and the integrated local serving-runtime target-fixture bundle are
+- Security, topology, replication, local failure semantics including admitted cancel and timeout cleanup, lifecycle, local mTLS/HTTPS target-fixture parity, measured local H100 fixture execution inside both endpoint and serving-runtime artifacts, measured endpoint-level two-H100 activation-transfer/split-pipeline/MoE runtime probes, and the integrated local serving-runtime target-fixture bundle are
   coherent under simulation/local smoke scope.
 - G3 remains open until a real frontier MoE is served across the required
   heterogeneous fleet at predicted throughput.
