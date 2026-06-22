@@ -19,6 +19,39 @@ PLAN_ID_HEADER = "x-fornax-plan-id"
 PLAN_HASH_HEADER = "x-fornax-plan-hash"
 
 
+class LocalFornaxBackend:
+    """Local smoke implementation of the FornaxBackend Engine seam."""
+
+    def __init__(self, *, plan_id: str, request_id: str, model: str, max_tokens: int) -> None:
+        self.plan_id = plan_id
+        self.request_id = request_id
+        self.model = model
+        self.max_tokens = max_tokens
+        self.call_count = 0
+
+    def complete(self, request: dict[str, Any], *, stream: bool) -> dict[str, Any]:
+        self.call_count += 1
+        model = str(request.get("model", self.model))
+        max_tokens = int(request.get("max_tokens", self.max_tokens))
+        return simulate_serving_adapter(
+            plan_id=self.plan_id,
+            request_id=self.request_id,
+            model=model,
+            stream=stream,
+            max_tokens=max_tokens,
+        )
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "backend": "FornaxBackend",
+            "mode": "local-http-smoke",
+            "engine_trait_compatible": True,
+            "request_count": self.call_count,
+            "target_model_loaded": False,
+            "target_model_parity": False,
+        }
+
+
 class _SmokeHandler(BaseHTTPRequestHandler):
     server: "_SmokeServer"
 
@@ -80,12 +113,9 @@ class _SmokeHandler(BaseHTTPRequestHandler):
         stream = bool(request.get("stream", False))
         max_tokens = int(request.get("max_tokens", config["max_tokens"]))
         model = str(request.get("model", config["model"]))
-        adapter = simulate_serving_adapter(
-            plan_id=config["plan_id"],
-            request_id=config["request_id"],
-            model=model,
+        adapter = self.server.backend.complete(
+            {**request, "model": model, "max_tokens": max_tokens},
             stream=stream,
-            max_tokens=max_tokens,
         )
         if stream:
             self.send_response(200)
@@ -104,6 +134,12 @@ class _SmokeServer(ThreadingHTTPServer):
     def __init__(self, server_address: tuple[str, int], config: dict[str, Any]) -> None:
         super().__init__(server_address, _SmokeHandler)
         self.config = config
+        self.backend = LocalFornaxBackend(
+            plan_id=config["plan_id"],
+            request_id=config["request_id"],
+            model=config["model"],
+            max_tokens=config["max_tokens"],
+        )
 
 
 def _post_json(
@@ -263,6 +299,7 @@ def run_local_http_serving_smoke(
         server.shutdown()
         server.server_close()
         thread.join(timeout=float(timeout_s))
+    backend_summary = server.backend.summary()
     elapsed_ns = time.perf_counter_ns() - started_ns
 
     non_stream_ok = (
@@ -280,8 +317,16 @@ def run_local_http_serving_smoke(
         and plan_reject.get("body", {}).get("error", {}).get("code") == "plan_integrity_mismatch"
     )
     bad_path_ok = bad_path.get("status") == 404
+    backend_ok = (
+        backend_summary.get("backend") == "FornaxBackend"
+        and backend_summary.get("engine_trait_compatible") is True
+        and backend_summary.get("request_count") == 2
+        and backend_summary.get("target_model_loaded") is False
+        and backend_summary.get("target_model_parity") is False
+    )
     checks = [
         {"name": "serving-adapter", "ok": bool(adapter_validation.get("ok")), "errors": adapter_validation.get("errors", []), "warnings": adapter_validation.get("warnings", [])},
+        {"name": "fornax-backend-integration", "ok": backend_ok, "errors": [] if backend_ok else ["FornaxBackend local integration invalid"], "warnings": []},
         {"name": "non-stream-http", "ok": non_stream_ok, "errors": [] if non_stream_ok else ["non-stream HTTP response invalid"], "warnings": []},
         {"name": "stream-sse", "ok": stream_ok, "errors": [] if stream_ok else ["SSE stream response invalid"], "warnings": []},
         {"name": "plan-integrity-reject", "ok": plan_reject_ok, "errors": [] if plan_reject_ok else ["plan integrity rejection invalid"], "warnings": []},
@@ -301,6 +346,11 @@ def run_local_http_serving_smoke(
         "sse_done_seen": stream.get("done_seen"),
         "plan_integrity_rejected": plan_reject_ok,
         "bad_path_rejected": bad_path_ok,
+        "fornax_backend_integrated": backend_ok,
+        "backend_request_count": backend_summary.get("request_count"),
+        "engine_trait_compatible": backend_summary.get("engine_trait_compatible"),
+        "engine_result_emitted": non_stream_ok and stream_ok,
+        "backend_target_model_loaded": backend_summary.get("target_model_loaded"),
         "elapsed_s": elapsed_ns / 1_000_000_000.0,
         "live_http_endpoint": True,
         "localhost_only": server_host in {"127.0.0.1", "localhost"},
@@ -316,6 +366,7 @@ def run_local_http_serving_smoke(
         "evidence_scope": EVIDENCE_SCOPE,
         "endpoint": endpoint,
         "config": config,
+        "backend": backend_summary,
         "serving_adapter": adapter,
         "responses": {
             "non_stream": non_stream,
@@ -355,6 +406,22 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         adapter_result = validate_serving_adapter_fixture(adapter)
         errors.extend(f"serving_adapter: {error}" for error in adapter_result["errors"])
         warnings.extend(f"serving_adapter: {warning}" for warning in adapter_result["warnings"])
+    backend = data.get("backend")
+    if not isinstance(backend, dict):
+        errors.append("backend must be an object")
+        backend = {}
+    if backend.get("backend") != "FornaxBackend":
+        errors.append("backend.backend must be FornaxBackend")
+    if backend.get("mode") != "local-http-smoke":
+        errors.append("backend.mode must be local-http-smoke")
+    if backend.get("engine_trait_compatible") is not True:
+        errors.append("backend.engine_trait_compatible must be true")
+    if backend.get("request_count") != 2:
+        errors.append("backend.request_count must be 2")
+    if backend.get("target_model_loaded") is not False:
+        errors.append("backend.target_model_loaded must be false")
+    if backend.get("target_model_parity") is not False:
+        errors.append("backend.target_model_parity must be false")
     checks = data.get("checks")
     if not isinstance(checks, list) or not checks:
         errors.append("checks must be a non-empty list")
@@ -388,6 +455,16 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.plan_integrity_rejected must be true")
     if summary.get("bad_path_rejected") is not True:
         errors.append("summary.bad_path_rejected must be true")
+    if summary.get("fornax_backend_integrated") is not True:
+        errors.append("summary.fornax_backend_integrated must be true")
+    if summary.get("backend_request_count") != 2:
+        errors.append("summary.backend_request_count must be 2")
+    if summary.get("engine_trait_compatible") is not True:
+        errors.append("summary.engine_trait_compatible must be true")
+    if summary.get("engine_result_emitted") is not True:
+        errors.append("summary.engine_result_emitted must be true")
+    if summary.get("backend_target_model_loaded") is not False:
+        errors.append("summary.backend_target_model_loaded must be false")
     if summary.get("live_http_endpoint") is not True:
         errors.append("summary.live_http_endpoint must be true")
     if summary.get("localhost_only") is not True:
@@ -414,6 +491,10 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "endpoint": summary.get("endpoint"),
             "sse_chunk_count": summary.get("sse_chunk_count"),
             "plan_integrity_rejected": summary.get("plan_integrity_rejected") is True,
+            "fornax_backend_integrated": summary.get("fornax_backend_integrated") is True,
+            "backend_request_count": summary.get("backend_request_count"),
+            "engine_trait_compatible": summary.get("engine_trait_compatible") is True,
+            "engine_result_emitted": summary.get("engine_result_emitted") is True,
             "live_http_endpoint": summary.get("live_http_endpoint") is True,
             "target_model_parity": summary.get("target_model_parity") is True,
             "g2_g3_gate_evidence": summary.get("g2_g3_gate_evidence") is True,
