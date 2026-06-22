@@ -1,0 +1,520 @@
+{
+  "cancel_request_id": "golden-state-ownership-cancel",
+  "mode": "t1-simulation",
+  "model_id": "qwen3-moe-class-target",
+  "note": "T1 state-ownership simulation: validates single-owner request, scheduler, transport, KV, activation, stream, and cancellation lifecycle semantics without claiming live serving runtime evidence.",
+  "ownership_policy": {
+    "cleanup_required": true,
+    "owners": [
+      "fornax_engine",
+      "kv_manager",
+      "released",
+      "scheduler",
+      "serving_gateway",
+      "stage-0",
+      "stage-1",
+      "transport",
+      "unowned"
+    ],
+    "single_active_owner": true,
+    "terminal_owner": "released"
+  },
+  "ownership_snapshots": [
+    {
+      "claims": [
+        {
+          "owner": "scheduler",
+          "resource_id": "request:primary",
+          "state": "active"
+        },
+        {
+          "owner": "scheduler",
+          "resource_id": "scheduler-slot:primary",
+          "state": "active"
+        },
+        {
+          "owner": "fornax_engine",
+          "resource_id": "engine-context:primary",
+          "state": "active"
+        }
+      ],
+      "snapshot_id": "after-scheduler-admit",
+      "timestamp_s": 0.003
+    },
+    {
+      "claims": [
+        {
+          "owner": "scheduler",
+          "resource_id": "request:primary",
+          "state": "active"
+        },
+        {
+          "owner": "transport",
+          "resource_id": "activation:primary",
+          "state": "active"
+        },
+        {
+          "owner": "transport",
+          "resource_id": "transport-payload:primary",
+          "state": "active"
+        }
+      ],
+      "snapshot_id": "activation-in-flight",
+      "timestamp_s": 0.007
+    },
+    {
+      "claims": [
+        {
+          "owner": "serving_gateway",
+          "resource_id": "request:primary",
+          "state": "active"
+        },
+        {
+          "owner": "serving_gateway",
+          "resource_id": "response-stream:primary",
+          "state": "active"
+        },
+        {
+          "owner": "kv_manager",
+          "resource_id": "kv-cache:primary",
+          "state": "active"
+        }
+      ],
+      "snapshot_id": "response-owned-by-serving",
+      "timestamp_s": 0.015
+    },
+    {
+      "claims": [
+        {
+          "owner": "released",
+          "resource_id": "request:primary",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "engine-context:primary",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "scheduler-slot:primary",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "microbatch:primary",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "activation:primary",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "transport-payload:primary",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "kv-cache:primary",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "response-stream:primary",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "request:cancel",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "scheduler-slot:cancel",
+          "state": "released"
+        },
+        {
+          "owner": "released",
+          "resource_id": "response-stream:cancel",
+          "state": "released"
+        }
+      ],
+      "snapshot_id": "all-released",
+      "timestamp_s": 0.03
+    }
+  ],
+  "ownership_transitions": [
+    {
+      "event": "request_received",
+      "from_owner": "unowned",
+      "reason": "OpenAI request accepted",
+      "resource_id": "request:primary",
+      "timestamp_s": 0.001,
+      "to_owner": "serving_gateway"
+    },
+    {
+      "event": "engine_request_normalized",
+      "from_owner": "serving_gateway",
+      "reason": "request normalized into EngineRequest",
+      "resource_id": "request:primary",
+      "timestamp_s": 0.002,
+      "to_owner": "fornax_engine"
+    },
+    {
+      "event": "engine_request_normalized",
+      "from_owner": "unowned",
+      "reason": "engine context created",
+      "resource_id": "engine-context:primary",
+      "timestamp_s": 0.002,
+      "to_owner": "fornax_engine"
+    },
+    {
+      "event": "scheduler_admitted",
+      "from_owner": "fornax_engine",
+      "reason": "scheduler owns admission and queue state",
+      "resource_id": "request:primary",
+      "timestamp_s": 0.003,
+      "to_owner": "scheduler"
+    },
+    {
+      "event": "scheduler_admitted",
+      "from_owner": "unowned",
+      "reason": "bounded queue slot allocated",
+      "resource_id": "scheduler-slot:primary",
+      "timestamp_s": 0.003,
+      "to_owner": "scheduler"
+    },
+    {
+      "event": "microbatch_formed",
+      "from_owner": "unowned",
+      "reason": "scheduler batches request",
+      "resource_id": "microbatch:primary",
+      "timestamp_s": 0.004,
+      "to_owner": "scheduler"
+    },
+    {
+      "event": "stage0_started",
+      "from_owner": "scheduler",
+      "reason": "stage worker owns execution",
+      "resource_id": "microbatch:primary",
+      "timestamp_s": 0.005,
+      "to_owner": "stage-0"
+    },
+    {
+      "event": "activation_produced",
+      "from_owner": "unowned",
+      "reason": "stage-0 owns produced activation",
+      "resource_id": "activation:primary",
+      "timestamp_s": 0.006,
+      "to_owner": "stage-0"
+    },
+    {
+      "event": "activation_handoff_sent",
+      "from_owner": "stage-0",
+      "reason": "transport owns in-flight activation",
+      "resource_id": "activation:primary",
+      "timestamp_s": 0.007,
+      "to_owner": "transport"
+    },
+    {
+      "event": "activation_handoff_sent",
+      "from_owner": "unowned",
+      "reason": "payload registered for handoff",
+      "resource_id": "transport-payload:primary",
+      "timestamp_s": 0.007,
+      "to_owner": "transport"
+    },
+    {
+      "event": "activation_handoff_received",
+      "from_owner": "transport",
+      "reason": "destination stage owns activation",
+      "resource_id": "activation:primary",
+      "timestamp_s": 0.008,
+      "to_owner": "stage-1"
+    },
+    {
+      "event": "activation_handoff_received",
+      "from_owner": "transport",
+      "reason": "payload acked",
+      "resource_id": "transport-payload:primary",
+      "timestamp_s": 0.008,
+      "to_owner": "released"
+    },
+    {
+      "event": "kv_read_granted",
+      "from_owner": "unowned",
+      "reason": "KV cache opened by manager",
+      "resource_id": "kv-cache:primary",
+      "timestamp_s": 0.009,
+      "to_owner": "kv_manager"
+    },
+    {
+      "event": "kv_read_granted",
+      "from_owner": "kv_manager",
+      "reason": "stage-1 receives read lease",
+      "resource_id": "kv-cache:primary",
+      "timestamp_s": 0.01,
+      "to_owner": "stage-1"
+    },
+    {
+      "event": "kv_write_returned",
+      "from_owner": "stage-1",
+      "reason": "stage returns write ownership",
+      "resource_id": "kv-cache:primary",
+      "timestamp_s": 0.011,
+      "to_owner": "kv_manager"
+    },
+    {
+      "event": "stage1_completed",
+      "from_owner": "stage-1",
+      "reason": "activation buffer released after stage completion",
+      "resource_id": "activation:primary",
+      "timestamp_s": 0.012,
+      "to_owner": "released"
+    },
+    {
+      "event": "stage1_completed",
+      "from_owner": "stage-0",
+      "reason": "microbatch state completed",
+      "resource_id": "microbatch:primary",
+      "timestamp_s": 0.012,
+      "to_owner": "released"
+    },
+    {
+      "event": "response_ready",
+      "from_owner": "scheduler",
+      "reason": "queue slot released",
+      "resource_id": "scheduler-slot:primary",
+      "timestamp_s": 0.013,
+      "to_owner": "released"
+    },
+    {
+      "event": "response_ready",
+      "from_owner": "scheduler",
+      "reason": "engine owns final result assembly",
+      "resource_id": "request:primary",
+      "timestamp_s": 0.014,
+      "to_owner": "fornax_engine"
+    },
+    {
+      "event": "response_ready",
+      "from_owner": "fornax_engine",
+      "reason": "serving gateway owns response emission",
+      "resource_id": "request:primary",
+      "timestamp_s": 0.015,
+      "to_owner": "serving_gateway"
+    },
+    {
+      "event": "stream_opened",
+      "from_owner": "unowned",
+      "reason": "stream state opened",
+      "resource_id": "response-stream:primary",
+      "timestamp_s": 0.015,
+      "to_owner": "serving_gateway"
+    },
+    {
+      "event": "cleanup",
+      "from_owner": "serving_gateway",
+      "reason": "stream finalized",
+      "resource_id": "response-stream:primary",
+      "timestamp_s": 0.016,
+      "to_owner": "released"
+    },
+    {
+      "event": "cleanup",
+      "from_owner": "serving_gateway",
+      "reason": "primary request released",
+      "resource_id": "request:primary",
+      "timestamp_s": 0.017,
+      "to_owner": "released"
+    },
+    {
+      "event": "cleanup",
+      "from_owner": "fornax_engine",
+      "reason": "engine context released",
+      "resource_id": "engine-context:primary",
+      "timestamp_s": 0.017,
+      "to_owner": "released"
+    },
+    {
+      "event": "cleanup",
+      "from_owner": "kv_manager",
+      "reason": "KV lease closed",
+      "resource_id": "kv-cache:primary",
+      "timestamp_s": 0.017,
+      "to_owner": "released"
+    },
+    {
+      "event": "request_received",
+      "from_owner": "unowned",
+      "reason": "cancelable request accepted",
+      "resource_id": "request:cancel",
+      "timestamp_s": 0.02,
+      "to_owner": "serving_gateway"
+    },
+    {
+      "event": "engine_request_normalized",
+      "from_owner": "serving_gateway",
+      "reason": "cancel path normalized",
+      "resource_id": "request:cancel",
+      "timestamp_s": 0.021,
+      "to_owner": "fornax_engine"
+    },
+    {
+      "event": "scheduler_admitted",
+      "from_owner": "fornax_engine",
+      "reason": "cancel path admitted",
+      "resource_id": "request:cancel",
+      "timestamp_s": 0.022,
+      "to_owner": "scheduler"
+    },
+    {
+      "event": "scheduler_admitted",
+      "from_owner": "unowned",
+      "reason": "cancel path queue slot allocated",
+      "resource_id": "scheduler-slot:cancel",
+      "timestamp_s": 0.022,
+      "to_owner": "scheduler"
+    },
+    {
+      "event": "stream_opened",
+      "from_owner": "unowned",
+      "reason": "cancel stream opened",
+      "resource_id": "response-stream:cancel",
+      "timestamp_s": 0.023,
+      "to_owner": "serving_gateway"
+    },
+    {
+      "event": "cancellation_propagated",
+      "from_owner": "scheduler",
+      "reason": "scheduler returns canceled request to serving",
+      "resource_id": "request:cancel",
+      "timestamp_s": 0.024,
+      "to_owner": "serving_gateway"
+    },
+    {
+      "event": "cancellation_propagated",
+      "from_owner": "scheduler",
+      "reason": "cancel releases scheduler slot",
+      "resource_id": "scheduler-slot:cancel",
+      "timestamp_s": 0.024,
+      "to_owner": "released"
+    },
+    {
+      "event": "cleanup",
+      "from_owner": "serving_gateway",
+      "reason": "cancel stream released",
+      "resource_id": "response-stream:cancel",
+      "timestamp_s": 0.025,
+      "to_owner": "released"
+    },
+    {
+      "event": "cleanup",
+      "from_owner": "serving_gateway",
+      "reason": "cancel request released",
+      "resource_id": "request:cancel",
+      "timestamp_s": 0.025,
+      "to_owner": "released"
+    }
+  ],
+  "plan_id": "golden-state-ownership",
+  "record_kind": "state-ownership-simulation-contract",
+  "request_id": "golden-state-ownership-request",
+  "resources": [
+    {
+      "initial_owner": "unowned",
+      "kind": "request_envelope",
+      "required": true,
+      "resource_id": "request:primary"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "engine_context",
+      "required": true,
+      "resource_id": "engine-context:primary"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "scheduler_slot",
+      "required": true,
+      "resource_id": "scheduler-slot:primary"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "microbatch",
+      "required": true,
+      "resource_id": "microbatch:primary"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "activation_buffer",
+      "required": true,
+      "resource_id": "activation:primary"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "transport_payload",
+      "required": true,
+      "resource_id": "transport-payload:primary"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "kv_cache",
+      "required": true,
+      "resource_id": "kv-cache:primary"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "response_stream",
+      "required": true,
+      "resource_id": "response-stream:primary"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "request_envelope",
+      "required": true,
+      "resource_id": "request:cancel"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "scheduler_slot",
+      "required": true,
+      "resource_id": "scheduler-slot:cancel"
+    },
+    {
+      "initial_owner": "unowned",
+      "kind": "response_stream",
+      "required": true,
+      "resource_id": "response-stream:cancel"
+    }
+  ],
+  "result": {
+    "all_required_resources_released": true,
+    "cancel_request_cleaned": true,
+    "correctness_passed": true,
+    "dual_owner_detected": false,
+    "normal_request_completed": true,
+    "single_owner_preserved": true,
+    "stale_resource_count": 0
+  },
+  "simulation_method": "end-to-end-serving-state-ownership",
+  "summary": {
+    "cancel_request_terminal_owner": "released",
+    "correctness_passed": true,
+    "dual_owner_detected": false,
+    "normal_request_terminal_owner": "released",
+    "resource_count": 11,
+    "snapshot_count": 4,
+    "stale_resource_count": 0,
+    "terminal_released_count": 11,
+    "transition_count": 34
+  },
+  "target_workstreams": [
+    "WS-H1",
+    "WS-G1",
+    "WS-E4"
+  ],
+  "version": 1
+}

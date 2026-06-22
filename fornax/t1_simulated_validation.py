@@ -62,6 +62,10 @@ from .serving import (
     simulate_serving_adapter,
     validate_serving_adapter_fixture,
 )
+from .state_ownership import (
+    simulate_state_ownership,
+    validate_state_ownership_fixture,
+)
 from .stage_host import simulate_stage_host, validate_stage_host_fixture
 from .stage_replication import (
     simulate_stage_replication,
@@ -216,6 +220,7 @@ def run_t1_simulated_validation(
     engine_path = bundle / "engine-simulation.json"
     stage_host_path = bundle / "stage-host.json"
     serving_path = bundle / "serving-adapter.json"
+    state_ownership_path = bundle / "state-ownership.json"
     batching_path = bundle / "continuous-batching.json"
     pipeline_path = bundle / "pipeline-correctness.json"
     throughput_path = bundle / "throughput-scaling.json"
@@ -290,6 +295,11 @@ def run_t1_simulated_validation(
     serving = simulate_serving_adapter(
         plan_id=f"{plan_id}-serving",
         request_id=f"{request_id}-serving",
+    )
+    state_ownership = simulate_state_ownership(
+        plan_id=f"{plan_id}-state-ownership",
+        request_id=f"{request_id}-state-ownership",
+        cancel_request_id=f"{request_id}-state-ownership-cancel",
     )
     batching = simulate_continuous_batching(
         plan_id=plan_id,
@@ -372,6 +382,7 @@ def run_t1_simulated_validation(
     write_json(engine_path, engine)
     write_json(stage_host_path, stage_host)
     write_json(serving_path, serving)
+    write_json(state_ownership_path, state_ownership)
     write_json(batching_path, batching)
     write_json(pipeline_path, pipeline)
     write_json(throughput_path, throughput)
@@ -452,6 +463,12 @@ def run_t1_simulated_validation(
             "T1",
             validate_serving_adapter_fixture(serving),
             str(serving_path),
+        ),
+        _check(
+            "state-ownership",
+            "T1/H1",
+            validate_state_ownership_fixture(state_ownership),
+            str(state_ownership_path),
         ),
         _check(
             "continuous-batching",
@@ -578,6 +595,7 @@ def run_t1_simulated_validation(
             "engine_simulation": str(engine_path),
             "stage_host": str(stage_host_path),
             "serving_adapter": str(serving_path),
+            "state_ownership": str(state_ownership_path),
             "continuous_batching": str(batching_path),
             "pipeline_correctness": str(pipeline_path),
             "throughput_scaling": str(throughput_path),

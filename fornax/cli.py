@@ -107,6 +107,7 @@ from .serving import (
     simulate_serving_adapter,
     validate_serving_adapter,
 )
+from .state_ownership import simulate_state_ownership, validate_state_ownership
 from .stage_host import simulate_stage_host, validate_stage_host
 from .stage_replication import (
     simulate_stage_replication,
@@ -554,6 +555,33 @@ def _cmd_serving_adapter_simulate(args: argparse.Namespace) -> int:
         f"correctness={summary['correctness_passed']}"
     )
     return 0
+
+
+def _cmd_serving_state_ownership_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_state_ownership(
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            cancel_request_id=args.cancel_request_id,
+            model_id=args.model,
+        )
+    except ValueError as exc:
+        print(f"serving state-ownership-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    validation = validate_state_ownership(args.out)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "serving state-ownership-simulate: "
+        f"resources={summary['resource_count']} "
+        f"transitions={summary['transition_count']} "
+        f"released={summary['terminal_released_count']}"
+        f"{suffix}"
+    )
+    return 0 if validation["ok"] else 2
 
 
 def _cmd_workers_simulate(args: argparse.Namespace) -> int:
@@ -1494,6 +1522,26 @@ def _cmd_test_serving_adapter(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_state_ownership(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/state_ownership"
+    result = validate_state_ownership(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS state-ownership: {fixture} "
+            f"resources={summary['resource_count']} "
+            f"transitions={summary['transition_count']} "
+            f"released={summary['terminal_released_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL state-ownership: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_engine_simulation(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/engine_simulation"
     result = validate_engine_simulation(fixture)
@@ -1986,6 +2034,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_stage_host(args)
     if args.test_name == "serving-adapter":
         return _cmd_test_serving_adapter(args)
+    if args.test_name == "state-ownership":
+        return _cmd_test_state_ownership(args)
     if args.test_name == "engine-simulation":
         return _cmd_test_engine_simulation(args)
     if args.test_name == "observability":
@@ -2329,6 +2379,16 @@ def build_parser() -> argparse.ArgumentParser:
     serving_adapter.add_argument("--tokenizer-hash", default="sha256:" + "b" * 64)
     serving_adapter.set_defaults(stream=True, func=_cmd_serving_adapter_simulate)
 
+    state_ownership = serving_sub.add_parser("state-ownership-simulate")
+    state_ownership.add_argument("--out", required=True)
+    state_ownership.add_argument("--plan-id", default="state-ownership-plan")
+    state_ownership.add_argument("--request-id", default="req-state-ownership")
+    state_ownership.add_argument(
+        "--cancel-request-id", default="req-state-ownership-cancel"
+    )
+    state_ownership.add_argument("--model", default="qwen3-moe-class-target")
+    state_ownership.set_defaults(func=_cmd_serving_state_ownership_simulate)
+
     workers = sub.add_parser("workers")
     workers_sub = workers.add_subparsers(dest="workers_command", required=True)
     workers_simulate = workers_sub.add_parser("simulate")
@@ -2662,6 +2722,7 @@ def build_parser() -> argparse.ArgumentParser:
             "engine-seam",
             "stage-host",
             "serving-adapter",
+            "state-ownership",
             "engine-simulation",
             "observability",
             "metrics-ledger",

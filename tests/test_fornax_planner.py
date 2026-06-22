@@ -129,6 +129,11 @@ from fornax.serving import (
     validate_serving_adapter,
     validate_serving_adapter_fixture,
 )
+from fornax.state_ownership import (
+    simulate_state_ownership,
+    validate_state_ownership,
+    validate_state_ownership_fixture,
+)
 from fornax.stage_host import (
     simulate_stage_host,
     validate_stage_host,
@@ -1197,10 +1202,11 @@ class FornaxPlannerTest(unittest.TestCase):
             trust_boundary = read_json(bundle / "trust-boundary.json")
             metrics_ledger = read_json(bundle / "metrics-ledger.json")
             stage_host = read_json(bundle / "stage-host.json")
+            state_ownership = read_json(bundle / "state-ownership.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(29, result["summary"]["check_count"])
-        self.assertEqual(29, result["summary"]["passed_count"])
+        self.assertEqual(30, result["summary"]["check_count"])
+        self.assertEqual(30, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1214,11 +1220,14 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertGreaterEqual(metrics_ledger["summary"]["alert_count"], 3)
         self.assertEqual("planned", stage_host["stage_host"]["max_graphlet_status"])
         self.assertFalse(stage_host["stage_host"]["measured"])
+        self.assertTrue(state_ownership["summary"]["correctness_passed"])
+        self.assertEqual(11, state_ownership["summary"]["terminal_released_count"])
         self.assertIn("trust-boundary", {check["name"] for check in validation["checks"]})
         self.assertIn("metrics-ledger", {check["name"] for check in validation["checks"]})
         self.assertIn("stage-host", {check["name"] for check in validation["checks"]})
         self.assertIn("engine-simulation", {check["name"] for check in validation["checks"]})
         self.assertIn("serving-adapter", {check["name"] for check in validation["checks"]})
+        self.assertIn("state-ownership", {check["name"] for check in validation["checks"]})
         self.assertIn("continuous-batching", {check["name"] for check in validation["checks"]})
         self.assertIn("pipeline-correctness", {check["name"] for check in validation["checks"]})
         self.assertIn("throughput-scaling", {check["name"] for check in validation["checks"]})
@@ -1294,6 +1303,73 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_serving_adapter_fixture(contract)
         self.assertFalse(result["ok"])
         self.assertIn("missing required surfaces", "; ".join(result["errors"]))
+
+    def test_state_ownership_fixture_passes(self) -> None:
+        result = validate_state_ownership("fornax/golden_vectors/state_ownership")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(11, result["summary"]["resource_count"])
+        self.assertEqual(11, result["summary"]["terminal_released_count"])
+        self.assertFalse(result["summary"]["dual_owner_detected"])
+
+    def test_simulated_state_ownership_validates_transitions_and_cleanup(self) -> None:
+        contract = simulate_state_ownership(
+            plan_id="unit-state-plan",
+            request_id="unit-state-request",
+            cancel_request_id="unit-state-cancel",
+        )
+        result = validate_state_ownership_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual("released", result["summary"]["normal_request_terminal_owner"])
+        self.assertEqual("released", result["summary"]["cancel_request_terminal_owner"])
+        self.assertEqual(11, contract["summary"]["terminal_released_count"])
+        resource_kinds = {resource["kind"] for resource in contract["resources"]}
+        self.assertIn("request_envelope", resource_kinds)
+        self.assertIn("activation_buffer", resource_kinds)
+        self.assertIn("kv_cache", resource_kinds)
+        self.assertIn("response_stream", resource_kinds)
+
+    def test_state_ownership_rejects_wrong_from_owner(self) -> None:
+        contract = simulate_state_ownership()
+        contract["ownership_transitions"][1]["from_owner"] = "scheduler"
+        result = validate_state_ownership_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("from_owner must match", "; ".join(result["errors"]))
+
+    def test_state_ownership_rejects_missing_cleanup_release(self) -> None:
+        contract = simulate_state_ownership()
+        contract["ownership_transitions"] = [
+            transition
+            for transition in contract["ownership_transitions"]
+            if not (
+                transition["resource_id"] == "kv-cache:primary"
+                and transition["event"] == "cleanup"
+            )
+        ]
+        result = validate_state_ownership_fixture(contract)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("required resources not released", text)
+        self.assertIn("kv-cache:primary", text)
+
+    def test_state_ownership_rejects_dual_active_owner_snapshot(self) -> None:
+        contract = simulate_state_ownership()
+        contract["ownership_snapshots"][0]["claims"].append(
+            {
+                "resource_id": "request:primary",
+                "owner": "fornax_engine",
+                "state": "active",
+            }
+        )
+        result = validate_state_ownership_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("multiple active owners", "; ".join(result["errors"]))
+
+    def test_state_ownership_rejects_summary_stale_count_mismatch(self) -> None:
+        contract = simulate_state_ownership()
+        contract["summary"]["terminal_released_count"] = 10
+        result = validate_state_ownership_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("summary.terminal_released_count", "; ".join(result["errors"]))
 
     def test_engine_simulation_fixture_passes(self) -> None:
         result = validate_engine_simulation("fornax/golden_vectors/engine_simulation")
