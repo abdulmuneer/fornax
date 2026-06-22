@@ -47,6 +47,10 @@ from fornax.engine_simulation import (
     validate_engine_simulation_fixture,
 )
 from fornax.golden import run_golden_plans
+from fornax.g1_evidence_packet import (
+    build_g1_evidence_packet,
+    validate_g1_evidence_packet_fixture,
+)
 from fornax.g1_review import render_g1_gate_review_draft
 from fornax.io import load_inventory, read_json, write_json
 from fornax.local_accelerator_smoke import (
@@ -3029,6 +3033,86 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("R-10", report["markdown"])
         self.assertIn("simulation_complete", report["markdown"])
 
+    def test_g1_evidence_packet_separates_machine_evidence_from_closure(self) -> None:
+        csv_text = (
+            "0, NVIDIA H100 80GB HBM3, 80000, 81559, 575.57.08\n"
+            "1, NVIDIA H100 80GB HBM3, 79000, 81559, 575.57.08\n"
+        )
+        source = collect_local_inventory(nvidia_smi_csv=csv_text)
+        inventory = build_logical_cluster_inventory(source)
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d) / "bundle"
+            run_phase0_preflight(
+                target_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                out_dir=bundle,
+                benchmark_iterations=1,
+                inventory_data=inventory,
+                include_g1_drafts=True,
+                include_golden_plans=True,
+                include_program_reports=True,
+                program_report_date="2026-06-22",
+                include_simulated_apple_evidence=True,
+                simulated_apple_role="capacity-only",
+                substrate_pinned_build="max-26.4.0",
+                kickoff_date="2026-06-22",
+                ker_status="unavailable",
+                scope="pending",
+            )
+            packet = read_json(bundle / "g1-evidence-packet.json")
+            markdown = (bundle / "g1-evidence-packet.md").read_text(encoding="utf-8")
+        result = validate_g1_evidence_packet_fixture(packet)
+        signoffs = {item["id"]: item for item in packet["signoff_requirements"]}
+        evidence = {item["id"]: item for item in packet["evidence_items"]}
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertFalse(packet["summary"]["g1_gate_ready"])
+        self.assertFalse(packet["summary"]["human_signoff_complete"])
+        self.assertFalse(packet["summary"]["g2_g3_gate_evidence"])
+        self.assertIn(
+            "Apple reversal trigger evaluated from rank-1 local probe",
+            packet["machine_missing_criteria"],
+        )
+        self.assertIn("target_contract_signoff", signoffs)
+        self.assertFalse(signoffs["target_contract_signoff"]["present"])
+        self.assertEqual("present", evidence["runtime_format_spec"]["status"])
+        self.assertEqual("present", evidence["network_security_spec"]["status"])
+        self.assertIn("not Sponsor approval", markdown)
+
+    def test_g1_evidence_packet_validator_rejects_gate_ready_overclaim(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = Path(d) / "bundle"
+            run_phase0_preflight(
+                target_path="fornax/golden_plans/v0_target_contract_fixture.md",
+                out_dir=bundle,
+                benchmark_iterations=1,
+                inventory_data={
+                    "nodes": [
+                        {
+                            "id": "fast",
+                            "vendor": "nvidia",
+                            "runtime": "max",
+                            "mem_free_bytes": 16_000_000,
+                            "compute_class": 4_000_000_000_000.0,
+                            "mem_bandwidth_bytes_s": 400_000_000_000.0,
+                            "supports_stage": True,
+                            "supports_expert_worker": True,
+                            "supports_kv": True,
+                            "supported_dtypes": ["fp16"],
+                        }
+                    ],
+                    "links": [],
+                    "source": "test",
+                },
+                include_g1_drafts=True,
+                include_golden_plans=True,
+            )
+            packet = build_g1_evidence_packet(
+                bundle, packet_date="2026-06-22", plan_version="v3"
+            )
+        packet["summary"]["g1_gate_ready"] = True
+        result = validate_g1_evidence_packet_fixture(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("g1_gate_ready cannot be true", "; ".join(result["errors"]))
+
     def test_program_simulate_phase0_builds_full_simulated_bundle(self) -> None:
         csv_text = (
             "0, NVIDIA H100 80GB HBM3, 80000, 81559, 575.57.08\n"
@@ -3064,6 +3148,8 @@ class FornaxPlannerTest(unittest.TestCase):
                 bundle / "inventory.json",
                 bundle / "benchmark-ledger.jsonl",
                 bundle / "g1-gate-review.md",
+                bundle / "g1-evidence-packet.json",
+                bundle / "g1-evidence-packet.md",
                 bundle / "phase0-status.json",
                 bundle / "phase0-status.md",
                 bundle / "apple-probe-simulation.json",
@@ -3150,6 +3236,8 @@ class FornaxPlannerTest(unittest.TestCase):
             self.assertTrue((bundle / "golden-plans.json").exists())
             self.assertTrue((bundle / "benchmark-ledger.jsonl").exists())
             self.assertTrue((bundle / "g1-gate-review.md").exists())
+            self.assertTrue((bundle / "g1-evidence-packet.json").exists())
+            self.assertTrue((bundle / "g1-evidence-packet.md").exists())
             self.assertTrue((bundle / "phase0-status.json").exists())
             self.assertTrue(doctor["artifacts"]["calibration.json"]["measured"])
             self.assertTrue(doctor["artifacts"]["benchmark_ledger"]["valid"])

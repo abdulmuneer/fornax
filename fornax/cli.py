@@ -36,6 +36,10 @@ from .engine_simulation import (
     validate_engine_simulation,
 )
 from .golden import run_golden_plans
+from .g1_evidence_packet import (
+    build_g1_evidence_packet,
+    validate_g1_evidence_packet_fixture,
+)
 from .g1_review import render_g1_gate_review_draft
 from .inventory import (
     SIMULATED_CLUSTER_PROFILES,
@@ -1216,6 +1220,39 @@ def _cmd_program_governance_simulate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_program_g1_evidence_packet(args: argparse.Namespace) -> int:
+    try:
+        result = build_g1_evidence_packet(
+            args.bundle,
+            packet_date=args.date,
+            plan_version=args.plan_version,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program g1-evidence-packet: {exc}")
+        return 2
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    write_json(args.out, result)
+    if args.markdown_out:
+        Path(args.markdown_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.markdown_out).write_text(result["markdown"], encoding="utf-8")
+    validation = validate_g1_evidence_packet_fixture(result)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    if validation["ok"]:
+        print(
+            "wrote G1 evidence packet: "
+            f"{args.out} machine_complete={summary['machine_complete']} "
+            f"g1_ready={summary['g1_gate_ready']} "
+            f"closure_blockers={summary['closure_blocker_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL G1 evidence packet: " + "; ".join(validation["errors"]))
+    return 2
+
+
 def _cmd_program_g1_review(args: argparse.Namespace) -> int:
     result = render_g1_gate_review_draft(
         args.bundle,
@@ -2345,6 +2382,14 @@ def build_parser() -> argparse.ArgumentParser:
     governance.add_argument("--plan-version", default="v3")
     governance.add_argument("--current-gate", default="G1")
     governance.set_defaults(func=_cmd_program_governance_simulate)
+
+    g1_packet = program_sub.add_parser("g1-evidence-packet")
+    g1_packet.add_argument("--bundle", required=True)
+    g1_packet.add_argument("--out", required=True)
+    g1_packet.add_argument("--markdown-out")
+    g1_packet.add_argument("--date")
+    g1_packet.add_argument("--plan-version", default="v3")
+    g1_packet.set_defaults(func=_cmd_program_g1_evidence_packet)
 
     g1_review = program_sub.add_parser("g1-review")
     g1_review.add_argument("--bundle", required=True)

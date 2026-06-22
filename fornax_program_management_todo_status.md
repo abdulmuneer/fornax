@@ -21,8 +21,10 @@ Legend:
 Current validation snapshot:
 - `python3 -m fornax test golden-plans`: 3/3 passed.
 - `python3 -m fornax program simulate-t1 --out-dir /tmp/fornax_t1_trace_ledger_validation_cli_20260622 --gpu-count 2 --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor 0.65`: 31/31 passed over 2 logical hosts.
-- `python3 -m unittest tests.test_fornax_planner`: 209 tests passed.
+- `python3 -m unittest tests.test_fornax_planner`: 211 tests passed.
 - `python3 -m fornax program local-accelerator-smoke --out-dir /tmp/fornax_local_accelerator_smoke_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --expert-device cuda:0 --transfer-source-device cuda:0 --transfer-destination-device cuda:1 ...`: 3/3 checks passed on local H100s treated as logical hosts; not G2/G3 gate evidence.
+- `python3 -m fornax program simulate-phase0 --target fornax/golden_plans/v0_target_contract_fixture.md --out-dir /tmp/fornax_phase0_g1_packet_20260622 --gpu-count 2 --profile two-gpu-heterogeneous ...`: 9/9 Phase-0 deliverables machine/simulation complete or closed; recommended G1 outcome remains ITERATE.
+- `python3 -m fornax program g1-evidence-packet --bundle /tmp/fornax_phase0_g1_packet_20260622 --out /tmp/fornax_phase0_g1_packet_20260622/g1-evidence-packet-cli.json --markdown-out /tmp/fornax_phase0_g1_packet_20260622/g1-evidence-packet-cli.md --date 2026-06-22 --plan-version v3`: packet valid; `machine_complete=false`, `g1_ready=false`, `closure_blockers=4`.
 
 ## Milestones
 
@@ -38,7 +40,7 @@ Current validation snapshot:
 ## Gates
 
 - [x] G0 Architecture baseline. Evidence: `04-stage-gates.md` marks passed.
-- [ ] G1 Evidence / go-no-go. Partial: T0/T1 commands and draft generation exist; open blockers include Sponsor decision, TL/SP target-contract sign-off, Apple role decision from rank-1 local probe, staffing closure, and reviewed docs/ADR.
+- [ ] G1 Evidence / go-no-go. Partial: T0/T1 commands, draft generation, G1 review draft, phase0 status, and G1 evidence packet exist; open blockers include Sponsor decision, TL/SP target-contract sign-off, Apple role decision from rank-1 local probe, staffing closure, and reviewed docs/ADR.
 - [ ] G2 Distributed correctness. Open: requires real 2-3 node pipeline correctness, aggregate scaling, planner match, and MoE parity.
 - [ ] G3 Heterogeneous frontier. Open: requires real frontier MoE across NVIDIA/AMD + Mac at predicted throughput with security/backpressure active.
 - [ ] G4 Resilience. Open: requires real added-node scaling and zero dropped in-flight requests on single-node loss.
@@ -47,14 +49,14 @@ Current validation snapshot:
 ## Phase-0 Evidence Sprint Deliverables
 
 - [x] S0-1 Partitioner + cost model + golden plans (A1-A4). Evidence: `fornax/planner/`, `fornax/golden_plans/`, `fornax test golden-plans` 3/3.
-- [ ] S0-2 `v0-target-contract.md`. Partial: parser, validator, draft generator, and fixture exist (`fornax/target_contract.py`, `fornax/validation.py`, `fornax/golden_plans/v0_target_contract_fixture.md`); real signed-off contract is open.
+- [ ] S0-2 `v0-target-contract.md`. Partial: parser, validator, draft generator, fixture, and G1 evidence packet coverage exist (`fornax/target_contract.py`, `fornax/validation.py`, `fornax/golden_plans/v0_target_contract_fixture.md`, `fornax/g1_evidence_packet.py`); real signed-off contract is open.
 - [ ] S0-3 Concurrency sweep in contract. Partial: throughput scaling simulation exists (`fornax/throughput_scaling.py`); persona-supplied minimum saturation concurrency and G1 market evidence are open.
 - [ ] S0-4 `runtime-format-and-invariants.md`. Partial: runtime-format validator, golden vectors, and spec draft renderer exist; reviewed/accepted document is open.
 - [ ] S0-5 `networking-security-and-backpressure.md`. Partial: network contract validator and spec draft renderer exist; reviewed/accepted phase spec remains open.
 - [ ] S0-6 `adr/0001-max-mojo-substrate.md`. Partial: substrate ADR draft renderer exists; accepted ADR and source-watch closure remain open.
 - [ ] S0-7 Apple expert-MLP probe on `desktop-minimal`. Partial: Apple probe template/validator/decision tooling exists; measured pinned-build Apple target probe is open.
 - [ ] S0-8 Roadmap rebaseline + staffing answer. Partial: rebaseline draft tooling exists; KER staffing decision and Sponsor scope acceptance remain open.
-- [x] S0-9 Phase-0 preflight workflow. Evidence: `fornax/preflight.py`, `fornax/doctor.py`, optional G1 draft/golden/calibration/fabric outputs, and journal validation; note that G1 closure still needs reviewed artifacts.
+- [x] S0-9 Phase-0 preflight workflow. Evidence: `fornax/preflight.py`, `fornax/doctor.py`, optional G1 draft/golden/calibration/fabric outputs, G1 evidence packet outputs, and journal validation; note that G1 closure still needs reviewed artifacts.
 
 ## Work Breakdown Structure
 
@@ -122,7 +124,7 @@ Current validation snapshot:
 
 ### WS-X — Program Governance
 
-- [ ] X1 Gate operation + decision log. Partial/ongoing: decision log exists and `fornax/program_governance.py` validates controls; real gate outcomes remain open.
+- [ ] X1 Gate operation + decision log. Partial/ongoing: decision log exists, `fornax/program_governance.py` validates controls, and `fornax/g1_evidence_packet.py` prepares a machine-checkable G1 review packet; real gate outcomes remain open.
 - [ ] X2 RAID upkeep + external watch. Partial/ongoing: RAID/watch docs and governance fixture exist; live upkeep and MAX source-watch updates remain open.
 - [ ] X3 Cadence, status, reporting. Partial/ongoing: templates and `phase0-status`/governance tooling exist; real cadence operation is ongoing.
 
@@ -179,5 +181,5 @@ Current validation snapshot:
 3. Materialize/review `runtime-format-and-invariants.md`, `networking-security-and-backpressure.md`, and `adr/0001-max-mojo-substrate.md` from the existing generators.
 4. Keep Apple/Mac evidence as a deferred validation lane: run or record the rank-1 Apple expert-MLP probe on pinned build later, or explicitly demote Apple role for G1 when the Sponsor chooses.
 5. Close the KER/Apple staffing answer and record Sponsor scope acceptance if narrowed.
-6. Prepare DEC-005/G1 gate review from the current preflight/G1-review tooling once the missing evidence above is attached.
+6. Use the generated G1 evidence packet and gate-review draft to attach TL/SP/spec/staffing sign-offs and prepare DEC-005 once missing real evidence is available.
 7. Continue moving simulation-complete T1 items into local H100 smoke/T2-style validation where this machine can provide real evidence, while preserving the distinction from final T3/T4 heterogeneous lab closure.

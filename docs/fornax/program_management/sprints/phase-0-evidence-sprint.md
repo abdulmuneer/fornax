@@ -36,7 +36,7 @@ the program's current focus.
 | S0-6 | Partial: substrate ADR draft tooling exists; accepted ADR remains open. |
 | S0-7 | Open for real Apple target probe; do not close with NVIDIA-only simulation. |
 | S0-8 | Partial: rebaseline tooling exists; staffing/Sponsor scope answer remains open. |
-| S0-9 | Implemented at workflow scope; gate closure still depends on reviewed artifacts. |
+| S0-9 | Implemented at workflow scope with G1 packet output; gate closure still depends on reviewed artifacts. |
 
 Detailed item status lives in
 [`../../../../fornax_program_management_todo_status.md`](../../../../fornax_program_management_todo_status.md).

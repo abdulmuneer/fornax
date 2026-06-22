@@ -14,6 +14,7 @@ from .benchmark_ledger import append_benchmark_ledger_record, build_benchmark_le
 from .calibration import run_local_calibration
 from .contracts import load_target_contract
 from .doctor import inspect_phase0_bundle
+from .g1_evidence_packet import build_g1_evidence_packet
 from .g1_review import render_g1_gate_review_draft
 from .golden import run_golden_plans
 from .inventory import collect_local_inventory, probe_declared_links
@@ -261,6 +262,8 @@ def run_phase0_preflight(
     apple_simulation_path = bundle / "apple-probe-simulation.json"
     apple_simulated_role_path = bundle / "apple-role-decision-simulated.md"
     g1_review_path = bundle / "g1-gate-review.md"
+    g1_evidence_packet_path = bundle / "g1-evidence-packet.json"
+    g1_evidence_packet_markdown_path = bundle / "g1-evidence-packet.md"
     phase0_status_path = bundle / "phase0-status.json"
     phase0_status_markdown_path = bundle / "phase0-status.md"
     generated_g1_artifacts: dict[str, str] = {}
@@ -394,8 +397,19 @@ def run_phase0_preflight(
         phase0_status_markdown_path.write_text(
             phase0_status["markdown"], encoding="utf-8"
         )
+        g1_evidence_packet = build_g1_evidence_packet(
+            bundle,
+            packet_date=program_report_date,
+            plan_version=program_plan_version,
+        )
+        write_json(g1_evidence_packet_path, g1_evidence_packet)
+        g1_evidence_packet_markdown_path.write_text(
+            g1_evidence_packet["markdown"], encoding="utf-8"
+        )
         generated_program_reports = {
             "g1_review": str(g1_review_path),
+            "g1_evidence_packet": str(g1_evidence_packet_path),
+            "g1_evidence_packet_markdown": str(g1_evidence_packet_markdown_path),
             "phase0_status": str(phase0_status_path),
             "phase0_status_markdown": str(phase0_status_markdown_path),
         }
