@@ -1525,6 +1525,19 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
             backend_mode=args.backend_mode,
             enable_tls=args.enable_tls,
             enable_mtls=args.enable_mtls,
+            include_activation_transfer_probe=args.include_activation_transfer_probe,
+            activation_transfer_backend=args.activation_transfer_backend,
+            activation_transfer_torch_python=args.activation_transfer_torch_python,
+            activation_transfer_source_device=args.activation_transfer_source_device,
+            activation_transfer_destination_device=args.activation_transfer_destination_device,
+            activation_transfer_dtype=args.activation_transfer_dtype,
+            activation_transfer_iterations=args.activation_transfer_iterations,
+            activation_transfer_warmup=args.activation_transfer_warmup,
+            activation_transfer_payload_bytes=args.activation_transfer_payload_mib * 1024 * 1024,
+            activation_transfer_tolerance=args.activation_transfer_tolerance,
+            activation_transfer_logical_source_host=args.activation_transfer_logical_source_host,
+            activation_transfer_logical_destination_host=args.activation_transfer_logical_destination_host,
+            activation_transfer_timeout_s=args.activation_transfer_timeout_s,
             include_runtime_probes=args.include_runtime_probes,
             runtime_probe_backend=args.runtime_probe_backend,
             runtime_probe_torch_python=args.runtime_probe_torch_python,
@@ -1580,6 +1593,7 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
         f"backpressure={summary['backpressure_rejected']}; "
         f"lifecycle={summary['lifecycle_all_released']}; "
         f"target_fixture={summary['target_fixture_parity']}; "
+        f"activation_transfer={summary['activation_transfer_probe_ok']}; "
         f"runtime_probes={summary['runtime_probes_included']}; "
         f"pipeline_accelerator={summary['pipeline_correctness_accelerator_measured']}; "
         f"moe_accelerator={summary['moe_layer_parity_accelerator_measured']}; "
@@ -2867,6 +2881,19 @@ def build_parser() -> argparse.ArgumentParser:
     local_http_serving.add_argument("--backend-mode", choices=["adapter", "target-fixture"], default="adapter")
     local_http_serving.add_argument("--enable-tls", action="store_true")
     local_http_serving.add_argument("--enable-mtls", action="store_true")
+    local_http_serving.add_argument("--include-activation-transfer-probe", action="store_true")
+    local_http_serving.add_argument("--activation-transfer-backend", choices=["cpu-stdlib", "torch"], default="cpu-stdlib")
+    local_http_serving.add_argument("--activation-transfer-torch-python")
+    local_http_serving.add_argument("--activation-transfer-source-device", default="cuda:0")
+    local_http_serving.add_argument("--activation-transfer-destination-device", default="cuda:1")
+    local_http_serving.add_argument("--activation-transfer-dtype", choices=["float32", "float16", "bfloat16"], default="float16")
+    local_http_serving.add_argument("--activation-transfer-iterations", type=int, default=20)
+    local_http_serving.add_argument("--activation-transfer-warmup", type=int, default=3)
+    local_http_serving.add_argument("--activation-transfer-payload-mib", type=int, default=16)
+    local_http_serving.add_argument("--activation-transfer-tolerance", type=float, default=0.0)
+    local_http_serving.add_argument("--activation-transfer-logical-source-host", default="logical-host-0")
+    local_http_serving.add_argument("--activation-transfer-logical-destination-host", default="logical-host-1")
+    local_http_serving.add_argument("--activation-transfer-timeout-s", type=float, default=180.0)
     local_http_serving.add_argument("--include-runtime-probes", action="store_true")
     local_http_serving.add_argument("--runtime-probe-backend", choices=["cpu-stdlib", "torch"], default="cpu-stdlib")
     local_http_serving.add_argument("--runtime-probe-torch-python")

@@ -12,6 +12,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from .accelerator_probe import (
+    BACKENDS as ACCELERATOR_PROBE_BACKENDS,
+    DTYPES as ACCELERATOR_PROBE_DTYPES,
+    run_activation_transfer_probe,
+    validate_activation_transfer_probe_fixture,
+)
 from .io import read_json, write_json
 from .moe_parity import (
     BACKENDS as MOE_PARITY_BACKENDS,
@@ -1107,6 +1113,19 @@ def run_local_http_serving_smoke(
     backend_mode: str = BACKEND_MODE_ADAPTER,
     enable_tls: bool = False,
     enable_mtls: bool = False,
+    include_activation_transfer_probe: bool = False,
+    activation_transfer_backend: str = "cpu-stdlib",
+    activation_transfer_torch_python: str | None = None,
+    activation_transfer_source_device: str = "cuda:0",
+    activation_transfer_destination_device: str = "cuda:1",
+    activation_transfer_dtype: str = "float16",
+    activation_transfer_iterations: int = 20,
+    activation_transfer_warmup: int = 3,
+    activation_transfer_payload_bytes: int = 16 * 1024 * 1024,
+    activation_transfer_tolerance: float = 0.0,
+    activation_transfer_logical_source_host: str = "logical-host-0",
+    activation_transfer_logical_destination_host: str = "logical-host-1",
+    activation_transfer_timeout_s: float = 180.0,
     include_runtime_probes: bool = False,
     runtime_probe_backend: str = "cpu-stdlib",
     runtime_probe_torch_python: str | None = None,
@@ -1160,6 +1179,48 @@ def run_local_http_serving_smoke(
         raise ValueError(f"backend_mode must be one of {BACKEND_MODES}")
     if include_target_fixture_execution_probe and backend_mode != BACKEND_MODE_TARGET_FIXTURE:
         raise ValueError("target fixture execution probe requires backend_mode=target-fixture")
+    if activation_transfer_backend not in ACCELERATOR_PROBE_BACKENDS:
+        raise ValueError(
+            f"activation_transfer_backend must be one of {sorted(ACCELERATOR_PROBE_BACKENDS)}"
+        )
+    if activation_transfer_dtype not in ACCELERATOR_PROBE_DTYPES:
+        raise ValueError(
+            f"activation_transfer_dtype must be one of {sorted(ACCELERATOR_PROBE_DTYPES)}"
+        )
+    if (
+        isinstance(activation_transfer_iterations, bool)
+        or not isinstance(activation_transfer_iterations, int)
+        or activation_transfer_iterations <= 0
+    ):
+        raise ValueError("activation_transfer_iterations must be a positive integer")
+    if (
+        isinstance(activation_transfer_warmup, bool)
+        or not isinstance(activation_transfer_warmup, int)
+        or activation_transfer_warmup < 0
+    ):
+        raise ValueError("activation_transfer_warmup must be a non-negative integer")
+    if (
+        isinstance(activation_transfer_payload_bytes, bool)
+        or not isinstance(activation_transfer_payload_bytes, int)
+        or activation_transfer_payload_bytes <= 0
+    ):
+        raise ValueError("activation_transfer_payload_bytes must be a positive integer")
+    if (
+        isinstance(activation_transfer_tolerance, bool)
+        or not isinstance(activation_transfer_tolerance, (int, float))
+        or activation_transfer_tolerance < 0
+    ):
+        raise ValueError("activation_transfer_tolerance must be a non-negative number")
+    if (
+        isinstance(activation_transfer_timeout_s, bool)
+        or not isinstance(activation_transfer_timeout_s, (int, float))
+        or activation_transfer_timeout_s <= 0
+    ):
+        raise ValueError("activation_transfer_timeout_s must be a positive number")
+    if not activation_transfer_logical_source_host or not activation_transfer_logical_destination_host:
+        raise ValueError("activation transfer logical host names must be non-empty")
+    if activation_transfer_logical_source_host == activation_transfer_logical_destination_host:
+        raise ValueError("activation transfer logical host names must differ")
     if runtime_probe_backend not in PIPELINE_CORRECTNESS_BACKENDS or runtime_probe_backend not in MOE_PARITY_BACKENDS:
         raise ValueError(
             f"runtime_probe_backend must be one of {sorted(PIPELINE_CORRECTNESS_BACKENDS & MOE_PARITY_BACKENDS)}"
@@ -1257,6 +1318,16 @@ def run_local_http_serving_smoke(
         "backend_mode": backend_mode,
         "enable_tls": enable_tls,
         "enable_mtls": enable_mtls,
+        "include_activation_transfer_probe": include_activation_transfer_probe,
+        "activation_transfer_backend": activation_transfer_backend,
+        "activation_transfer_source_device": activation_transfer_source_device,
+        "activation_transfer_destination_device": activation_transfer_destination_device,
+        "activation_transfer_dtype": activation_transfer_dtype,
+        "activation_transfer_iterations": activation_transfer_iterations,
+        "activation_transfer_warmup": activation_transfer_warmup,
+        "activation_transfer_payload_bytes": activation_transfer_payload_bytes,
+        "activation_transfer_logical_source_host": activation_transfer_logical_source_host,
+        "activation_transfer_logical_destination_host": activation_transfer_logical_destination_host,
         "include_runtime_probes": include_runtime_probes,
         "runtime_probe_backend": runtime_probe_backend,
         "runtime_probe_source_device": runtime_probe_source_device,
@@ -1378,6 +1449,8 @@ def run_local_http_serving_smoke(
         backpressure_errors: list[BaseException] = []
         holder_lock = threading.Lock()
 
+        holder_work_ms = max(backpressure_delay_ms, 1000)
+
         def _hold_inflight_request() -> None:
             try:
                 holder = _post_json(
@@ -1387,7 +1460,7 @@ def run_local_http_serving_smoke(
                         "messages": adapter["openai_request"]["messages"],
                         "max_tokens": max_tokens,
                         "stream": False,
-                        "simulate_work_ms": backpressure_delay_ms,
+                        "simulate_work_ms": holder_work_ms,
                     },
                     plan_id=plan_id,
                     plan_hash=plan_hash,
@@ -1446,6 +1519,27 @@ def run_local_http_serving_smoke(
         thread.join(timeout=float(timeout_s))
         if tls_tempdir is not None:
             tls_tempdir.cleanup()
+    activation_transfer_probe: dict[str, Any] | None = None
+    activation_transfer_validation: dict[str, Any] | None = None
+    if include_activation_transfer_probe:
+        activation_transfer_probe = run_activation_transfer_probe(
+            backend=activation_transfer_backend,
+            torch_python=activation_transfer_torch_python,
+            source_device=activation_transfer_source_device,
+            destination_device=activation_transfer_destination_device,
+            dtype=activation_transfer_dtype,
+            iterations=activation_transfer_iterations,
+            warmup=activation_transfer_warmup,
+            payload_bytes=activation_transfer_payload_bytes,
+            tolerance=activation_transfer_tolerance,
+            logical_source_host=activation_transfer_logical_source_host,
+            logical_destination_host=activation_transfer_logical_destination_host,
+            timeout_s=activation_transfer_timeout_s,
+        )
+        activation_transfer_validation = validate_activation_transfer_probe_fixture(
+            activation_transfer_probe
+        )
+
     pipeline_correctness_probe: dict[str, Any] | None = None
     pipeline_correctness_validation: dict[str, Any] | None = None
     moe_layer_parity_probe: dict[str, Any] | None = None
@@ -1600,6 +1694,19 @@ def run_local_http_serving_smoke(
         and target_fixture_summary.get("real_frontier_model_loaded") is False
         and target_fixture_summary.get("real_frontier_model_parity") is False
     )
+    activation_transfer_summary = (
+        activation_transfer_validation.get("summary", {})
+        if isinstance(activation_transfer_validation, dict)
+        else {}
+    )
+    activation_transfer_ok = (
+        not include_activation_transfer_probe
+        or (
+            isinstance(activation_transfer_validation, dict)
+            and activation_transfer_validation.get("ok") is True
+            and activation_transfer_summary.get("measured") is True
+        )
+    )
     pipeline_correctness_summary = (
         pipeline_correctness_validation.get("summary", {})
         if isinstance(pipeline_correctness_validation, dict)
@@ -1680,6 +1787,14 @@ def run_local_http_serving_smoke(
         *([{"name": "target-fixture-parity", "ok": target_fixture_ok, "errors": [] if target_fixture_ok else ["target fixture parity invalid"], "warnings": ["local target fixture parity is not real frontier model parity"]}] if target_fixture_enabled else []),
         *([
             {
+                "name": "activation-transfer-probe",
+                "ok": activation_transfer_ok,
+                "errors": [] if activation_transfer_ok else ["activation transfer probe invalid"],
+                "warnings": ["same-host activation transfer probe is not real multi-host transport evidence"],
+            }
+        ] if include_activation_transfer_probe else []),
+        *([
+            {
                 "name": "pipeline-correctness-probe",
                 "ok": pipeline_correctness_ok,
                 "errors": [] if pipeline_correctness_ok else ["pipeline correctness probe invalid"],
@@ -1758,6 +1873,16 @@ def run_local_http_serving_smoke(
         "target_fixture_non_stream_matches_stream": target_fixture_summary.get("non_stream_matches_stream") if isinstance(target_fixture_summary, dict) else False,
         "target_fixture_template_hash": target_fixture_summary.get("template_hash") if isinstance(target_fixture_summary, dict) else None,
         "target_fixture_tokenizer_hash": target_fixture_summary.get("tokenizer_hash") if isinstance(target_fixture_summary, dict) else None,
+        "activation_transfer_probe_included": include_activation_transfer_probe,
+        "activation_transfer_probe_ok": activation_transfer_ok if include_activation_transfer_probe else False,
+        "activation_transfer_backend": activation_transfer_summary.get("backend"),
+        "activation_transfer_accelerator_measured": activation_transfer_summary.get("accelerator_measured") is True,
+        "activation_transfer_source_device": activation_transfer_summary.get("source_device"),
+        "activation_transfer_destination_device": activation_transfer_summary.get("destination_device"),
+        "activation_transfer_bandwidth_gib_s": activation_transfer_summary.get("bandwidth_gib_s"),
+        "activation_transfer_latency_s_per_transfer": activation_transfer_summary.get("latency_s_per_transfer"),
+        "activation_transfer_bytes_transferred": activation_transfer_summary.get("bytes_transferred"),
+        "activation_transfer_max_abs_error": activation_transfer_summary.get("max_abs_error"),
         "runtime_probes_included": include_runtime_probes,
         "runtime_probe_backend": runtime_probe_backend if include_runtime_probes else None,
         "runtime_probe_accelerator_probe_count": sum(
@@ -1881,6 +2006,8 @@ def run_local_http_serving_smoke(
         "lifecycle": lifecycle_summary,
         "backend": backend_summary,
         "target_fixture": target_fixture_summary,
+        "activation_transfer_probe": activation_transfer_probe,
+        "activation_transfer_validation": activation_transfer_validation,
         "pipeline_correctness_probe": pipeline_correctness_probe,
         "pipeline_correctness_validation": pipeline_correctness_validation,
         "moe_layer_parity_probe": moe_layer_parity_probe,
@@ -1908,7 +2035,8 @@ def run_local_http_serving_smoke(
             "rejection, local bearer-token auth rejection, deterministic "
             "backpressure rejection, admitted cancellation cleanup, and local lifecycle cleanup. When target-fixture "
             "mode is enabled, it also proves deterministic local fixture loading and "
-            "non-stream/stream parity only. When runtime probe mode is enabled, "
+            "non-stream/stream parity only. When activation-transfer probe mode is enabled, "
+            "it records measured same-host transfer timing only. When runtime probe mode is enabled, "
             "it records measured split-pipeline and MoE-layer parity probes only. "
             "When target-fixture execution probe mode is enabled, "
             "it records measured local fixture execution only. TLS mode uses a local self-signed fixture "
@@ -2049,6 +2177,41 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("target_fixture_execution_probe must be null unless included")
         if target_fixture_execution_validation is not None:
             errors.append("target_fixture_execution_validation must be null unless included")
+
+    activation_transfer_probe_included = summary.get("activation_transfer_probe_included") is True
+    activation_transfer_probe = data.get("activation_transfer_probe")
+    activation_transfer_validation = data.get("activation_transfer_validation")
+    if activation_transfer_probe_included:
+        if not isinstance(activation_transfer_probe, dict):
+            errors.append("activation_transfer_probe must be an object when included")
+            activation_transfer_probe = {}
+        transfer_validation = validate_activation_transfer_probe_fixture(activation_transfer_probe)
+        errors.extend(f"activation_transfer_probe: {error}" for error in transfer_validation["errors"])
+        warnings.extend(f"activation_transfer_probe: {warning}" for warning in transfer_validation["warnings"])
+        transfer_summary = transfer_validation.get("summary", {})
+        if summary.get("activation_transfer_probe_ok") is not True:
+            errors.append("summary.activation_transfer_probe_ok must be true when included")
+        if summary.get("activation_transfer_backend") != transfer_summary.get("backend"):
+            errors.append("summary.activation_transfer_backend must match probe backend")
+        if summary.get("activation_transfer_source_device") != transfer_summary.get("source_device"):
+            errors.append("summary.activation_transfer_source_device must match probe source device")
+        if summary.get("activation_transfer_destination_device") != transfer_summary.get("destination_device"):
+            errors.append("summary.activation_transfer_destination_device must match probe destination device")
+        if summary.get("activation_transfer_accelerator_measured") != (transfer_summary.get("accelerator_measured") is True):
+            errors.append("summary.activation_transfer_accelerator_measured must match probe accelerator flag")
+        if not isinstance(activation_transfer_validation, dict):
+            errors.append("activation_transfer_validation must be an object when included")
+        elif activation_transfer_validation.get("ok") is not True:
+            errors.append("activation_transfer_validation.ok must be true when included")
+    else:
+        if summary.get("activation_transfer_probe_included") is not False:
+            errors.append("summary.activation_transfer_probe_included must be false when omitted")
+        if summary.get("activation_transfer_probe_ok") is not False:
+            errors.append("summary.activation_transfer_probe_ok must be false when omitted")
+        if activation_transfer_probe is not None:
+            errors.append("activation_transfer_probe must be null unless included")
+        if activation_transfer_validation is not None:
+            errors.append("activation_transfer_validation must be null unless included")
 
     runtime_probes_included = summary.get("runtime_probes_included") is True
     pipeline_correctness_probe = data.get("pipeline_correctness_probe")
@@ -2334,6 +2497,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("checks must include local-mtls-node-identity when mTLS is enabled")
     if target_fixture_execution_probe_included and "target-fixture-execution-probe" not in check_names:
         errors.append("checks must include target-fixture-execution-probe when included")
+    if activation_transfer_probe_included and "activation-transfer-probe" not in check_names:
+        errors.append("checks must include activation-transfer-probe when included")
     if runtime_probes_included:
         if "pipeline-correctness-probe" not in check_names:
             errors.append("checks must include pipeline-correctness-probe when runtime probes are included")
@@ -2523,6 +2688,12 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "engine_result_emitted": summary.get("engine_result_emitted") is True,
             "backend_target_model_loaded": summary.get("backend_target_model_loaded") is True,
             "target_fixture_parity": summary.get("target_fixture_parity") is True,
+            "activation_transfer_probe_included": summary.get("activation_transfer_probe_included") is True,
+            "activation_transfer_probe_ok": summary.get("activation_transfer_probe_ok") is True,
+            "activation_transfer_accelerator_measured": summary.get("activation_transfer_accelerator_measured") is True,
+            "activation_transfer_source_device": summary.get("activation_transfer_source_device"),
+            "activation_transfer_destination_device": summary.get("activation_transfer_destination_device"),
+            "activation_transfer_bandwidth_gib_s": summary.get("activation_transfer_bandwidth_gib_s"),
             "runtime_probes_included": summary.get("runtime_probes_included") is True,
             "runtime_probe_backend": summary.get("runtime_probe_backend"),
             "runtime_probe_accelerator_probe_count": summary.get("runtime_probe_accelerator_probe_count"),

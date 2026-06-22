@@ -814,6 +814,35 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(bundle["summary"]["target_model_parity"])
         self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
 
+    def test_local_http_serving_smoke_validates_activation_transfer_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            artifact = Path(d) / "local-http-serving-activation-transfer-smoke.json"
+            bundle = run_local_http_serving_smoke(
+                out=artifact,
+                backend_mode="target-fixture",
+                include_activation_transfer_probe=True,
+                activation_transfer_backend="cpu-stdlib",
+                activation_transfer_iterations=2,
+                activation_transfer_warmup=0,
+                activation_transfer_payload_bytes=64,
+            )
+            result = validate_local_http_serving_smoke(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(bundle["ok"])
+        self.assertEqual(12, bundle["summary"]["check_count"])
+        self.assertEqual(12, bundle["summary"]["passed_count"])
+        self.assertTrue(bundle["summary"]["activation_transfer_probe_included"])
+        self.assertTrue(bundle["summary"]["activation_transfer_probe_ok"])
+        self.assertEqual("cpu-stdlib", bundle["summary"]["activation_transfer_backend"])
+        self.assertFalse(bundle["summary"]["activation_transfer_accelerator_measured"])
+        self.assertEqual("cpu", bundle["summary"]["activation_transfer_source_device"])
+        self.assertEqual("cpu", bundle["summary"]["activation_transfer_destination_device"])
+        self.assertEqual(128, bundle["summary"]["activation_transfer_bytes_transferred"])
+        self.assertEqual("activation-transfer-probe", bundle["activation_transfer_probe"]["probe_kind"])
+        self.assertTrue(bundle["activation_transfer_validation"]["ok"])
+        self.assertFalse(bundle["summary"]["target_model_parity"])
+        self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+
     def test_local_http_serving_smoke_validates_runtime_probe_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             artifact = Path(d) / "local-http-serving-runtime-probe-smoke.json"
