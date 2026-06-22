@@ -17,6 +17,7 @@ RECORD_KIND = "local-http-serving-smoke"
 EVIDENCE_SCOPE = "local-http-sse-serving-smoke"
 PLAN_ID_HEADER = "x-fornax-plan-id"
 PLAN_HASH_HEADER = "x-fornax-plan-hash"
+AUTH_HEADER = "authorization"
 
 
 class LocalFornaxBackend:
@@ -76,6 +77,19 @@ class _SmokeHandler(BaseHTTPRequestHandler):
                         "type": "invalid_request_error",
                         "code": "not_found",
                         "message": "Only /v1/chat/completions is available in local smoke.",
+                    }
+                },
+            )
+            return
+        expected_auth = f"Bearer {config['auth_token']}"
+        if self.headers.get(AUTH_HEADER) != expected_auth:
+            self._json_response(
+                401,
+                {
+                    "error": {
+                        "type": "authentication_error",
+                        "code": "endpoint_auth_required",
+                        "message": "Local smoke endpoint requires the configured bearer token.",
                     }
                 },
             )
@@ -148,18 +162,22 @@ def _post_json(
     *,
     plan_id: str,
     plan_hash: str,
+    auth_token: str | None,
     timeout_s: float,
 ) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
+    headers = {
+        "content-type": "application/json",
+        PLAN_ID_HEADER: plan_id,
+        PLAN_HASH_HEADER: plan_hash,
+    }
+    if auth_token is not None:
+        headers[AUTH_HEADER] = f"Bearer {auth_token}"
     request = urllib.request.Request(
         url,
         data=body,
         method="POST",
-        headers={
-            "content-type": "application/json",
-            PLAN_ID_HEADER: plan_id,
-            PLAN_HASH_HEADER: plan_hash,
-        },
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout_s) as response:
@@ -184,18 +202,22 @@ def _post_sse(
     *,
     plan_id: str,
     plan_hash: str,
+    auth_token: str | None,
     timeout_s: float,
 ) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
+    headers = {
+        "content-type": "application/json",
+        PLAN_ID_HEADER: plan_id,
+        PLAN_HASH_HEADER: plan_hash,
+    }
+    if auth_token is not None:
+        headers[AUTH_HEADER] = f"Bearer {auth_token}"
     request = urllib.request.Request(
         url,
         data=body,
         method="POST",
-        headers={
-            "content-type": "application/json",
-            PLAN_ID_HEADER: plan_id,
-            PLAN_HASH_HEADER: plan_hash,
-        },
+        headers=headers,
     )
     with urllib.request.urlopen(request, timeout=timeout_s) as response:
         text = response.read().decode("utf-8")
@@ -232,10 +254,11 @@ def run_local_http_serving_smoke(
     request_id: str = "local-http-serving-request",
     model: str = "qwen3-moe-class-target",
     max_tokens: int = 64,
+    auth_token: str = "local-smoke-token",
     timeout_s: float = 5.0,
 ) -> dict[str, Any]:
-    if not host or not plan_id or not plan_hash or not request_id or not model:
-        raise ValueError("host, plan_id, plan_hash, request_id, and model must be non-empty")
+    if not host or not plan_id or not plan_hash or not request_id or not model or not auth_token:
+        raise ValueError("host, plan_id, plan_hash, request_id, model, and auth_token must be non-empty")
     if isinstance(port, bool) or not isinstance(port, int) or port < 0:
         raise ValueError("port must be a non-negative integer")
     if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
@@ -251,6 +274,7 @@ def run_local_http_serving_smoke(
         "request_id": request_id,
         "model": model,
         "max_tokens": max_tokens,
+        "auth_token": auth_token,
     }
     server = _SmokeServer((host, port), config)
     server_host, server_port = server.server_address
@@ -272,6 +296,7 @@ def run_local_http_serving_smoke(
             {"model": model, "messages": adapter["openai_request"]["messages"], "max_tokens": max_tokens, "stream": False},
             plan_id=plan_id,
             plan_hash=plan_hash,
+            auth_token=auth_token,
             timeout_s=float(timeout_s),
         )
         stream = _post_sse(
@@ -279,6 +304,15 @@ def run_local_http_serving_smoke(
             {"model": model, "messages": adapter["openai_request"]["messages"], "max_tokens": max_tokens, "stream": True},
             plan_id=plan_id,
             plan_hash=plan_hash,
+            auth_token=auth_token,
+            timeout_s=float(timeout_s),
+        )
+        auth_reject = _post_json(
+            endpoint,
+            {"model": model, "messages": adapter["openai_request"]["messages"], "max_tokens": max_tokens, "stream": False},
+            plan_id=plan_id,
+            plan_hash=plan_hash,
+            auth_token=None,
             timeout_s=float(timeout_s),
         )
         plan_reject = _post_json(
@@ -286,6 +320,7 @@ def run_local_http_serving_smoke(
             {"model": model, "messages": adapter["openai_request"]["messages"], "max_tokens": max_tokens, "stream": False},
             plan_id=plan_id,
             plan_hash="sha256:mismatch",
+            auth_token=auth_token,
             timeout_s=float(timeout_s),
         )
         bad_path = _post_json(
@@ -293,6 +328,7 @@ def run_local_http_serving_smoke(
             {"model": model},
             plan_id=plan_id,
             plan_hash=plan_hash,
+            auth_token=auth_token,
             timeout_s=float(timeout_s),
         )
     finally:
@@ -316,6 +352,10 @@ def run_local_http_serving_smoke(
         plan_reject.get("status") == 409
         and plan_reject.get("body", {}).get("error", {}).get("code") == "plan_integrity_mismatch"
     )
+    auth_reject_ok = (
+        auth_reject.get("status") == 401
+        and auth_reject.get("body", {}).get("error", {}).get("code") == "endpoint_auth_required"
+    )
     bad_path_ok = bad_path.get("status") == 404
     backend_ok = (
         backend_summary.get("backend") == "FornaxBackend"
@@ -327,6 +367,7 @@ def run_local_http_serving_smoke(
     checks = [
         {"name": "serving-adapter", "ok": bool(adapter_validation.get("ok")), "errors": adapter_validation.get("errors", []), "warnings": adapter_validation.get("warnings", [])},
         {"name": "fornax-backend-integration", "ok": backend_ok, "errors": [] if backend_ok else ["FornaxBackend local integration invalid"], "warnings": []},
+        {"name": "endpoint-auth-reject", "ok": auth_reject_ok, "errors": [] if auth_reject_ok else ["endpoint auth rejection invalid"], "warnings": []},
         {"name": "non-stream-http", "ok": non_stream_ok, "errors": [] if non_stream_ok else ["non-stream HTTP response invalid"], "warnings": []},
         {"name": "stream-sse", "ok": stream_ok, "errors": [] if stream_ok else ["SSE stream response invalid"], "warnings": []},
         {"name": "plan-integrity-reject", "ok": plan_reject_ok, "errors": [] if plan_reject_ok else ["plan integrity rejection invalid"], "warnings": []},
@@ -344,6 +385,8 @@ def run_local_http_serving_smoke(
         "stream_status": stream.get("status"),
         "sse_chunk_count": stream.get("chunk_count"),
         "sse_done_seen": stream.get("done_seen"),
+        "auth_reject_status": auth_reject.get("status"),
+        "endpoint_auth_rejected": auth_reject_ok,
         "plan_integrity_rejected": plan_reject_ok,
         "bad_path_rejected": bad_path_ok,
         "fornax_backend_integrated": backend_ok,
@@ -354,6 +397,8 @@ def run_local_http_serving_smoke(
         "elapsed_s": elapsed_ns / 1_000_000_000.0,
         "live_http_endpoint": True,
         "localhost_only": server_host in {"127.0.0.1", "localhost"},
+        "local_auth_enabled": True,
+        "auth_token_redacted": True,
         "tls_enabled": False,
         "production_auth_enabled": False,
         "target_model_parity": False,
@@ -365,12 +410,19 @@ def run_local_http_serving_smoke(
         "record_kind": RECORD_KIND,
         "evidence_scope": EVIDENCE_SCOPE,
         "endpoint": endpoint,
-        "config": config,
+        "config": {key: value for key, value in config.items() if key != "auth_token"},
+        "auth": {
+            "mode": "local-bearer-token",
+            "authorization_header_checked": True,
+            "token_redacted": True,
+            "production_auth": False,
+        },
         "backend": backend_summary,
         "serving_adapter": adapter,
         "responses": {
             "non_stream": non_stream,
             "stream": stream,
+            "auth_reject": auth_reject,
             "plan_reject": plan_reject,
             "bad_path": bad_path,
         },
@@ -379,8 +431,9 @@ def run_local_http_serving_smoke(
         "ok": passed_count == len(checks),
         "note": (
             "Local HTTP/SSE serving smoke for the OpenAI-compatible endpoint path. "
-            "This proves local endpoint request/response behavior and plan-integrity "
-            "rejection only; it is not TLS/product auth, target-model parity, real "
+            "This proves local endpoint request/response behavior, plan-integrity "
+            "rejection, and local bearer-token auth rejection only; it is not "
+            "TLS/product auth, target-model parity, real "
             "multi-host serving, or G2/G3 closure evidence."
         ),
     }
@@ -422,6 +475,33 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("backend.target_model_loaded must be false")
     if backend.get("target_model_parity") is not False:
         errors.append("backend.target_model_parity must be false")
+    config = data.get("config")
+    if isinstance(config, dict) and "auth_token" in config:
+        errors.append("config.auth_token must be redacted")
+    auth = data.get("auth")
+    if not isinstance(auth, dict):
+        errors.append("auth must be an object")
+        auth = {}
+    if auth.get("mode") != "local-bearer-token":
+        errors.append("auth.mode must be local-bearer-token")
+    if auth.get("authorization_header_checked") is not True:
+        errors.append("auth.authorization_header_checked must be true")
+    if auth.get("token_redacted") is not True:
+        errors.append("auth.token_redacted must be true")
+    if auth.get("production_auth") is not False:
+        errors.append("auth.production_auth must be false")
+    responses = data.get("responses")
+    if not isinstance(responses, dict):
+        errors.append("responses must be an object")
+        responses = {}
+    auth_reject = responses.get("auth_reject") if isinstance(responses, dict) else None
+    if not isinstance(auth_reject, dict):
+        errors.append("responses.auth_reject must be an object")
+    else:
+        if auth_reject.get("status") != 401:
+            errors.append("responses.auth_reject.status must be 401")
+        if auth_reject.get("body", {}).get("error", {}).get("code") != "endpoint_auth_required":
+            errors.append("responses.auth_reject error code must be endpoint_auth_required")
     checks = data.get("checks")
     if not isinstance(checks, list) or not checks:
         errors.append("checks must be a non-empty list")
@@ -451,6 +531,10 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.stream_status must be 200")
     if summary.get("sse_done_seen") is not True:
         errors.append("summary.sse_done_seen must be true")
+    if summary.get("auth_reject_status") != 401:
+        errors.append("summary.auth_reject_status must be 401")
+    if summary.get("endpoint_auth_rejected") is not True:
+        errors.append("summary.endpoint_auth_rejected must be true")
     if summary.get("plan_integrity_rejected") is not True:
         errors.append("summary.plan_integrity_rejected must be true")
     if summary.get("bad_path_rejected") is not True:
@@ -469,6 +553,10 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.live_http_endpoint must be true")
     if summary.get("localhost_only") is not True:
         errors.append("summary.localhost_only must be true")
+    if summary.get("local_auth_enabled") is not True:
+        errors.append("summary.local_auth_enabled must be true")
+    if summary.get("auth_token_redacted") is not True:
+        errors.append("summary.auth_token_redacted must be true")
     if summary.get("tls_enabled") is not False:
         errors.append("summary.tls_enabled must be false for local smoke")
     if summary.get("production_auth_enabled") is not False:
@@ -490,6 +578,7 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "passed_count": passed_count,
             "endpoint": summary.get("endpoint"),
             "sse_chunk_count": summary.get("sse_chunk_count"),
+            "endpoint_auth_rejected": summary.get("endpoint_auth_rejected") is True,
             "plan_integrity_rejected": summary.get("plan_integrity_rejected") is True,
             "fornax_backend_integrated": summary.get("fornax_backend_integrated") is True,
             "backend_request_count": summary.get("backend_request_count"),
