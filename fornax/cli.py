@@ -57,6 +57,10 @@ from .local_accelerator_smoke import (
     run_local_accelerator_smoke,
     validate_local_accelerator_smoke,
 )
+from .local_http_serving_smoke import (
+    run_local_http_serving_smoke,
+    validate_local_http_serving_smoke,
+)
 from .local_serving_smoke import (
     run_local_serving_smoke,
     validate_local_serving_smoke,
@@ -1454,6 +1458,41 @@ def _cmd_program_local_accelerator_smoke(args: argparse.Namespace) -> int:
     return 0 if validation["ok"] else 2
 
 
+def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
+    try:
+        result = run_local_http_serving_smoke(
+            out=args.out,
+            host=args.host,
+            port=args.port,
+            plan_id=args.plan_id,
+            plan_hash=args.plan_hash,
+            request_id=args.request_id,
+            model=args.model,
+            max_tokens=args.max_tokens,
+            timeout_s=args.timeout_s,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program local-http-serving-smoke: {exc}")
+        return 2
+    validation = validate_local_http_serving_smoke(args.out)
+    summary = result["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "local HTTP serving smoke: "
+        f"artifact={args.out}; "
+        f"checks={summary['passed_count']}/{summary['check_count']} passed; "
+        f"endpoint={summary['endpoint']}; "
+        f"sse_chunks={summary['sse_chunk_count']}; "
+        f"plan_reject={summary['plan_integrity_rejected']}; "
+        f"target_model_parity={summary['target_model_parity']}; "
+        f"gate_evidence={summary['g2_g3_gate_evidence']}"
+        f"{suffix}"
+    )
+    return 0 if validation["ok"] else 2
+
+
 def _cmd_program_local_serving_smoke(args: argparse.Namespace) -> int:
     try:
         result = run_local_serving_smoke(
@@ -1736,6 +1775,29 @@ def _cmd_test_serving_adapter(args: argparse.Namespace) -> int:
         )
         return 0
     print("FAIL serving-adapter: " + "; ".join(result["errors"]))
+    return 1
+
+
+def _cmd_test_local_http_serving_smoke(args: argparse.Namespace) -> int:
+    fixture = args.fixture or args.out or "/tmp/fornax_local_http_serving_smoke_test.json"
+    if not args.fixture:
+        run_local_http_serving_smoke(out=fixture)
+    result = validate_local_http_serving_smoke(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS local-http-serving-smoke: {fixture} "
+            f"checks={summary['passed_count']}/{summary['check_count']} "
+            f"sse_chunks={summary['sse_chunk_count']} "
+            f"plan_reject={summary['plan_integrity_rejected']} "
+            f"gate_evidence={summary['g2_g3_gate_evidence']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL local-http-serving-smoke: " + "; ".join(result["errors"]))
     return 1
 
 
@@ -2318,6 +2380,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_serving_adapter(args)
     if args.test_name == "local-serving-smoke":
         return _cmd_test_local_serving_smoke(args)
+    if args.test_name == "local-http-serving-smoke":
+        return _cmd_test_local_http_serving_smoke(args)
     if args.test_name == "state-ownership":
         return _cmd_test_state_ownership(args)
     if args.test_name == "engine-simulation":
@@ -2649,6 +2713,18 @@ def build_parser() -> argparse.ArgumentParser:
     local_accel.add_argument("--allow-reference", action="store_true")
     local_accel.add_argument("--timeout-s", type=float, default=180.0)
     local_accel.set_defaults(func=_cmd_program_local_accelerator_smoke)
+
+    local_http_serving = program_sub.add_parser("local-http-serving-smoke")
+    local_http_serving.add_argument("--out", required=True)
+    local_http_serving.add_argument("--host", default="127.0.0.1")
+    local_http_serving.add_argument("--port", type=int, default=0)
+    local_http_serving.add_argument("--plan-id", default="local-http-serving-plan")
+    local_http_serving.add_argument("--plan-hash", default="sha256:local-http-serving-plan")
+    local_http_serving.add_argument("--request-id", default="local-http-serving-request")
+    local_http_serving.add_argument("--model", default="qwen3-moe-class-target")
+    local_http_serving.add_argument("--max-tokens", type=int, default=64)
+    local_http_serving.add_argument("--timeout-s", type=float, default=5.0)
+    local_http_serving.set_defaults(func=_cmd_program_local_http_serving_smoke)
 
     local_serving = program_sub.add_parser("local-serving-smoke")
     local_serving.add_argument("--out-dir", required=True)
@@ -3117,6 +3193,7 @@ def build_parser() -> argparse.ArgumentParser:
             "stage-host",
             "serving-adapter",
             "local-serving-smoke",
+            "local-http-serving-smoke",
             "state-ownership",
             "engine-simulation",
             "observability",

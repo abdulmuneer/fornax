@@ -21,10 +21,11 @@ Legend:
 Current validation snapshot:
 - `python3 -m fornax test golden-plans`: 3/3 passed.
 - `python3 -m fornax program simulate-t1 --out-dir /tmp/fornax_t1_trace_ledger_validation_cli_20260622 --gpu-count 2 --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor 0.65`: 31/31 passed over 2 logical hosts.
-- `python3 -m unittest tests.test_fornax_planner`: 213 tests passed.
+- `python3 -m unittest tests.test_fornax_planner`: 215 tests passed.
 - `python3 -m fornax program local-accelerator-smoke --out-dir /tmp/fornax_local_accelerator_smoke_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --expert-device cuda:0 --transfer-source-device cuda:0 --transfer-destination-device cuda:1 ...`: 3/3 checks passed on local H100s treated as logical hosts; not G2/G3 gate evidence.
 - `python3 -m fornax program local-accelerator-smoke --out-dir /tmp/fornax_local_accelerator_smoke_extended_no_transfer_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --expert-device cuda:0 --skip-activation-transfer --pipeline-source-device cuda:0 --pipeline-destination-device cuda:1 --moe-source-device cuda:0 --moe-expert-device cuda:1 ...`: 4/4 checks passed with expert MLP, split-pipeline correctness, and MoE parity measured on local H100s as logical hosts; not T3/T4 or G2/G3 gate evidence.
 - `python3 -m fornax program local-serving-smoke --out-dir /tmp/fornax_local_serving_smoke_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --pipeline-source-device cuda:0 --pipeline-destination-device cuda:1 --moe-source-device cuda:0 --moe-expert-device cuda:1 ...`: 4/4 checks passed with serving adapter validation, split-pipeline correctness, and MoE parity measured on local H100s as logical hosts; `live_http_endpoint=false`, `target_model_parity=false`, and not T3/T4 or G2/G3 gate evidence.
+- `python3 -m fornax program local-http-serving-smoke --out /tmp/fornax_local_http_serving_smoke_20260622.json --plan-id phase3-local-http-serving-plan --plan-hash sha256:phase3-local-http-serving-plan ...`: 5/5 checks passed with localhost `/v1/chat/completions`, non-stream JSON, SSE stream chunks, plan-integrity rejection, and bad-path rejection; `target_model_parity=false`, `tls_enabled=false`, and not product/G3 gate evidence.
 - `python3 -m fornax program simulate-phase0 --target fornax/golden_plans/v0_target_contract_fixture.md --out-dir /tmp/fornax_phase0_g1_packet_20260622 --gpu-count 2 --profile two-gpu-heterogeneous ...`: 9/9 Phase-0 deliverables machine/simulation complete or closed; recommended G1 outcome remains ITERATE.
 - `python3 -m fornax program g1-evidence-packet --bundle /tmp/fornax_phase0_g1_packet_20260622 --out /tmp/fornax_phase0_g1_packet_20260622/g1-evidence-packet-cli.json --markdown-out /tmp/fornax_phase0_g1_packet_20260622/g1-evidence-packet-cli.md --date 2026-06-22 --plan-version v3`: packet valid; `machine_complete=false`, `g1_ready=false`, `closure_blockers=4`.
 
@@ -39,11 +40,11 @@ The sprint directory contains six main phases, plus an inserted Phase 2.5 MoE sp
 | Phase 1 Worker Contract + Transport | T1 complete; live runtime open | Worker, scheduler, transport, trust-boundary, state-ownership, metrics, trace, and engine seam simulations validate over two logical hosts. Real MAX graphlets, custom ops, live transport, and live TLS/auth remain open. |
 | Phase 2 Continuous Batching | T1 complete; G2 scale evidence open | Scheduler, continuous batching, throughput scaling, and stage replication simulations exist. Real accelerator scaling, overlap telemetry, and 2-3 node pipeline evidence remain open. |
 | Phase 2.5 MoE Runtime | T1 complete; local H100 parity smoke exists | CPU/sim MoE runtime, remote expert, migration, and parity fixtures exist; local same-host H100 MoE parity smoke passed. Real distributed expert runtime parity for G2 remains open. |
-| Phase 3 Heterogeneous Frontier | Simulation/preparatory; local serving-runtime smoke exists; true heterogeneous lab open | Planner/model-support/serving/security/state simulations exist, and local two-H100 logical-host smoke now covers serving-adapter validation plus split pipeline and MoE parity. Real live HTTP endpoint, target-model parity, NVIDIA/AMD/Mac frontier serve, and predicted-throughput proof remain open. |
+| Phase 3 Heterogeneous Frontier | Simulation/preparatory; local serving-runtime and HTTP/SSE smoke exist; true heterogeneous lab open | Planner/model-support/serving/security/state simulations exist, and local smoke now covers serving-adapter validation, localhost OpenAI-compatible HTTP/SSE behavior, split pipeline, and MoE parity. Real target-model parity, product auth/TLS, NVIDIA/AMD/Mac frontier serve, and predicted-throughput proof remain open. |
 | Phase 4 Resilience / Elasticity | T1 simulation exists; real failure evidence open | Resilience replay and stage-replication simulations exist. Real node-loss recovery, added-node scaling, and zero dropped in-flight request evidence remain open. |
 | Phase 5 Productization / GA | Partial tooling/docs simulations; not GA | Preflight, doctor, ops lifecycle, onboarding, and benchmark governance simulations exist. Installable/operable/upgradeable product evidence and GA gate pack remain open. |
 
-Current next implementation lane: keep marching from local two-GPU logical-host serving/runtime smoke toward live endpoint and target-model parity evidence where this machine can produce real evidence, while clearly labeling it as local T2-style evidence and not as final T3/T4 heterogeneous lab closure.
+Current next implementation lane: keep marching from local HTTP/SSE and two-GPU logical-host serving/runtime smoke toward target-model parity and backend integration evidence where this machine can produce real evidence, while clearly labeling it as local development evidence and not as final T3/T4 heterogeneous lab closure.
 
 ## Milestones
 
@@ -52,7 +53,7 @@ Current next implementation lane: keep marching from local two-GPU logical-host 
 - [ ] M2 Pipeline correctness, simulation then 2-3 nodes. Partial: T1 pipeline-correctness CPU/sim fixture exists and local same-host H100 split-pipeline smoke passed; real 2-3 node pipeline evidence is open.
 - [ ] M3 Continuous batching scales. Partial: T1 continuous-batching fixture exists; real scaling evidence for G2 is open.
 - [ ] M4 MoE expert runtime parity. Partial: T1/CPU MoE runtime, migration, remote expert, parity fixtures, and local same-host H100 MoE parity smoke exist; real runtime parity for G2 is open.
-- [ ] M5 Heterogeneous frontier serve. Partial: planner, model support, serving adapter, trust/security, state ownership, simulation bundle, and local two-H100 serving/runtime smoke exist; real live endpoint, target-model parity, and NVIDIA/AMD/Mac frontier serve for G3 are open.
+- [ ] M5 Heterogeneous frontier serve. Partial: planner, model support, serving adapter, trust/security, state ownership, simulation bundle, local HTTP/SSE endpoint smoke, and local two-H100 serving/runtime smoke exist; target-model parity, product auth/TLS, and NVIDIA/AMD/Mac frontier serve for G3 are open.
 - [ ] M6 Resilience / elasticity. Partial: T1 resilience replay and stage replication simulations exist; real T4 node-loss/added-node evidence is open.
 - [ ] M7 Productization / GA. Partial: ops lifecycle and onboarding simulations exist; installable/operable GA evidence is open.
 
@@ -133,7 +134,7 @@ Current next implementation lane: keep marching from local two-GPU logical-host 
 
 - [ ] H1 End-to-end lifecycle + state ownership. Partial: `fornax/state_ownership.py` T1 simulation exists; live serving/runtime ownership is open.
 - [ ] H2 Tokenizer/chat-template/stop-token seam; model support matrix. Partial: serving adapter and model-support fixtures record template/tokenizer hashes and model capability matrix; real target tokenizer/template support is open.
-- [ ] H3 `FornaxBackend` behind `Engine`; standalone OpenAI endpoint. Partial: `fornax/serving.py` simulates Ignis/OpenAI-to-engine seam, and `fornax/local_serving_smoke.py` validates the serving adapter plus local H100 pipeline/MoE runtime probes; real backend, live HTTP/SSE endpoint, and target-model parity are open.
+- [ ] H3 `FornaxBackend` behind `Engine`; standalone OpenAI endpoint. Partial: `fornax/serving.py` simulates Ignis/OpenAI-to-engine seam, `fornax/local_http_serving_smoke.py` validates localhost OpenAI-compatible HTTP/SSE behavior and plan-integrity rejection, and `fornax/local_serving_smoke.py` validates the serving adapter plus local H100 pipeline/MoE runtime probes; real backend integration, product auth/TLS, and target-model parity are open.
 
 ### WS-I — Productization & Ops
 
@@ -151,7 +152,7 @@ Current next implementation lane: keep marching from local two-GPU logical-host 
 
 - [x] T0 Planner/scheduler unit + golden plans. Evidence: `fornax test golden-plans` and unit tests pass.
 - [x] T1 Simulated workers/contracts/backpressure. Evidence: `fornax program simulate-t1` reports 31/31 checks passed over two logical hosts, including trace-ledger correlation.
-- [ ] T2 Single-node accelerator. Partial: `fornax program local-accelerator-smoke` and `fornax program local-serving-smoke` exist; local H100 runs passed expert-MLP and activation-transfer smoke (3/3), extended expert/pipeline/MoE smoke (4/4), and serving-adapter plus pipeline/MoE runtime smoke (4/4). Target-model parity, live endpoint behavior, and formal gate evidence remain open.
+- [ ] T2 Single-node accelerator. Partial: `fornax program local-accelerator-smoke`, `fornax program local-serving-smoke`, and `fornax program local-http-serving-smoke` exist; local H100 runs passed expert-MLP and activation-transfer smoke (3/3), extended expert/pipeline/MoE smoke (4/4), serving-adapter plus pipeline/MoE runtime smoke (4/4), and localhost HTTP/SSE endpoint smoke (5/5). Target-model parity, backend integration, product auth/TLS, and formal gate evidence remain open.
 - [ ] T3 2-3 node pipeline. Open: no real 2-3 node pipeline run found.
 - [ ] T4 Full heterogeneous lab. Open: no full lab-reference heterogeneous run found.
 
@@ -201,4 +202,4 @@ Current next implementation lane: keep marching from local two-GPU logical-host 
 4. Keep Apple/Mac evidence as a deferred validation lane: run or record the rank-1 Apple expert-MLP probe on pinned build later, or explicitly demote Apple role for G1 when the Sponsor chooses.
 5. Close the KER/Apple staffing answer and record Sponsor scope acceptance if narrowed.
 6. Use the generated G1 evidence packet and gate-review draft to attach TL/SP/spec/staffing sign-offs and prepare DEC-005 once missing real evidence is available.
-7. Continue moving local H100 smoke/T2-style validation toward live endpoint behavior and target-model parity while preserving the distinction from final T3/T4 heterogeneous lab closure.
+7. Continue moving local H100 and localhost HTTP/SSE validation toward target-model parity and backend integration while preserving the distinction from final T3/T4 heterogeneous lab closure.

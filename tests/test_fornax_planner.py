@@ -58,6 +58,11 @@ from fornax.local_accelerator_smoke import (
     validate_local_accelerator_smoke,
     validate_local_accelerator_smoke_fixture,
 )
+from fornax.local_http_serving_smoke import (
+    run_local_http_serving_smoke,
+    validate_local_http_serving_smoke,
+    validate_local_http_serving_smoke_fixture,
+)
 from fornax.local_serving_smoke import (
     run_local_serving_smoke,
     validate_local_serving_smoke,
@@ -668,6 +673,40 @@ class FornaxPlannerTest(unittest.TestCase):
         text = "; ".join(result["errors"])
         self.assertIn("bundle-policy", text)
         self.assertIn("t2_smoke_passed", text)
+
+
+    def test_local_http_serving_smoke_validates_endpoint_and_sse(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            artifact = Path(d) / "local-http-serving-smoke.json"
+            bundle = run_local_http_serving_smoke(out=artifact)
+            result = validate_local_http_serving_smoke(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(bundle["summary"]["live_http_endpoint"])
+        self.assertTrue(bundle["summary"]["localhost_only"])
+        self.assertEqual(5, bundle["summary"]["check_count"])
+        self.assertEqual(5, bundle["summary"]["passed_count"])
+        self.assertEqual(200, bundle["summary"]["non_stream_status"])
+        self.assertEqual(200, bundle["summary"]["stream_status"])
+        self.assertTrue(bundle["summary"]["sse_done_seen"])
+        self.assertEqual(5, bundle["summary"]["sse_chunk_count"])
+        self.assertTrue(bundle["summary"]["plan_integrity_rejected"])
+        self.assertTrue(bundle["summary"]["bad_path_rejected"])
+        self.assertFalse(bundle["summary"]["tls_enabled"])
+        self.assertFalse(bundle["summary"]["production_auth_enabled"])
+        self.assertFalse(bundle["summary"]["target_model_parity"])
+        self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+
+    def test_local_http_serving_smoke_rejects_gate_overclaim(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            artifact = Path(d) / "local-http-serving-smoke.json"
+            bundle = run_local_http_serving_smoke(out=artifact)
+        bundle["summary"]["target_model_parity"] = True
+        bundle["summary"]["g2_g3_gate_evidence"] = True
+        result = validate_local_http_serving_smoke_fixture(bundle)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("target_model_parity", text)
+        self.assertIn("g2_g3_gate_evidence", text)
 
 
     def test_local_serving_smoke_allows_reference_for_ci(self) -> None:
