@@ -1585,6 +1585,16 @@ def _cmd_program_local_serving_smoke(args: argparse.Namespace) -> int:
             moe_expert_count=args.moe_expert_count,
             moe_top_k=args.moe_top_k,
             moe_tolerance=args.moe_tolerance,
+            include_target_fixture_probe=not args.skip_target_fixture_probe,
+            target_fixture_backend=args.target_fixture_backend,
+            target_fixture_device=args.target_fixture_device,
+            target_fixture_dtype=args.target_fixture_dtype,
+            target_fixture_iterations=args.target_fixture_iterations,
+            target_fixture_warmup=args.target_fixture_warmup,
+            target_fixture_vocab_size=args.target_fixture_vocab_size,
+            target_fixture_new_tokens=args.target_fixture_new_tokens,
+            target_fixture_stop_token_id=args.target_fixture_stop_token_id,
+            target_fixture_tolerance=args.target_fixture_tolerance,
             logical_source_host=args.logical_source_host,
             logical_destination_host=args.logical_destination_host,
             require_accelerator=not args.allow_reference,
@@ -1605,6 +1615,8 @@ def _cmd_program_local_serving_smoke(args: argparse.Namespace) -> int:
         f"serving_adapter={summary['serving_adapter_valid']}; "
         f"pipeline_accelerator={summary['pipeline_correctness_accelerator_measured']}; "
         f"moe_accelerator={summary['moe_parity_accelerator_measured']}; "
+        f"target_fixture_accelerator={summary['target_fixture_accelerator_measured']}; "
+        f"target_fixture={summary['target_fixture_generated_text']}; "
         f"live_http={summary['live_http_endpoint']}; "
         f"target_model_parity={summary['target_model_parity']}; "
         f"gate_evidence={summary['g2_g3_gate_evidence']}"
@@ -1883,6 +1895,10 @@ def _cmd_test_local_serving_smoke(args: argparse.Namespace) -> int:
             moe_vocab_size=11,
             moe_expert_count=2,
             moe_top_k=1,
+            target_fixture_backend="cpu-stdlib",
+            target_fixture_iterations=1,
+            target_fixture_warmup=0,
+            target_fixture_new_tokens=4,
             require_accelerator=False,
         )
     result = validate_local_serving_smoke(fixture)
@@ -1896,6 +1912,8 @@ def _cmd_test_local_serving_smoke(args: argparse.Namespace) -> int:
             f"checks={summary['passed_count']}/{summary['check_count']} "
             f"pipeline_accelerator={summary['pipeline_correctness_accelerator_measured']} "
             f"moe_accelerator={summary['moe_parity_accelerator_measured']} "
+            f"target_fixture_accelerator={summary['target_fixture_accelerator_measured']} "
+            f"target_fixture={summary['target_fixture_generated_text']} "
             f"t2_smoke={summary['t2_smoke_passed']}"
             f"{suffix}"
         )
@@ -2841,6 +2859,16 @@ def build_parser() -> argparse.ArgumentParser:
     local_serving.add_argument("--moe-expert-count", type=int, default=4)
     local_serving.add_argument("--moe-top-k", type=int, default=2)
     local_serving.add_argument("--moe-tolerance", type=float, default=1e-4)
+    local_serving.add_argument("--skip-target-fixture-probe", action="store_true")
+    local_serving.add_argument("--target-fixture-backend", choices=["cpu-stdlib", "torch"], default="torch")
+    local_serving.add_argument("--target-fixture-device", default="cuda:0")
+    local_serving.add_argument("--target-fixture-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    local_serving.add_argument("--target-fixture-iterations", type=int, default=5)
+    local_serving.add_argument("--target-fixture-warmup", type=int, default=1)
+    local_serving.add_argument("--target-fixture-vocab-size", type=int, default=17)
+    local_serving.add_argument("--target-fixture-new-tokens", type=int, default=4)
+    local_serving.add_argument("--target-fixture-stop-token-id", type=int, default=9)
+    local_serving.add_argument("--target-fixture-tolerance", type=float, default=1e-4)
     local_serving.add_argument("--logical-source-host", default="logical-host-0")
     local_serving.add_argument("--logical-destination-host", default="logical-host-1")
     local_serving.add_argument("--allow-reference", action="store_true")

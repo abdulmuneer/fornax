@@ -807,17 +807,26 @@ class FornaxPlannerTest(unittest.TestCase):
                 moe_vocab_size=11,
                 moe_expert_count=2,
                 moe_top_k=1,
+                target_fixture_backend="cpu-stdlib",
+                target_fixture_iterations=1,
+                target_fixture_warmup=0,
+                target_fixture_new_tokens=4,
                 require_accelerator=False,
             )
             result = validate_local_serving_smoke(d)
         self.assertTrue(result["ok"], result["errors"])
-        self.assertEqual(4, bundle["summary"]["check_count"])
+        self.assertEqual(5, bundle["summary"]["check_count"])
         self.assertTrue(bundle["summary"]["serving_adapter_valid"])
         self.assertTrue(bundle["summary"]["serving_correctness_passed"])
         self.assertTrue(bundle["summary"]["pipeline_correctness_included"])
         self.assertFalse(bundle["summary"]["pipeline_correctness_accelerator_measured"])
         self.assertTrue(bundle["summary"]["moe_parity_included"])
         self.assertFalse(bundle["summary"]["moe_parity_accelerator_measured"])
+        self.assertTrue(bundle["summary"]["target_fixture_probe_included"])
+        self.assertFalse(bundle["summary"]["target_fixture_accelerator_measured"])
+        self.assertEqual("fixture h100", bundle["summary"]["target_fixture_generated_text"])
+        self.assertFalse(bundle["summary"]["target_fixture_real_frontier_model"])
+        self.assertEqual(3, bundle["summary"]["required_accelerator_probe_count"])
         self.assertTrue(bundle["summary"]["local_runtime_smoke_passed"])
         self.assertFalse(bundle["summary"]["t2_smoke_passed"])
         self.assertFalse(bundle["summary"]["live_http_endpoint"])
@@ -834,6 +843,7 @@ class FornaxPlannerTest(unittest.TestCase):
                 pipeline_hidden_dim=4,
                 pipeline_new_tokens=2,
                 include_moe_parity=False,
+                include_target_fixture_probe=False,
                 require_accelerator=True,
             )
             result = validate_local_serving_smoke_fixture(bundle)
@@ -841,6 +851,28 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         text = "; ".join(result["errors"])
         self.assertIn("bundle-policy", text)
+        self.assertIn("t2_smoke_passed", text)
+
+    def test_local_serving_smoke_rejects_target_fixture_reference_as_required_accelerator(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = run_local_serving_smoke(
+                out_dir=d,
+                include_pipeline_correctness=False,
+                include_moe_parity=False,
+                target_fixture_backend="cpu-stdlib",
+                target_fixture_iterations=1,
+                target_fixture_warmup=0,
+                target_fixture_new_tokens=4,
+                require_accelerator=True,
+            )
+            result = validate_local_serving_smoke_fixture(bundle)
+        self.assertFalse(bundle["ok"])
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        policy = next(check for check in bundle["checks"] if check["name"] == "bundle-policy")
+        policy_errors = "; ".join(policy["errors"])
+        self.assertIn("bundle-policy", text)
+        self.assertIn("target-fixture-execution-probe", policy_errors)
         self.assertIn("t2_smoke_passed", text)
 
 

@@ -13,6 +13,10 @@ from .pipeline_probe import (
     validate_pipeline_correctness_probe_fixture,
 )
 from .serving import simulate_serving_adapter, validate_serving_adapter_fixture
+from .target_fixture_probe import (
+    run_target_fixture_execution_probe,
+    validate_target_fixture_execution_probe_fixture,
+)
 
 
 RECORD_KIND = "local-serving-runtime-smoke-bundle"
@@ -64,6 +68,17 @@ def run_local_serving_smoke(
     moe_expert_count: int = 4,
     moe_top_k: int = 2,
     moe_tolerance: float = 1e-4,
+    include_target_fixture_probe: bool = True,
+    target_fixture_backend: str = "torch",
+    target_fixture_device: str = "cuda:0",
+    target_fixture_dtype: str = "float32",
+    target_fixture_iterations: int = 5,
+    target_fixture_warmup: int = 1,
+    target_fixture_vocab_size: int = 17,
+    target_fixture_new_tokens: int = 4,
+    target_fixture_stop_token_id: int = 9,
+    target_fixture_tolerance: float = 1e-4,
+    target_fixture_logical_host: str | None = None,
     logical_source_host: str = "logical-host-0",
     logical_destination_host: str = "logical-host-1",
     require_accelerator: bool = True,
@@ -76,6 +91,7 @@ def run_local_serving_smoke(
     serving_path = bundle / "serving-adapter.json"
     pipeline_path = bundle / "pipeline-correctness-probe.json"
     moe_path = bundle / "moe-layer-parity-probe.json"
+    target_fixture_path = bundle / "target-fixture-execution-probe.json"
     result_path = bundle / "local-serving-smoke.json"
 
     serving = simulate_serving_adapter(
@@ -154,11 +170,44 @@ def run_local_serving_smoke(
             )
         )
 
+    target_fixture_validation: dict[str, Any] | None = None
+    if include_target_fixture_probe:
+        target_fixture = run_target_fixture_execution_probe(
+            backend=target_fixture_backend,
+            torch_python=torch_python,
+            device=target_fixture_device,
+            dtype=target_fixture_dtype,
+            iterations=target_fixture_iterations,
+            warmup=target_fixture_warmup,
+            vocab_size=target_fixture_vocab_size,
+            new_tokens=target_fixture_new_tokens,
+            stop_token_id=target_fixture_stop_token_id,
+            tolerance=target_fixture_tolerance,
+            logical_host=target_fixture_logical_host or logical_source_host,
+            timeout_s=timeout_s,
+        )
+        write_json(target_fixture_path, target_fixture)
+        target_fixture_validation = validate_target_fixture_execution_probe_fixture(
+            target_fixture
+        )
+        checks.append(
+            _validation_entry(
+                "target-fixture-execution-probe",
+                target_fixture_validation,
+                str(target_fixture_path),
+            )
+        )
+
     pipeline_summary = (
         pipeline_validation.get("summary", {}) if isinstance(pipeline_validation, dict) else {}
     )
     moe_summary = (
         moe_validation.get("summary", {}) if isinstance(moe_validation, dict) else {}
+    )
+    target_fixture_summary = (
+        target_fixture_validation.get("summary", {})
+        if isinstance(target_fixture_validation, dict)
+        else {}
     )
     bundle_policy_errors: list[str] = []
     if require_accelerator and include_pipeline_correctness:
@@ -171,6 +220,11 @@ def run_local_serving_smoke(
             bundle_policy_errors.append(
                 "moe-layer-parity-probe must be measured accelerator evidence"
             )
+    if require_accelerator and include_target_fixture_probe:
+        if target_fixture_summary.get("accelerator_measured") is not True:
+            bundle_policy_errors.append(
+                "target-fixture-execution-probe must be measured accelerator evidence"
+            )
     checks.append(
         {
             "name": "bundle-policy",
@@ -180,12 +234,14 @@ def run_local_serving_smoke(
             "warnings": [
                 "serving adapter is not live HTTP endpoint evidence",
                 "local runtime smoke is not target-model parity evidence",
+                "target fixture probe is not real frontier target-model parity evidence",
                 "same-host accelerator probes are not real multi-host T3 evidence",
             ],
             "summary": {
                 "require_accelerator": require_accelerator,
                 "include_pipeline_correctness": include_pipeline_correctness,
                 "include_moe_parity": include_moe_parity,
+                "include_target_fixture_probe": include_target_fixture_probe,
             },
         }
     )
@@ -197,8 +253,10 @@ def run_local_serving_smoke(
         if check["name"] != "bundle-policy"
         and check.get("summary", {}).get("accelerator_measured") is True
     )
-    required_accelerator_probe_count = int(include_pipeline_correctness) + int(
-        include_moe_parity
+    required_accelerator_probe_count = (
+        int(include_pipeline_correctness)
+        + int(include_moe_parity)
+        + int(include_target_fixture_probe)
     )
     local_runtime_smoke_passed = passed_count == len(checks)
     t2_smoke_passed = (
@@ -237,6 +295,17 @@ def run_local_serving_smoke(
         "moe_parity_tokens_s": moe_summary.get("tokens_s"),
         "moe_parity_expert_calls_s": moe_summary.get("expert_calls_s"),
         "moe_parity_max_logit_abs_error": moe_summary.get("max_logit_abs_error"),
+        "target_fixture_probe_included": include_target_fixture_probe,
+        "target_fixture_accelerator_measured": bool(
+            target_fixture_summary.get("accelerator_measured")
+        ),
+        "target_fixture_device": target_fixture_summary.get("device"),
+        "target_fixture_tokens_s": target_fixture_summary.get("tokens_s"),
+        "target_fixture_generated_text": target_fixture_summary.get("generated_text"),
+        "target_fixture_max_abs_error": target_fixture_summary.get("max_abs_error"),
+        "target_fixture_real_frontier_model": bool(
+            target_fixture_summary.get("real_frontier_model")
+        ),
         "accelerator_probe_count": accelerator_probe_count,
         "required_accelerator_probe_count": required_accelerator_probe_count,
         "local_runtime_smoke_passed": local_runtime_smoke_passed,
@@ -256,6 +325,9 @@ def run_local_serving_smoke(
             if include_pipeline_correctness
             else None,
             "moe_layer_parity_probe": str(moe_path) if include_moe_parity else None,
+            "target_fixture_execution_probe": str(target_fixture_path)
+            if include_target_fixture_probe
+            else None,
             "validation": str(result_path),
         },
         "summary": summary,
@@ -324,6 +396,10 @@ def validate_local_serving_smoke_fixture(data: dict[str, Any]) -> dict[str, Any]
         errors.append("summary.live_http_endpoint must be false")
     if summary.get("target_model_parity") is not False:
         errors.append("summary.target_model_parity must be false")
+    if summary.get("target_fixture_probe_included") is True and summary.get(
+        "target_fixture_real_frontier_model"
+    ) is not False:
+        errors.append("summary.target_fixture_real_frontier_model must be false")
     if summary.get("g2_g3_gate_evidence") is not False:
         errors.append("summary.g2_g3_gate_evidence must be false")
     if data.get("ok") is not True:
@@ -345,6 +421,18 @@ def validate_local_serving_smoke_fixture(data: dict[str, Any]) -> dict[str, Any]
             "moe_parity_included": summary.get("moe_parity_included"),
             "moe_parity_accelerator_measured": summary.get(
                 "moe_parity_accelerator_measured"
+            ),
+            "target_fixture_probe_included": summary.get(
+                "target_fixture_probe_included"
+            ),
+            "target_fixture_accelerator_measured": summary.get(
+                "target_fixture_accelerator_measured"
+            ),
+            "target_fixture_generated_text": summary.get(
+                "target_fixture_generated_text"
+            ),
+            "target_fixture_real_frontier_model": summary.get(
+                "target_fixture_real_frontier_model"
             ),
             "accelerator_probe_count": summary.get("accelerator_probe_count"),
             "required_accelerator_probe_count": summary.get(
