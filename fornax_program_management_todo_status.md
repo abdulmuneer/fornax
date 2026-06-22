@@ -27,6 +27,23 @@ Current validation snapshot:
 - `python3 -m fornax program simulate-phase0 --target fornax/golden_plans/v0_target_contract_fixture.md --out-dir /tmp/fornax_phase0_g1_packet_20260622 --gpu-count 2 --profile two-gpu-heterogeneous ...`: 9/9 Phase-0 deliverables machine/simulation complete or closed; recommended G1 outcome remains ITERATE.
 - `python3 -m fornax program g1-evidence-packet --bundle /tmp/fornax_phase0_g1_packet_20260622 --out /tmp/fornax_phase0_g1_packet_20260622/g1-evidence-packet-cli.json --markdown-out /tmp/fornax_phase0_g1_packet_20260622/g1-evidence-packet-cli.md --date 2026-06-22 --plan-version v3`: packet valid; `machine_complete=false`, `g1_ready=false`, `closure_blockers=4`.
 
+
+## Current Sprint-Phase Position
+
+The sprint directory contains six main phases, plus an inserted Phase 2.5 MoE sprint. The current engineering position is ahead of the formal gate position: development has simulation-complete evidence through Phase 1 and substantial Phase 2/2.5 local-H100 smoke evidence, while the formal program gate remains before G1 because human/external closure items are still open.
+
+| Sprint | Current Status | Evidence / Remaining Gap |
+|---|---|---|
+| Phase 0 Evidence Sprint | Machine/simulation-complete; formal G1 not passed | Phase-0 preflight, T1 simulation, G1 review, and G1 evidence packet exist. G1 remains ITERATE because TL/SP sign-off, Apple rank-1 probe or Sponsor demotion, staffing, and Sponsor DEC-005 are not closed. |
+| Phase 1 Worker Contract + Transport | T1 complete; live runtime open | Worker, scheduler, transport, trust-boundary, state-ownership, metrics, trace, and engine seam simulations validate over two logical hosts. Real MAX graphlets, custom ops, live transport, and live TLS/auth remain open. |
+| Phase 2 Continuous Batching | T1 complete; G2 scale evidence open | Scheduler, continuous batching, throughput scaling, and stage replication simulations exist. Real accelerator scaling, overlap telemetry, and 2-3 node pipeline evidence remain open. |
+| Phase 2.5 MoE Runtime | T1 complete; local H100 parity smoke exists | CPU/sim MoE runtime, remote expert, migration, and parity fixtures exist; local same-host H100 MoE parity smoke passed. Real distributed expert runtime parity for G2 remains open. |
+| Phase 3 Heterogeneous Frontier | Simulation/preparatory; true heterogeneous lab open | Planner/model-support/serving/security/state simulations exist, and local two-H100 logical-host smoke covers split pipeline and MoE parity. Real NVIDIA/AMD/Mac frontier serve and predicted-throughput proof remain open. |
+| Phase 4 Resilience / Elasticity | T1 simulation exists; real failure evidence open | Resilience replay and stage-replication simulations exist. Real node-loss recovery, added-node scaling, and zero dropped in-flight request evidence remain open. |
+| Phase 5 Productization / GA | Partial tooling/docs simulations; not GA | Preflight, doctor, ops lifecycle, onboarding, and benchmark governance simulations exist. Installable/operable/upgradeable product evidence and GA gate pack remain open. |
+
+Current next implementation lane: keep marching with local two-GPU logical-host validation and live runtime/serving smoke where this machine can produce real evidence, while clearly labeling it as local T2-style evidence and not as final T3/T4 heterogeneous lab closure.
+
 ## Milestones
 
 - [x] M0 Architecture baseline / G0 passed. Evidence: plan v3 accepted by `04-stage-gates.md`; program governance fixture also records G0/G1 posture.
