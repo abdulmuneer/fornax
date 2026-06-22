@@ -1473,6 +1473,7 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
             max_inflight=args.max_inflight,
             backpressure_delay_ms=args.backpressure_delay_ms,
             timeout_s=args.timeout_s,
+            backend_mode=args.backend_mode,
         )
     except (OSError, ValueError) as exc:
         print(f"program local-http-serving-smoke: {exc}")
@@ -1491,6 +1492,7 @@ def _cmd_program_local_http_serving_smoke(args: argparse.Namespace) -> int:
         f"auth_reject={summary['endpoint_auth_rejected']}; "
         f"backpressure={summary['backpressure_rejected']}; "
         f"lifecycle={summary['lifecycle_all_released']}; "
+        f"target_fixture={summary['target_fixture_parity']}; "
         f"plan_reject={summary['plan_integrity_rejected']}; "
         f"target_model_parity={summary['target_model_parity']}; "
         f"gate_evidence={summary['g2_g3_gate_evidence']}"
@@ -1801,6 +1803,7 @@ def _cmd_test_local_http_serving_smoke(args: argparse.Namespace) -> int:
             f"auth_reject={summary['endpoint_auth_rejected']} "
             f"backpressure={summary['backpressure_rejected']} "
             f"lifecycle={summary['lifecycle_all_released']} "
+            f"target_fixture={summary['target_fixture_parity']} "
             f"plan_reject={summary['plan_integrity_rejected']} "
             f"gate_evidence={summary['g2_g3_gate_evidence']}"
             f"{suffix}"
@@ -2735,6 +2738,7 @@ def build_parser() -> argparse.ArgumentParser:
     local_http_serving.add_argument("--auth-token", default="local-smoke-token")
     local_http_serving.add_argument("--max-inflight", type=int, default=1)
     local_http_serving.add_argument("--backpressure-delay-ms", type=int, default=250)
+    local_http_serving.add_argument("--backend-mode", choices=["adapter", "target-fixture"], default="adapter")
     local_http_serving.add_argument("--timeout-s", type=float, default=5.0)
     local_http_serving.set_defaults(func=_cmd_program_local_http_serving_smoke)
 

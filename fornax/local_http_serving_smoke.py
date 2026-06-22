@@ -25,22 +25,68 @@ LOCAL_LIFECYCLE_RESOURCE_KINDS = (
     "response_stream",
     "kv_cache",
 )
+BACKEND_MODE_ADAPTER = "adapter"
+BACKEND_MODE_TARGET_FIXTURE = "target-fixture"
+BACKEND_MODES = (BACKEND_MODE_ADAPTER, BACKEND_MODE_TARGET_FIXTURE)
+TARGET_FIXTURE_MODEL_ID = "fornax-local-target-fixture-v1"
+TARGET_FIXTURE_TEMPLATE_HASH = "sha256:" + "c" * 64
+TARGET_FIXTURE_TOKENIZER_HASH = "sha256:" + "d" * 64
+TARGET_FIXTURE_STOP_SEQUENCE = "</final>"
+
+
+def _is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith("sha256:") and len(value) == 71
+
+
+def _messages_to_text(messages: Any) -> str:
+    if not isinstance(messages, list):
+        return ""
+    parts: list[str] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = message.get("role")
+        content = message.get("content")
+        if isinstance(role, str) and isinstance(content, str):
+            parts.append(f"{role}: {content}")
+    return "\n".join(parts)
+
+
+def _fixture_tokenize(text: str) -> list[str]:
+    normalized = text.lower()
+    for marker in ("\n", "\t", ".", ",", ":", ";", "!", "?", "(", ")", "[", "]", "{", "}"):
+        normalized = normalized.replace(marker, " ")
+    return [token for token in normalized.split(" ") if token]
 
 
 class LocalFornaxBackend:
     """Local smoke implementation of the FornaxBackend Engine seam."""
 
-    def __init__(self, *, plan_id: str, request_id: str, model: str, max_tokens: int) -> None:
+    def __init__(
+        self,
+        *,
+        plan_id: str,
+        request_id: str,
+        model: str,
+        max_tokens: int,
+        backend_mode: str = BACKEND_MODE_ADAPTER,
+    ) -> None:
+        if backend_mode not in BACKEND_MODES:
+            raise ValueError(f"backend_mode must be one of {BACKEND_MODES}")
         self.plan_id = plan_id
         self.request_id = request_id
         self.model = model
         self.max_tokens = max_tokens
+        self.backend_mode = backend_mode
         self.call_count = 0
+        self._target_fixture_runs: list[dict[str, Any]] = []
 
     def complete(self, request: dict[str, Any], *, stream: bool) -> dict[str, Any]:
         self.call_count += 1
         model = str(request.get("model", self.model))
         max_tokens = int(request.get("max_tokens", self.max_tokens))
+        if self.backend_mode == BACKEND_MODE_TARGET_FIXTURE:
+            return self._complete_target_fixture(request, model=model, max_tokens=max_tokens, stream=stream)
         return simulate_serving_adapter(
             plan_id=self.plan_id,
             request_id=self.request_id,
@@ -49,14 +95,224 @@ class LocalFornaxBackend:
             max_tokens=max_tokens,
         )
 
+    def _complete_target_fixture(
+        self,
+        request: dict[str, Any],
+        *,
+        model: str,
+        max_tokens: int,
+        stream: bool,
+    ) -> dict[str, Any]:
+        messages = request.get("messages", [])
+        prompt_text = _messages_to_text(messages)
+        prompt_tokens = _fixture_tokenize(prompt_text)
+        stop = request.get("stop", [TARGET_FIXTURE_STOP_SEQUENCE])
+        if isinstance(stop, str):
+            stop_sequences = [stop]
+        elif isinstance(stop, list):
+            stop_sequences = [item for item in stop if isinstance(item, str)]
+        else:
+            stop_sequences = [TARGET_FIXTURE_STOP_SEQUENCE]
+        if not stop_sequences:
+            stop_sequences = [TARGET_FIXTURE_STOP_SEQUENCE]
+
+        candidate_tokens = ["fixture", "target", "parity", TARGET_FIXTURE_STOP_SEQUENCE, "ignored"]
+        generated_tokens: list[str] = []
+        finish_reason = "length"
+        stop_sequence: str | None = None
+        for token in candidate_tokens:
+            if len(generated_tokens) >= max_tokens:
+                finish_reason = "length"
+                break
+            if token in stop_sequences:
+                finish_reason = "stop"
+                stop_sequence = token
+                break
+            generated_tokens.append(token)
+        if stop_sequence is None and len(generated_tokens) < max_tokens:
+            finish_reason = "stop"
+
+        generated_token_ids = [3001 + index for index, _ in enumerate(generated_tokens)]
+        generated_text = " ".join(generated_tokens)
+        prompt_token_count = len(prompt_tokens)
+        completion_token_count = len(generated_tokens)
+        total_token_count = prompt_token_count + completion_token_count
+        engine_events = [
+            {"kind": "start", "request_id": self.request_id, "plan_id": self.plan_id},
+            *[
+                {
+                    "kind": "token",
+                    "request_id": self.request_id,
+                    "plan_id": self.plan_id,
+                    "token_id": token_id,
+                    "token_text": token,
+                }
+                for token_id, token in zip(generated_token_ids, generated_tokens)
+            ],
+            {
+                "kind": "finish",
+                "request_id": self.request_id,
+                "plan_id": self.plan_id,
+                "finish_reason": finish_reason,
+                "stop_sequence": stop_sequence,
+            },
+        ]
+        openai_chunks: list[dict[str, Any]] = []
+        for index, event in enumerate(engine_events):
+            chunk: dict[str, Any] = {
+                "id": f"chatcmpl-{self.request_id}",
+                "object": "chat.completion.chunk",
+                "model": model,
+                "index": index,
+                "engine_event_kind": event["kind"],
+            }
+            if event["kind"] == "start":
+                chunk["choices"] = [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]
+            elif event["kind"] == "token":
+                chunk["choices"] = [{"index": 0, "delta": {"content": event["token_text"]}, "finish_reason": None}]
+            else:
+                chunk["choices"] = [{"index": 0, "delta": {}, "finish_reason": finish_reason}]
+            openai_chunks.append(chunk)
+
+        usage = {
+            "prompt_tokens": prompt_token_count,
+            "completion_tokens": completion_token_count,
+            "total_tokens": total_token_count,
+        }
+        engine_request = {
+            "request_id": self.request_id,
+            "plan_id": self.plan_id,
+            "messages": messages if isinstance(messages, list) else [],
+            "max_tokens": max_tokens,
+            "stream": stream,
+            "template": {
+                "name": "fornax-local-target-fixture-chat",
+                "version": "phase3-local-fixture-v1",
+                "hash": TARGET_FIXTURE_TEMPLATE_HASH,
+            },
+            "tokenizer": {
+                "name": "fornax-local-target-fixture-tokenizer",
+                "version": "phase3-local-fixture-v1",
+                "hash": TARGET_FIXTURE_TOKENIZER_HASH,
+            },
+        }
+        engine_result = {
+            "request_id": self.request_id,
+            "finish_reason": finish_reason,
+            "content": generated_text,
+            "usage": usage,
+            "template_hash": TARGET_FIXTURE_TEMPLATE_HASH,
+            "tokenizer_hash": TARGET_FIXTURE_TOKENIZER_HASH,
+            "stop_sequence": stop_sequence,
+        }
+        openai_response = {
+            "id": f"chatcmpl-{self.request_id}",
+            "object": "chat.completion",
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": generated_text},
+                    "finish_reason": finish_reason,
+                }
+            ],
+            "usage": usage,
+        }
+        run = {
+            "stream": stream,
+            "model": model,
+            "template_hash": TARGET_FIXTURE_TEMPLATE_HASH,
+            "tokenizer_hash": TARGET_FIXTURE_TOKENIZER_HASH,
+            "prompt_token_count": prompt_token_count,
+            "completion_token_count": completion_token_count,
+            "generated_text": generated_text,
+            "generated_tokens": generated_tokens,
+            "generated_token_ids": generated_token_ids,
+            "finish_reason": finish_reason,
+            "stop_sequence": stop_sequence,
+            "stream_chunk_count": len(openai_chunks),
+        }
+        self._target_fixture_runs.append(run)
+        return {
+            "version": 1,
+            "record_kind": "local-target-fixture-serving-result",
+            "mode": "local-http-target-fixture-smoke",
+            "plan_id": self.plan_id,
+            "openai_request": request,
+            "engine_request": engine_request,
+            "engine_result": engine_result,
+            "engine_stream_events": engine_events,
+            "openai_response": openai_response,
+            "openai_stream_chunks": openai_chunks,
+            "target_fixture_run": run,
+        }
+
+    def _target_fixture_summary(self) -> dict[str, Any] | None:
+        if self.backend_mode != BACKEND_MODE_TARGET_FIXTURE:
+            return None
+        streams = [run for run in self._target_fixture_runs if run["stream"] is True]
+        non_streams = [run for run in self._target_fixture_runs if run["stream"] is False]
+        first = self._target_fixture_runs[0] if self._target_fixture_runs else {}
+        expected_tokens = first.get("generated_tokens")
+        parity = (
+            bool(streams)
+            and bool(non_streams)
+            and all(run.get("generated_tokens") == expected_tokens for run in self._target_fixture_runs)
+            and all(run.get("template_hash") == TARGET_FIXTURE_TEMPLATE_HASH for run in self._target_fixture_runs)
+            and all(run.get("tokenizer_hash") == TARGET_FIXTURE_TOKENIZER_HASH for run in self._target_fixture_runs)
+        )
+        return {
+            "scope": "local-fixture-only",
+            "fixture_model_id": TARGET_FIXTURE_MODEL_ID,
+            "requested_model": self.model,
+            "loaded": True,
+            "parity": parity,
+            "non_stream_matches_stream": parity,
+            "run_count": len(self._target_fixture_runs),
+            "stream_run_count": len(streams),
+            "non_stream_run_count": len(non_streams),
+            "generated_text": first.get("generated_text"),
+            "generated_tokens": first.get("generated_tokens", []),
+            "generated_token_ids": first.get("generated_token_ids", []),
+            "prompt_token_count": first.get("prompt_token_count"),
+            "completion_token_count": first.get("completion_token_count"),
+            "stream_chunk_count": first.get("stream_chunk_count"),
+            "finish_reason": first.get("finish_reason"),
+            "stop_sequence": first.get("stop_sequence"),
+            "template_hash": TARGET_FIXTURE_TEMPLATE_HASH,
+            "tokenizer_hash": TARGET_FIXTURE_TOKENIZER_HASH,
+            "real_frontier_model_loaded": False,
+            "real_frontier_model_parity": False,
+        }
+
     def summary(self) -> dict[str, Any]:
+        if self.backend_mode == BACKEND_MODE_TARGET_FIXTURE:
+            fixture = self._target_fixture_summary() or {}
+            return {
+                "backend": "FornaxBackend",
+                "mode": "local-http-target-fixture-smoke",
+                "engine_trait_compatible": True,
+                "request_count": self.call_count,
+                "target_model_loaded": fixture.get("loaded") is True,
+                "target_model_scope": "local-fixture-only",
+                "target_model_parity": fixture.get("parity") is True,
+                "template_hash": TARGET_FIXTURE_TEMPLATE_HASH,
+                "tokenizer_hash": TARGET_FIXTURE_TOKENIZER_HASH,
+                "stream_chunk_count": fixture.get("stream_chunk_count"),
+                "real_frontier_model_loaded": False,
+                "real_frontier_model_parity": False,
+                "target_fixture": fixture,
+            }
         return {
             "backend": "FornaxBackend",
             "mode": "local-http-smoke",
             "engine_trait_compatible": True,
             "request_count": self.call_count,
             "target_model_loaded": False,
+            "target_model_scope": "none",
             "target_model_parity": False,
+            "real_frontier_model_loaded": False,
+            "real_frontier_model_parity": False,
         }
 
 
@@ -69,6 +325,7 @@ class _SmokeServer(ThreadingHTTPServer):
             request_id=config["request_id"],
             model=config["model"],
             max_tokens=config["max_tokens"],
+            backend_mode=config["backend_mode"],
         )
         self._inflight_lock = threading.Lock()
         self._inflight_count = 0
@@ -466,6 +723,7 @@ def run_local_http_serving_smoke(
     backpressure_delay_ms: int = 250,
     retry_after_ms: int = 25,
     timeout_s: float = 5.0,
+    backend_mode: str = BACKEND_MODE_ADAPTER,
 ) -> dict[str, Any]:
     if not host or not plan_id or not plan_hash or not request_id or not model or not auth_token:
         raise ValueError("host, plan_id, plan_hash, request_id, model, and auth_token must be non-empty")
@@ -481,6 +739,8 @@ def run_local_http_serving_smoke(
         raise ValueError("retry_after_ms must be a positive integer")
     if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)) or timeout_s <= 0:
         raise ValueError("timeout_s must be a positive number")
+    if backend_mode not in BACKEND_MODES:
+        raise ValueError(f"backend_mode must be one of {BACKEND_MODES}")
 
     output_path = Path(out)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -494,6 +754,7 @@ def run_local_http_serving_smoke(
         "max_inflight": max_inflight,
         "backpressure_delay_ms": backpressure_delay_ms,
         "retry_after_ms": retry_after_ms,
+        "backend_mode": backend_mode,
     }
     server = _SmokeServer((host, port), config)
     server_host, server_port = server.server_address
@@ -608,10 +869,15 @@ def run_local_http_serving_smoke(
         and non_stream.get("body", {}).get("object") == "chat.completion"
         and non_stream.get("body", {}).get("model") == model
     )
+    expected_stream_chunk_count = (
+        backend_summary.get("stream_chunk_count")
+        if backend_summary.get("mode") == "local-http-target-fixture-smoke"
+        else adapter_validation["summary"].get("openai_chunk_count")
+    )
     stream_ok = (
         stream.get("status") == 200
         and stream.get("done_seen") is True
-        and stream.get("chunk_count") == adapter_validation["summary"].get("openai_chunk_count")
+        and stream.get("chunk_count") == expected_stream_chunk_count
     )
     plan_reject_ok = (
         plan_reject.get("status") == 409
@@ -651,12 +917,33 @@ def run_local_http_serving_smoke(
         and lifecycle_summary.get("single_owner_preserved") is True
     )
     bad_path_ok = bad_path.get("status") == 404
+    target_fixture_enabled = backend_summary.get("mode") == "local-http-target-fixture-smoke"
+    target_fixture_summary = backend_summary.get("target_fixture") if isinstance(backend_summary.get("target_fixture"), dict) else None
+    target_fixture_ok = (
+        target_fixture_enabled
+        and backend_summary.get("target_model_loaded") is True
+        and backend_summary.get("target_model_scope") == "local-fixture-only"
+        and backend_summary.get("target_model_parity") is True
+        and isinstance(target_fixture_summary, dict)
+        and target_fixture_summary.get("loaded") is True
+        and target_fixture_summary.get("parity") is True
+        and target_fixture_summary.get("run_count") == expected_backend_request_count
+        and target_fixture_summary.get("stream_run_count", 0) >= 1
+        and target_fixture_summary.get("non_stream_run_count", 0) >= 1
+        and _is_sha256(target_fixture_summary.get("template_hash"))
+        and _is_sha256(target_fixture_summary.get("tokenizer_hash"))
+        and target_fixture_summary.get("real_frontier_model_loaded") is False
+        and target_fixture_summary.get("real_frontier_model_parity") is False
+    )
+    backend_target_ok = target_fixture_ok if target_fixture_enabled else (
+        backend_summary.get("target_model_loaded") is False
+        and backend_summary.get("target_model_parity") is False
+    )
     backend_ok = (
         backend_summary.get("backend") == "FornaxBackend"
         and backend_summary.get("engine_trait_compatible") is True
         and backend_summary.get("request_count") == expected_backend_request_count
-        and backend_summary.get("target_model_loaded") is False
-        and backend_summary.get("target_model_parity") is False
+        and backend_target_ok
     )
     checks = [
         {"name": "serving-adapter", "ok": bool(adapter_validation.get("ok")), "errors": adapter_validation.get("errors", []), "warnings": adapter_validation.get("warnings", [])},
@@ -664,6 +951,7 @@ def run_local_http_serving_smoke(
         {"name": "endpoint-auth-reject", "ok": auth_reject_ok, "errors": [] if auth_reject_ok else ["endpoint auth rejection invalid"], "warnings": []},
         {"name": "backpressure-reject", "ok": backpressure_reject_ok and backpressure_holder_ok, "errors": [] if backpressure_reject_ok and backpressure_holder_ok else ["backpressure rejection invalid"], "warnings": []},
         {"name": "lifecycle-cleanup", "ok": lifecycle_ok, "errors": [] if lifecycle_ok else ["lifecycle cleanup invalid"], "warnings": []},
+        *([{"name": "target-fixture-parity", "ok": target_fixture_ok, "errors": [] if target_fixture_ok else ["target fixture parity invalid"], "warnings": ["local target fixture parity is not real frontier model parity"]}] if target_fixture_enabled else []),
         {"name": "non-stream-http", "ok": non_stream_ok, "errors": [] if non_stream_ok else ["non-stream HTTP response invalid"], "warnings": []},
         {"name": "stream-sse", "ok": stream_ok, "errors": [] if stream_ok else ["SSE stream response invalid"], "warnings": []},
         {"name": "plan-integrity-reject", "ok": plan_reject_ok, "errors": [] if plan_reject_ok else ["plan integrity rejection invalid"], "warnings": []},
@@ -709,6 +997,16 @@ def run_local_http_serving_smoke(
         "engine_trait_compatible": backend_summary.get("engine_trait_compatible"),
         "engine_result_emitted": non_stream_ok and stream_ok,
         "backend_target_model_loaded": backend_summary.get("target_model_loaded"),
+        "backend_target_model_scope": backend_summary.get("target_model_scope"),
+        "backend_target_model_parity": backend_summary.get("target_model_parity"),
+        "target_fixture_loaded": bool(target_fixture_enabled and target_fixture_ok),
+        "target_fixture_parity": bool(target_fixture_enabled and target_fixture_ok),
+        "target_fixture_run_count": target_fixture_summary.get("run_count") if isinstance(target_fixture_summary, dict) else 0,
+        "target_fixture_non_stream_matches_stream": target_fixture_summary.get("non_stream_matches_stream") if isinstance(target_fixture_summary, dict) else False,
+        "target_fixture_template_hash": target_fixture_summary.get("template_hash") if isinstance(target_fixture_summary, dict) else None,
+        "target_fixture_tokenizer_hash": target_fixture_summary.get("tokenizer_hash") if isinstance(target_fixture_summary, dict) else None,
+        "real_frontier_model_loaded": False,
+        "real_frontier_model_parity": False,
         "elapsed_s": elapsed_ns / 1_000_000_000.0,
         "live_http_endpoint": True,
         "localhost_only": server_host in {"127.0.0.1", "localhost"},
@@ -734,6 +1032,7 @@ def run_local_http_serving_smoke(
         },
         "lifecycle": lifecycle_summary,
         "backend": backend_summary,
+        "target_fixture": target_fixture_summary,
         "serving_adapter": adapter,
         "responses": {
             "non_stream": non_stream,
@@ -751,8 +1050,9 @@ def run_local_http_serving_smoke(
             "Local HTTP/SSE serving smoke for the OpenAI-compatible endpoint path. "
             "This proves local endpoint request/response behavior, plan-integrity "
             "rejection, local bearer-token auth rejection, deterministic "
-            "backpressure rejection, and local lifecycle cleanup only; it is not "
-            "TLS/product auth, target-model parity, real "
+            "backpressure rejection, and local lifecycle cleanup. When target-fixture "
+            "mode is enabled, it also proves deterministic local fixture loading and "
+            "non-stream/stream parity only; it is not TLS/product auth, real frontier "
             "multi-host serving, or G2/G3 closure evidence."
         ),
     }
@@ -784,8 +1084,9 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         backend = {}
     if backend.get("backend") != "FornaxBackend":
         errors.append("backend.backend must be FornaxBackend")
-    if backend.get("mode") != "local-http-smoke":
-        errors.append("backend.mode must be local-http-smoke")
+    backend_mode = backend.get("mode")
+    if backend_mode not in {"local-http-smoke", "local-http-target-fixture-smoke"}:
+        errors.append("backend.mode must be local-http-smoke or local-http-target-fixture-smoke")
     if backend.get("engine_trait_compatible") is not True:
         errors.append("backend.engine_trait_compatible must be true")
     summary = data.get("summary")
@@ -798,10 +1099,51 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.max_inflight must be a positive integer")
     elif backend.get("request_count") != expected_backend_request_count:
         errors.append(f"backend.request_count must be {expected_backend_request_count}")
-    if backend.get("target_model_loaded") is not False:
-        errors.append("backend.target_model_loaded must be false")
-    if backend.get("target_model_parity") is not False:
-        errors.append("backend.target_model_parity must be false")
+    target_fixture = data.get("target_fixture")
+    target_fixture_enabled = backend_mode == "local-http-target-fixture-smoke"
+    if target_fixture_enabled:
+        if backend.get("target_model_loaded") is not True:
+            errors.append("backend.target_model_loaded must be true in target-fixture mode")
+        if backend.get("target_model_scope") != "local-fixture-only":
+            errors.append("backend.target_model_scope must be local-fixture-only in target-fixture mode")
+        if backend.get("target_model_parity") is not True:
+            errors.append("backend.target_model_parity must be true in target-fixture mode")
+        if backend.get("real_frontier_model_loaded") is not False:
+            errors.append("backend.real_frontier_model_loaded must be false")
+        if backend.get("real_frontier_model_parity") is not False:
+            errors.append("backend.real_frontier_model_parity must be false")
+        if not isinstance(target_fixture, dict):
+            errors.append("target_fixture must be an object in target-fixture mode")
+            target_fixture = {}
+        if target_fixture.get("scope") != "local-fixture-only":
+            errors.append("target_fixture.scope must be local-fixture-only")
+        if target_fixture.get("fixture_model_id") != TARGET_FIXTURE_MODEL_ID:
+            errors.append(f"target_fixture.fixture_model_id must be {TARGET_FIXTURE_MODEL_ID}")
+        if target_fixture.get("loaded") is not True:
+            errors.append("target_fixture.loaded must be true")
+        if target_fixture.get("parity") is not True:
+            errors.append("target_fixture.parity must be true")
+        if target_fixture.get("non_stream_matches_stream") is not True:
+            errors.append("target_fixture.non_stream_matches_stream must be true")
+        if target_fixture.get("stream_run_count", 0) < 1:
+            errors.append("target_fixture.stream_run_count must be at least 1")
+        if target_fixture.get("non_stream_run_count", 0) < 1:
+            errors.append("target_fixture.non_stream_run_count must be at least 1")
+        if not _is_sha256(target_fixture.get("template_hash")):
+            errors.append("target_fixture.template_hash must be a sha256 hash")
+        if not _is_sha256(target_fixture.get("tokenizer_hash")):
+            errors.append("target_fixture.tokenizer_hash must be a sha256 hash")
+        if target_fixture.get("real_frontier_model_loaded") is not False:
+            errors.append("target_fixture.real_frontier_model_loaded must be false")
+        if target_fixture.get("real_frontier_model_parity") is not False:
+            errors.append("target_fixture.real_frontier_model_parity must be false")
+    else:
+        if backend.get("target_model_loaded") is not False:
+            errors.append("backend.target_model_loaded must be false")
+        if backend.get("target_model_parity") is not False:
+            errors.append("backend.target_model_parity must be false")
+        if target_fixture is not None:
+            errors.append("target_fixture must be null unless target-fixture mode is enabled")
     config = data.get("config")
     if isinstance(config, dict) and "auth_token" in config:
         errors.append("config.auth_token must be redacted")
@@ -953,12 +1295,43 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.fornax_backend_integrated must be true")
     if expected_backend_request_count is not None and summary.get("backend_request_count") != expected_backend_request_count:
         errors.append(f"summary.backend_request_count must be {expected_backend_request_count}")
+    if target_fixture_enabled and expected_backend_request_count is not None:
+        if summary.get("backend_target_model_loaded") is not True:
+            errors.append("summary.backend_target_model_loaded must be true in target-fixture mode")
+        if summary.get("backend_target_model_scope") != "local-fixture-only":
+            errors.append("summary.backend_target_model_scope must be local-fixture-only in target-fixture mode")
+        if summary.get("backend_target_model_parity") is not True:
+            errors.append("summary.backend_target_model_parity must be true in target-fixture mode")
+        if summary.get("target_fixture_loaded") is not True:
+            errors.append("summary.target_fixture_loaded must be true in target-fixture mode")
+        if summary.get("target_fixture_parity") is not True:
+            errors.append("summary.target_fixture_parity must be true in target-fixture mode")
+        if summary.get("target_fixture_run_count") != expected_backend_request_count:
+            errors.append(f"summary.target_fixture_run_count must be {expected_backend_request_count}")
+        if summary.get("target_fixture_non_stream_matches_stream") is not True:
+            errors.append("summary.target_fixture_non_stream_matches_stream must be true")
+        if not _is_sha256(summary.get("target_fixture_template_hash")):
+            errors.append("summary.target_fixture_template_hash must be a sha256 hash")
+        if not _is_sha256(summary.get("target_fixture_tokenizer_hash")):
+            errors.append("summary.target_fixture_tokenizer_hash must be a sha256 hash")
+        check_names = {check.get("name") for check in checks if isinstance(check, dict)}
+        if "target-fixture-parity" not in check_names:
+            errors.append("checks must include target-fixture-parity in target-fixture mode")
+    if not target_fixture_enabled:
+        if summary.get("backend_target_model_loaded") is not False:
+            errors.append("summary.backend_target_model_loaded must be false")
+        if summary.get("target_fixture_loaded") is not False:
+            errors.append("summary.target_fixture_loaded must be false")
+        if summary.get("target_fixture_parity") is not False:
+            errors.append("summary.target_fixture_parity must be false")
+    if summary.get("real_frontier_model_loaded") is not False:
+        errors.append("summary.real_frontier_model_loaded must be false")
+    if summary.get("real_frontier_model_parity") is not False:
+        errors.append("summary.real_frontier_model_parity must be false")
     if summary.get("engine_trait_compatible") is not True:
         errors.append("summary.engine_trait_compatible must be true")
     if summary.get("engine_result_emitted") is not True:
         errors.append("summary.engine_result_emitted must be true")
-    if summary.get("backend_target_model_loaded") is not False:
-        errors.append("summary.backend_target_model_loaded must be false")
     if summary.get("live_http_endpoint") is not True:
         errors.append("summary.live_http_endpoint must be true")
     if summary.get("localhost_only") is not True:
@@ -1000,6 +1373,9 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "backend_request_count": summary.get("backend_request_count"),
             "engine_trait_compatible": summary.get("engine_trait_compatible") is True,
             "engine_result_emitted": summary.get("engine_result_emitted") is True,
+            "backend_target_model_loaded": summary.get("backend_target_model_loaded") is True,
+            "target_fixture_parity": summary.get("target_fixture_parity") is True,
+            "real_frontier_model_parity": summary.get("real_frontier_model_parity") is True,
             "live_http_endpoint": summary.get("live_http_endpoint") is True,
             "target_model_parity": summary.get("target_model_parity") is True,
             "g2_g3_gate_evidence": summary.get("g2_g3_gate_evidence") is True,

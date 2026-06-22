@@ -690,7 +690,11 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertTrue(bundle["summary"]["engine_trait_compatible"])
         self.assertTrue(bundle["summary"]["engine_result_emitted"])
         self.assertFalse(bundle["summary"]["backend_target_model_loaded"])
+        self.assertFalse(bundle["summary"]["target_fixture_loaded"])
+        self.assertFalse(bundle["summary"]["target_fixture_parity"])
+        self.assertFalse(bundle["summary"]["real_frontier_model_parity"])
         self.assertEqual("FornaxBackend", bundle["backend"]["backend"])
+        self.assertEqual("local-http-smoke", bundle["backend"]["mode"])
         self.assertEqual(200, bundle["summary"]["non_stream_status"])
         self.assertEqual(200, bundle["summary"]["stream_status"])
         self.assertEqual(401, bundle["summary"]["auth_reject_status"])
@@ -731,6 +735,41 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(bundle["summary"]["production_auth_enabled"])
         self.assertFalse(bundle["summary"]["target_model_parity"])
         self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+
+    def test_local_http_serving_smoke_validates_target_fixture_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            artifact = Path(d) / "local-http-serving-target-fixture-smoke.json"
+            bundle = run_local_http_serving_smoke(out=artifact, backend_mode="target-fixture")
+            result = validate_local_http_serving_smoke(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(bundle["ok"])
+        self.assertEqual(10, bundle["summary"]["check_count"])
+        self.assertEqual(10, bundle["summary"]["passed_count"])
+        self.assertEqual("local-http-target-fixture-smoke", bundle["backend"]["mode"])
+        self.assertTrue(bundle["summary"]["backend_target_model_loaded"])
+        self.assertEqual("local-fixture-only", bundle["summary"]["backend_target_model_scope"])
+        self.assertTrue(bundle["summary"]["backend_target_model_parity"])
+        self.assertTrue(bundle["summary"]["target_fixture_loaded"])
+        self.assertTrue(bundle["summary"]["target_fixture_parity"])
+        self.assertTrue(bundle["summary"]["target_fixture_non_stream_matches_stream"])
+        self.assertEqual(3, bundle["summary"]["target_fixture_run_count"])
+        self.assertFalse(bundle["summary"]["target_model_parity"])
+        self.assertFalse(bundle["summary"]["real_frontier_model_loaded"])
+        self.assertFalse(bundle["summary"]["real_frontier_model_parity"])
+        self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+        self.assertEqual("local-fixture-only", bundle["target_fixture"]["scope"])
+        self.assertTrue(bundle["target_fixture"]["parity"])
+        self.assertEqual("fixture target parity", bundle["target_fixture"]["generated_text"])
+        self.assertEqual(["fixture", "target", "parity"], bundle["target_fixture"]["generated_tokens"])
+        self.assertEqual("stop", bundle["target_fixture"]["finish_reason"])
+        self.assertEqual("</final>", bundle["target_fixture"]["stop_sequence"])
+        self.assertEqual(5, bundle["target_fixture"]["stream_chunk_count"])
+        self.assertEqual("fixture target parity", bundle["responses"]["non_stream"]["body"]["choices"][0]["message"]["content"])
+        streamed = " ".join(
+            event["choices"][0]["delta"].get("content", "")
+            for event in bundle["responses"]["stream"]["events"]
+        ).strip()
+        self.assertEqual("fixture target parity", streamed)
 
     def test_local_http_serving_smoke_rejects_gate_overclaim(self) -> None:
         with tempfile.TemporaryDirectory() as d:

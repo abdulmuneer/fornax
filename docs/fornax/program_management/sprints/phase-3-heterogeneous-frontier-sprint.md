@@ -30,7 +30,7 @@ NVIDIA/AMD/Mac fleet when available.
 | S3-4 | Partial: backpressure and replay simulations exist; real partition/failure proof remains open. |
 | S3-5 | Partial: stage-replication simulation exists; real replicated runtime remains open. |
 | S3-6 | Done at planner artifact scope; live runtime linkage remains future work. |
-| S3-7 | Partial: state-ownership simulation exists; live lifecycle proof remains open. |
+| S3-7 | Partial: state-ownership simulation exists; localhost HTTP lifecycle cleanup and local target-fixture parity evidence exist; live distributed lifecycle proof remains open. |
 
 ## Validation
 
@@ -39,11 +39,12 @@ NVIDIA/AMD/Mac fleet when available.
 - `python3 -m fornax test trust-boundary`
 - `python3 -m fornax test state-ownership`
 - `python3 -m fornax test stage-replication`
+- `python3 -m fornax program local-http-serving-smoke --backend-mode target-fixture --out /tmp/fornax_local_http_serving_target_fixture_smoke_20260622.json`
 
 ## Exit Criteria
 
 - Local two-GPU logical-host validation no longer blocks implementation.
-- Security, topology, replication, lifecycle, and observability artifacts are
-  coherent under simulation.
+- Security, topology, replication, lifecycle, local target-fixture parity, and observability artifacts are
+  coherent under simulation/local smoke scope.
 - G3 remains open until a real frontier MoE is served across the required
   heterogeneous fleet at predicted throughput.
