@@ -23,6 +23,7 @@ Current validation snapshot:
 - `python3 -m fornax program simulate-t1 --out-dir /tmp/fornax_t1_trace_ledger_validation_cli_20260622 --gpu-count 2 --profile two-gpu-heterogeneous --link-bandwidth-bytes-s 12500000000 --link-latency-s 0.0004 --slow-node-factor 0.65`: 31/31 passed over 2 logical hosts.
 - `python3 -m unittest tests.test_fornax_planner`: 211 tests passed.
 - `python3 -m fornax program local-accelerator-smoke --out-dir /tmp/fornax_local_accelerator_smoke_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --expert-device cuda:0 --transfer-source-device cuda:0 --transfer-destination-device cuda:1 ...`: 3/3 checks passed on local H100s treated as logical hosts; not G2/G3 gate evidence.
+- `python3 -m fornax program local-accelerator-smoke --out-dir /tmp/fornax_local_accelerator_smoke_extended_no_transfer_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --expert-device cuda:0 --skip-activation-transfer --pipeline-source-device cuda:0 --pipeline-destination-device cuda:1 --moe-source-device cuda:0 --moe-expert-device cuda:1 ...`: 4/4 checks passed with expert MLP, split-pipeline correctness, and MoE parity measured on local H100s as logical hosts; not T3/T4 or G2/G3 gate evidence.
 - `python3 -m fornax program simulate-phase0 --target fornax/golden_plans/v0_target_contract_fixture.md --out-dir /tmp/fornax_phase0_g1_packet_20260622 --gpu-count 2 --profile two-gpu-heterogeneous ...`: 9/9 Phase-0 deliverables machine/simulation complete or closed; recommended G1 outcome remains ITERATE.
 - `python3 -m fornax program g1-evidence-packet --bundle /tmp/fornax_phase0_g1_packet_20260622 --out /tmp/fornax_phase0_g1_packet_20260622/g1-evidence-packet-cli.json --markdown-out /tmp/fornax_phase0_g1_packet_20260622/g1-evidence-packet-cli.md --date 2026-06-22 --plan-version v3`: packet valid; `machine_complete=false`, `g1_ready=false`, `closure_blockers=4`.
 
@@ -30,9 +31,9 @@ Current validation snapshot:
 
 - [x] M0 Architecture baseline / G0 passed. Evidence: plan v3 accepted by `04-stage-gates.md`; program governance fixture also records G0/G1 posture.
 - [ ] M1 Evidence sprint done -> G1. Partial: large T0/T1 evidence exists, but G1 remains open because TL/SP sign-off, Apple rank-1 probe, staffing answer, and Sponsor DEC-005 are not closed.
-- [ ] M2 Pipeline correctness, simulation then 2-3 nodes. Partial: T1 pipeline-correctness CPU/sim fixture exists; real 2-3 node pipeline evidence is open.
+- [ ] M2 Pipeline correctness, simulation then 2-3 nodes. Partial: T1 pipeline-correctness CPU/sim fixture exists and local same-host H100 split-pipeline smoke passed; real 2-3 node pipeline evidence is open.
 - [ ] M3 Continuous batching scales. Partial: T1 continuous-batching fixture exists; real scaling evidence for G2 is open.
-- [ ] M4 MoE expert runtime parity. Partial: T1/CPU MoE runtime, migration, remote expert, and parity fixtures exist; real runtime parity for G2 is open.
+- [ ] M4 MoE expert runtime parity. Partial: T1/CPU MoE runtime, migration, remote expert, parity fixtures, and local same-host H100 MoE parity smoke exist; real runtime parity for G2 is open.
 - [ ] M5 Heterogeneous frontier serve. Partial: planner, model support, serving adapter, trust/security, state ownership, and simulation bundle exist; real NVIDIA/AMD/Mac frontier serve for G3 is open.
 - [ ] M6 Resilience / elasticity. Partial: T1 resilience replay and stage replication simulations exist; real T4 node-loss/added-node evidence is open.
 - [ ] M7 Productization / GA. Partial: ops lifecycle and onboarding simulations exist; installable/operable GA evidence is open.
@@ -82,7 +83,7 @@ Current validation snapshot:
 - [ ] C1 Router -> expert bucketing -> weighted gather. Partial: `fornax/moe.py` T1 simulation covers routing, dispatch, weighted gather; real runtime surgery is open.
 - [ ] C2 Local/remote dispatch + expert activation tracing. Partial: `fornax/moe.py` and `fornax/remote_expert_probe.py` cover simulated/CPU paths; real distributed expert dispatch is open.
 - [ ] C3 Expert placement / migration policy. Partial: `fornax/moe_migration.py` simulates hot-expert migration; real migration policy/runtime is open.
-- [ ] C4 Layer/logit parity vs reference. Partial: `fornax/moe_parity.py` CPU fixture exists; real Phase 2.5 parity exit is open.
+- [ ] C4 Layer/logit parity vs reference. Partial: `fornax/moe_parity.py` CPU fixture and local same-host H100 MoE parity smoke exist; real Phase 2.5 parity exit is open.
 
 ### WS-D — Apple/Mac Kernels & Readiness
 
@@ -132,7 +133,7 @@ Current validation snapshot:
 
 - [x] T0 Planner/scheduler unit + golden plans. Evidence: `fornax test golden-plans` and unit tests pass.
 - [x] T1 Simulated workers/contracts/backpressure. Evidence: `fornax program simulate-t1` reports 31/31 checks passed over two logical hosts, including trace-ledger correlation.
-- [ ] T2 Single-node accelerator. Partial: `fornax program local-accelerator-smoke` exists and a local H100 run passed 3/3 checks with measured expert-MLP and same-host GPU0->GPU1 transfer evidence; target-model parity and formal gate evidence remain open.
+- [ ] T2 Single-node accelerator. Partial: `fornax program local-accelerator-smoke` exists; local H100 runs passed expert-MLP and activation-transfer smoke (3/3) and an extended no-transfer run passed expert-MLP, split-pipeline correctness, and MoE parity smoke (4/4). Target-model parity and formal gate evidence remain open.
 - [ ] T3 2-3 node pipeline. Open: no real 2-3 node pipeline run found.
 - [ ] T4 Full heterogeneous lab. Open: no full lab-reference heterogeneous run found.
 
@@ -182,4 +183,4 @@ Current validation snapshot:
 4. Keep Apple/Mac evidence as a deferred validation lane: run or record the rank-1 Apple expert-MLP probe on pinned build later, or explicitly demote Apple role for G1 when the Sponsor chooses.
 5. Close the KER/Apple staffing answer and record Sponsor scope acceptance if narrowed.
 6. Use the generated G1 evidence packet and gate-review draft to attach TL/SP/spec/staffing sign-offs and prepare DEC-005 once missing real evidence is available.
-7. Continue moving simulation-complete T1 items into local H100 smoke/T2-style validation where this machine can provide real evidence, while preserving the distinction from final T3/T4 heterogeneous lab closure.
+7. Continue moving simulation-complete T1 items into local H100 smoke/T2-style validation where this machine can provide real evidence; next targets are live runtime/serving paths and target-model parity while preserving the distinction from final T3/T4 heterogeneous lab closure.

@@ -610,12 +610,33 @@ class FornaxPlannerTest(unittest.TestCase):
                 expert_count=2,
                 expert_top_k=1,
                 include_activation_transfer=False,
+                include_pipeline_correctness=True,
+                pipeline_backend="cpu-stdlib",
+                pipeline_iterations=1,
+                pipeline_warmup=0,
+                pipeline_hidden_dim=4,
+                pipeline_new_tokens=2,
+                include_moe_parity=True,
+                moe_backend="cpu-stdlib",
+                moe_iterations=1,
+                moe_warmup=0,
+                moe_token_count=2,
+                moe_hidden_dim=4,
+                moe_intermediate_dim=6,
+                moe_vocab_size=11,
+                moe_expert_count=2,
+                moe_top_k=1,
                 require_accelerator=False,
             )
             result = validate_local_accelerator_smoke(d)
         self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(4, bundle["summary"]["check_count"])
         self.assertTrue(bundle["summary"]["local_smoke_passed"])
         self.assertFalse(bundle["summary"]["expert_accelerator_measured"])
+        self.assertTrue(bundle["summary"]["pipeline_correctness_included"])
+        self.assertFalse(bundle["summary"]["pipeline_correctness_accelerator_measured"])
+        self.assertTrue(bundle["summary"]["moe_parity_included"])
+        self.assertFalse(bundle["summary"]["moe_parity_accelerator_measured"])
         self.assertFalse(bundle["summary"]["t2_smoke_passed"])
         self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
 
@@ -632,6 +653,8 @@ class FornaxPlannerTest(unittest.TestCase):
                 expert_count=2,
                 expert_top_k=1,
                 include_activation_transfer=False,
+                include_pipeline_correctness=False,
+                include_moe_parity=False,
                 require_accelerator=True,
             )
             result = validate_local_accelerator_smoke_fixture(bundle)

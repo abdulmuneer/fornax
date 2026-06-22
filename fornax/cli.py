@@ -1398,6 +1398,31 @@ def _cmd_program_local_accelerator_smoke(args: argparse.Namespace) -> int:
             transfer_warmup=args.transfer_warmup,
             transfer_payload_bytes=args.transfer_payload_mib * 1024 * 1024,
             transfer_tolerance=args.transfer_tolerance,
+            include_pipeline_correctness=not args.skip_pipeline_correctness,
+            pipeline_backend=args.pipeline_backend,
+            pipeline_source_device=args.pipeline_source_device,
+            pipeline_destination_device=args.pipeline_destination_device,
+            pipeline_dtype=args.pipeline_dtype,
+            pipeline_iterations=args.pipeline_iterations,
+            pipeline_warmup=args.pipeline_warmup,
+            pipeline_vocab_size=args.pipeline_vocab_size,
+            pipeline_hidden_dim=args.pipeline_hidden_dim,
+            pipeline_new_tokens=args.pipeline_new_tokens,
+            pipeline_tolerance=args.pipeline_tolerance,
+            include_moe_parity=not args.skip_moe_parity,
+            moe_backend=args.moe_backend,
+            moe_source_device=args.moe_source_device,
+            moe_expert_device=args.moe_expert_device,
+            moe_dtype=args.moe_dtype,
+            moe_iterations=args.moe_iterations,
+            moe_warmup=args.moe_warmup,
+            moe_token_count=args.moe_token_count,
+            moe_hidden_dim=args.moe_hidden_dim,
+            moe_intermediate_dim=args.moe_intermediate_dim,
+            moe_vocab_size=args.moe_vocab_size,
+            moe_expert_count=args.moe_expert_count,
+            moe_top_k=args.moe_top_k,
+            moe_tolerance=args.moe_tolerance,
             logical_source_host=args.logical_source_host,
             logical_destination_host=args.logical_destination_host,
             require_accelerator=not args.allow_reference,
@@ -1417,6 +1442,8 @@ def _cmd_program_local_accelerator_smoke(args: argparse.Namespace) -> int:
         f"checks={summary['passed_count']}/{summary['check_count']} passed; "
         f"expert_accelerator={summary['expert_accelerator_measured']}; "
         f"transfer_accelerator={summary['activation_transfer_accelerator_measured']}; "
+        f"pipeline_accelerator={summary['pipeline_correctness_accelerator_measured']}; "
+        f"moe_accelerator={summary['moe_parity_accelerator_measured']}; "
         f"gate_evidence={summary['g2_g3_gate_evidence']}"
         f"{suffix}"
     )
@@ -2481,6 +2508,31 @@ def build_parser() -> argparse.ArgumentParser:
     local_accel.add_argument("--transfer-warmup", type=int, default=3)
     local_accel.add_argument("--transfer-payload-mib", type=int, default=16)
     local_accel.add_argument("--transfer-tolerance", type=float, default=0.0)
+    local_accel.add_argument("--skip-pipeline-correctness", action="store_true")
+    local_accel.add_argument("--pipeline-backend", choices=["cpu-stdlib", "torch"], default="torch")
+    local_accel.add_argument("--pipeline-source-device", default="cuda:0")
+    local_accel.add_argument("--pipeline-destination-device", default="cuda:1")
+    local_accel.add_argument("--pipeline-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    local_accel.add_argument("--pipeline-iterations", type=int, default=5)
+    local_accel.add_argument("--pipeline-warmup", type=int, default=1)
+    local_accel.add_argument("--pipeline-vocab-size", type=int, default=17)
+    local_accel.add_argument("--pipeline-hidden-dim", type=int, default=16)
+    local_accel.add_argument("--pipeline-new-tokens", type=int, default=4)
+    local_accel.add_argument("--pipeline-tolerance", type=float, default=1e-4)
+    local_accel.add_argument("--skip-moe-parity", action="store_true")
+    local_accel.add_argument("--moe-backend", choices=["cpu-stdlib", "torch"], default="torch")
+    local_accel.add_argument("--moe-source-device", default="cuda:0")
+    local_accel.add_argument("--moe-expert-device", default="cuda:1")
+    local_accel.add_argument("--moe-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    local_accel.add_argument("--moe-iterations", type=int, default=5)
+    local_accel.add_argument("--moe-warmup", type=int, default=1)
+    local_accel.add_argument("--moe-token-count", type=int, default=4)
+    local_accel.add_argument("--moe-hidden-dim", type=int, default=16)
+    local_accel.add_argument("--moe-intermediate-dim", type=int, default=32)
+    local_accel.add_argument("--moe-vocab-size", type=int, default=17)
+    local_accel.add_argument("--moe-expert-count", type=int, default=4)
+    local_accel.add_argument("--moe-top-k", type=int, default=2)
+    local_accel.add_argument("--moe-tolerance", type=float, default=1e-4)
     local_accel.add_argument("--logical-source-host", default="logical-host-0")
     local_accel.add_argument("--logical-destination-host", default="logical-host-1")
     local_accel.add_argument("--allow-reference", action="store_true")

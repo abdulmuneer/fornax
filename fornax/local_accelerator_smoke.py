@@ -10,6 +10,14 @@ from .accelerator_probe import (
     validate_expert_mlp_probe_fixture,
 )
 from .io import read_json, write_json
+from .moe_parity import (
+    run_moe_layer_parity_probe,
+    validate_moe_layer_parity_probe_fixture,
+)
+from .pipeline_probe import (
+    run_pipeline_correctness_probe,
+    validate_pipeline_correctness_probe_fixture,
+)
 
 
 RECORD_KIND = "local-accelerator-smoke-bundle"
@@ -51,6 +59,31 @@ def run_local_accelerator_smoke(
     transfer_warmup: int = 3,
     transfer_payload_bytes: int = 16 * 1024 * 1024,
     transfer_tolerance: float = 0.0,
+    include_pipeline_correctness: bool = True,
+    pipeline_backend: str = "torch",
+    pipeline_source_device: str = "cuda:0",
+    pipeline_destination_device: str = "cuda:1",
+    pipeline_dtype: str = "float32",
+    pipeline_iterations: int = 5,
+    pipeline_warmup: int = 1,
+    pipeline_vocab_size: int = 17,
+    pipeline_hidden_dim: int = 16,
+    pipeline_new_tokens: int = 4,
+    pipeline_tolerance: float = 1e-4,
+    include_moe_parity: bool = True,
+    moe_backend: str = "torch",
+    moe_source_device: str = "cuda:0",
+    moe_expert_device: str = "cuda:1",
+    moe_dtype: str = "float32",
+    moe_iterations: int = 5,
+    moe_warmup: int = 1,
+    moe_token_count: int = 4,
+    moe_hidden_dim: int = 16,
+    moe_intermediate_dim: int = 32,
+    moe_vocab_size: int = 17,
+    moe_expert_count: int = 4,
+    moe_top_k: int = 2,
+    moe_tolerance: float = 1e-4,
     logical_source_host: str = "logical-host-0",
     logical_destination_host: str = "logical-host-1",
     require_accelerator: bool = True,
@@ -62,6 +95,8 @@ def run_local_accelerator_smoke(
     bundle.mkdir(parents=True, exist_ok=True)
     expert_path = bundle / "expert-mlp-probe.json"
     transfer_path = bundle / "activation-transfer-probe.json"
+    pipeline_path = bundle / "pipeline-correctness-probe.json"
+    moe_path = bundle / "moe-layer-parity-probe.json"
     result_path = bundle / "local-accelerator-smoke.json"
 
     expert = run_expert_mlp_probe(
@@ -116,6 +151,66 @@ def run_local_accelerator_smoke(
             )
         )
 
+
+    pipeline_validation: dict[str, Any] | None = None
+    if include_pipeline_correctness:
+        pipeline = run_pipeline_correctness_probe(
+            backend=pipeline_backend,
+            torch_python=torch_python,
+            source_device=pipeline_source_device,
+            destination_device=pipeline_destination_device,
+            dtype=pipeline_dtype,
+            iterations=pipeline_iterations,
+            warmup=pipeline_warmup,
+            vocab_size=pipeline_vocab_size,
+            hidden_dim=pipeline_hidden_dim,
+            new_tokens=pipeline_new_tokens,
+            tolerance=pipeline_tolerance,
+            logical_source_host=logical_source_host,
+            logical_destination_host=logical_destination_host,
+            timeout_s=timeout_s,
+        )
+        write_json(pipeline_path, pipeline)
+        pipeline_validation = validate_pipeline_correctness_probe_fixture(pipeline)
+        checks.append(
+            _validation_entry(
+                "pipeline-correctness-probe",
+                pipeline_validation,
+                str(pipeline_path),
+            )
+        )
+
+    moe_validation: dict[str, Any] | None = None
+    if include_moe_parity:
+        moe = run_moe_layer_parity_probe(
+            backend=moe_backend,
+            torch_python=torch_python,
+            source_device=moe_source_device,
+            expert_device=moe_expert_device,
+            dtype=moe_dtype,
+            iterations=moe_iterations,
+            warmup=moe_warmup,
+            token_count=moe_token_count,
+            hidden_dim=moe_hidden_dim,
+            intermediate_dim=moe_intermediate_dim,
+            vocab_size=moe_vocab_size,
+            expert_count=moe_expert_count,
+            top_k=moe_top_k,
+            tolerance=moe_tolerance,
+            logical_source_host=logical_source_host,
+            logical_expert_host=logical_destination_host,
+            timeout_s=timeout_s,
+        )
+        write_json(moe_path, moe)
+        moe_validation = validate_moe_layer_parity_probe_fixture(moe)
+        checks.append(
+            _validation_entry(
+                "moe-layer-parity-probe",
+                moe_validation,
+                str(moe_path),
+            )
+        )
+
     bundle_policy_errors: list[str] = []
     expert_summary = expert_validation.get("summary", {})
     if require_accelerator and expert_summary.get("accelerator_measured") is not True:
@@ -130,6 +225,22 @@ def run_local_accelerator_smoke(
             bundle_policy_errors.append(
                 "activation-transfer-probe must be measured accelerator evidence"
             )
+    pipeline_summary = (
+        pipeline_validation.get("summary", {}) if isinstance(pipeline_validation, dict) else {}
+    )
+    if include_pipeline_correctness and require_accelerator:
+        if pipeline_summary.get("accelerator_measured") is not True:
+            bundle_policy_errors.append(
+                "pipeline-correctness-probe must be measured accelerator evidence"
+            )
+    moe_summary = (
+        moe_validation.get("summary", {}) if isinstance(moe_validation, dict) else {}
+    )
+    if include_moe_parity and require_accelerator:
+        if moe_summary.get("accelerator_measured") is not True:
+            bundle_policy_errors.append(
+                "moe-layer-parity-probe must be measured accelerator evidence"
+            )
     checks.append(
         {
             "name": "bundle-policy",
@@ -143,6 +254,8 @@ def run_local_accelerator_smoke(
             "summary": {
                 "require_accelerator": require_accelerator,
                 "include_activation_transfer": include_activation_transfer,
+                "include_pipeline_correctness": include_pipeline_correctness,
+                "include_moe_parity": include_moe_parity,
             },
         }
     )
@@ -153,6 +266,17 @@ def run_local_accelerator_smoke(
         for check in checks
         if check["name"] != "bundle-policy"
         and check.get("summary", {}).get("accelerator_measured") is True
+    )
+    required_accelerator_probe_count = (
+        1
+        + int(include_activation_transfer)
+        + int(include_pipeline_correctness)
+        + int(include_moe_parity)
+    )
+    local_smoke_passed = passed_count == len(checks)
+    t2_smoke_passed = (
+        local_smoke_passed
+        and accelerator_probe_count == required_accelerator_probe_count
     )
     summary = {
         "accelerator_required": require_accelerator,
@@ -176,10 +300,29 @@ def run_local_accelerator_smoke(
         "activation_transfer_bandwidth_gib_s": transfer_summary.get(
             "bandwidth_gib_s"
         ),
+        "pipeline_correctness_included": include_pipeline_correctness,
+        "pipeline_correctness_accelerator_measured": bool(
+            pipeline_summary.get("accelerator_measured")
+        ),
+        "pipeline_correctness_source_device": pipeline_summary.get("source_device"),
+        "pipeline_correctness_destination_device": pipeline_summary.get(
+            "destination_device"
+        ),
+        "pipeline_correctness_tokens_s": pipeline_summary.get("tokens_s"),
+        "pipeline_correctness_max_abs_error": pipeline_summary.get("max_abs_error"),
+        "moe_parity_included": include_moe_parity,
+        "moe_parity_accelerator_measured": bool(
+            moe_summary.get("accelerator_measured")
+        ),
+        "moe_parity_source_device": moe_summary.get("source_device"),
+        "moe_parity_expert_device": moe_summary.get("expert_device"),
+        "moe_parity_tokens_s": moe_summary.get("tokens_s"),
+        "moe_parity_expert_calls_s": moe_summary.get("expert_calls_s"),
+        "moe_parity_max_logit_abs_error": moe_summary.get("max_logit_abs_error"),
         "accelerator_probe_count": accelerator_probe_count,
-        "local_smoke_passed": passed_count == len(checks),
-        "t2_smoke_passed": passed_count == len(checks)
-        and bool(expert_summary.get("accelerator_measured")),
+        "required_accelerator_probe_count": required_accelerator_probe_count,
+        "local_smoke_passed": local_smoke_passed,
+        "t2_smoke_passed": t2_smoke_passed,
         "g2_g3_gate_evidence": False,
     }
     result = {
@@ -191,6 +334,12 @@ def run_local_accelerator_smoke(
             "expert_mlp_probe": str(expert_path),
             "activation_transfer_probe": str(transfer_path)
             if include_activation_transfer
+            else None,
+            "pipeline_correctness_probe": str(pipeline_path)
+            if include_pipeline_correctness
+            else None,
+            "moe_layer_parity_probe": str(moe_path)
+            if include_moe_parity
             else None,
             "validation": str(result_path),
         },
@@ -273,7 +422,20 @@ def validate_local_accelerator_smoke_fixture(data: dict[str, Any]) -> dict[str, 
             "activation_transfer_accelerator_measured": summary.get(
                 "activation_transfer_accelerator_measured"
             ),
+            "pipeline_correctness_included": summary.get(
+                "pipeline_correctness_included"
+            ),
+            "pipeline_correctness_accelerator_measured": summary.get(
+                "pipeline_correctness_accelerator_measured"
+            ),
+            "moe_parity_included": summary.get("moe_parity_included"),
+            "moe_parity_accelerator_measured": summary.get(
+                "moe_parity_accelerator_measured"
+            ),
             "accelerator_probe_count": summary.get("accelerator_probe_count"),
+            "required_accelerator_probe_count": summary.get(
+                "required_accelerator_probe_count"
+            ),
             "local_smoke_passed": summary.get("local_smoke_passed") is True,
             "t2_smoke_passed": summary.get("t2_smoke_passed") is True,
         },
