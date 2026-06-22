@@ -137,6 +137,11 @@ from .substrate_adr import (
     render_substrate_adr_draft,
 )
 from .target_contract import render_target_contract_draft
+from .target_fixture_probe import (
+    parse_prompt_tokens_json,
+    run_target_fixture_execution_probe,
+    validate_target_fixture_execution_probe,
+)
 from .t1_simulated_validation import run_t1_simulated_validation
 from .throughput_scaling import (
     parse_concurrency_levels,
@@ -227,6 +232,50 @@ def _cmd_accelerator_activation_transfer_probe(args: argparse.Namespace) -> int:
         f"{summary.get('source_device')}->{summary.get('destination_device')} "
         f"bandwidth_gib_s={summary.get('bandwidth_gib_s'):.3f} "
         f"latency_s={summary.get('latency_s_per_transfer'):.6f}"
+    )
+    return 0
+
+
+def _cmd_accelerator_target_fixture_probe(args: argparse.Namespace) -> int:
+    try:
+        prompt_tokens = parse_prompt_tokens_json(args.prompt_tokens_json, args.vocab_size)
+        result = run_target_fixture_execution_probe(
+            backend=args.backend,
+            torch_python=args.torch_python,
+            device=args.device,
+            dtype=args.dtype,
+            iterations=args.iterations,
+            warmup=args.warmup,
+            vocab_size=args.vocab_size,
+            new_tokens=args.new_tokens,
+            prompt_tokens=prompt_tokens,
+            stop_token_id=args.stop_token_id,
+            tolerance=args.tolerance,
+            logical_host=args.logical_host,
+            timeout_s=args.timeout_s,
+        )
+    except ValueError as exc:
+        print(f"accelerator target-fixture-probe: {exc}")
+        return 2
+    write_json(args.out, result)
+    if not result.get("measured"):
+        print(
+            "target-fixture probe unavailable: "
+            f"backend={result.get('backend')} error={result.get('error')}"
+        )
+        return 2
+    validation = validate_target_fixture_execution_probe(args.out)
+    if not validation["ok"]:
+        print("target-fixture probe invalid: " + "; ".join(validation["errors"]))
+        return 2
+    summary = validation["summary"]
+    suffix = " accelerator" if summary.get("accelerator_measured") else " reference"
+    print(
+        "target-fixture probe:"
+        f"{suffix} backend={summary.get('backend')} device={summary.get('device')} "
+        f"generated={summary.get('generated_text')} "
+        f"tokens_s={summary.get('tokens_s'):.3f} "
+        f"max_abs_error={summary.get('max_abs_error')}"
     )
     return 0
 
@@ -2489,6 +2538,23 @@ def build_parser() -> argparse.ArgumentParser:
     transfer_probe.add_argument("--logical-destination-host", default="logical-host-1")
     transfer_probe.add_argument("--timeout-s", type=float, default=180.0)
     transfer_probe.set_defaults(func=_cmd_accelerator_activation_transfer_probe)
+
+    target_fixture_probe = accelerator_sub.add_parser("target-fixture-probe")
+    target_fixture_probe.add_argument("--out", required=True)
+    target_fixture_probe.add_argument("--backend", choices=["cpu-stdlib", "torch"], default="torch")
+    target_fixture_probe.add_argument("--torch-python")
+    target_fixture_probe.add_argument("--device", default="cuda:0")
+    target_fixture_probe.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    target_fixture_probe.add_argument("--iterations", type=int, default=20)
+    target_fixture_probe.add_argument("--warmup", type=int, default=3)
+    target_fixture_probe.add_argument("--vocab-size", type=int, default=17)
+    target_fixture_probe.add_argument("--new-tokens", type=int, default=4)
+    target_fixture_probe.add_argument("--prompt-tokens-json")
+    target_fixture_probe.add_argument("--stop-token-id", type=int, default=9)
+    target_fixture_probe.add_argument("--tolerance", type=float, default=1e-4)
+    target_fixture_probe.add_argument("--logical-host", default="logical-host-0")
+    target_fixture_probe.add_argument("--timeout-s", type=float, default=180.0)
+    target_fixture_probe.set_defaults(func=_cmd_accelerator_target_fixture_probe)
 
     calibrate = sub.add_parser("calibrate")
     calibrate_sub = calibrate.add_subparsers(dest="calibrate_command", required=True)

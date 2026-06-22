@@ -109,6 +109,10 @@ from fornax.pipeline_probe import (
     run_cpu_pipeline_correctness_probe,
     validate_pipeline_correctness_probe_fixture,
 )
+from fornax.target_fixture_probe import (
+    run_cpu_target_fixture_execution_probe,
+    validate_target_fixture_execution_probe_fixture,
+)
 from fornax.observability import (
     validate_observability_contract,
     validate_observability_fixture,
@@ -900,6 +904,28 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("correctness_passed", "; ".join(result["errors"]))
 
+
+    def test_cpu_target_fixture_probe_validates_reference_not_accelerator(self) -> None:
+        artifact = run_cpu_target_fixture_execution_probe(iterations=2, new_tokens=4)
+        result = validate_target_fixture_execution_probe_fixture(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(artifact["result"]["sequence_match"])
+        self.assertEqual("fixture h100", artifact["result"]["generated_text"])
+        self.assertEqual("stop", artifact["result"]["finish_reason"])
+        self.assertFalse(artifact["accelerator_measured"])
+        self.assertFalse(artifact["target_fixture"]["real_frontier_model"])
+        self.assertIn("not accelerator evidence", "; ".join(result["warnings"]))
+
+    def test_target_fixture_probe_rejects_false_t2_claim_without_cuda(self) -> None:
+        artifact = run_cpu_target_fixture_execution_probe(iterations=1, new_tokens=4)
+        artifact["tier"] = "T2-single-node-target-fixture"
+        artifact["accelerator_measured"] = True
+        result = validate_target_fixture_execution_probe_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("hardware.device_type must be cuda-target-fixture", text)
+        self.assertIn("config.device must be cuda:<index>", text)
+        self.assertIn("cpu-stdlib backend cannot be accelerator_measured", text)
 
     def test_cpu_pipeline_correctness_probe_validates_reference_not_accelerator(self) -> None:
         artifact = run_cpu_pipeline_correctness_probe(iterations=1, new_tokens=2)
