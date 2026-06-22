@@ -57,6 +57,10 @@ from .local_accelerator_smoke import (
     run_local_accelerator_smoke,
     validate_local_accelerator_smoke,
 )
+from .local_serving_smoke import (
+    run_local_serving_smoke,
+    validate_local_serving_smoke,
+)
 from .planner import plan_placement
 from .preflight import run_phase0_preflight
 from .remote_expert_probe import (
@@ -1450,6 +1454,69 @@ def _cmd_program_local_accelerator_smoke(args: argparse.Namespace) -> int:
     return 0 if validation["ok"] else 2
 
 
+def _cmd_program_local_serving_smoke(args: argparse.Namespace) -> int:
+    try:
+        result = run_local_serving_smoke(
+            out_dir=args.out_dir,
+            torch_python=args.torch_python,
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            model=args.model,
+            stream=not args.no_stream,
+            max_tokens=args.max_tokens,
+            include_pipeline_correctness=not args.skip_pipeline_correctness,
+            pipeline_backend=args.pipeline_backend,
+            pipeline_source_device=args.pipeline_source_device,
+            pipeline_destination_device=args.pipeline_destination_device,
+            pipeline_dtype=args.pipeline_dtype,
+            pipeline_iterations=args.pipeline_iterations,
+            pipeline_warmup=args.pipeline_warmup,
+            pipeline_vocab_size=args.pipeline_vocab_size,
+            pipeline_hidden_dim=args.pipeline_hidden_dim,
+            pipeline_new_tokens=args.pipeline_new_tokens,
+            pipeline_tolerance=args.pipeline_tolerance,
+            include_moe_parity=not args.skip_moe_parity,
+            moe_backend=args.moe_backend,
+            moe_source_device=args.moe_source_device,
+            moe_expert_device=args.moe_expert_device,
+            moe_dtype=args.moe_dtype,
+            moe_iterations=args.moe_iterations,
+            moe_warmup=args.moe_warmup,
+            moe_token_count=args.moe_token_count,
+            moe_hidden_dim=args.moe_hidden_dim,
+            moe_intermediate_dim=args.moe_intermediate_dim,
+            moe_vocab_size=args.moe_vocab_size,
+            moe_expert_count=args.moe_expert_count,
+            moe_top_k=args.moe_top_k,
+            moe_tolerance=args.moe_tolerance,
+            logical_source_host=args.logical_source_host,
+            logical_destination_host=args.logical_destination_host,
+            require_accelerator=not args.allow_reference,
+            timeout_s=args.timeout_s,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program local-serving-smoke: {exc}")
+        return 2
+    validation = validate_local_serving_smoke(result["artifacts"]["validation"])
+    summary = result["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "local serving smoke: "
+        f"bundle={result['bundle']}; "
+        f"checks={summary['passed_count']}/{summary['check_count']} passed; "
+        f"serving_adapter={summary['serving_adapter_valid']}; "
+        f"pipeline_accelerator={summary['pipeline_correctness_accelerator_measured']}; "
+        f"moe_accelerator={summary['moe_parity_accelerator_measured']}; "
+        f"live_http={summary['live_http_endpoint']}; "
+        f"target_model_parity={summary['target_model_parity']}; "
+        f"gate_evidence={summary['g2_g3_gate_evidence']}"
+        f"{suffix}"
+    )
+    return 0 if validation["ok"] else 2
+
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     if args.requests and args.trace and args.requests != args.trace:
         print("preflight: pass only one of --requests or --trace")
@@ -1669,6 +1736,48 @@ def _cmd_test_serving_adapter(args: argparse.Namespace) -> int:
         )
         return 0
     print("FAIL serving-adapter: " + "; ".join(result["errors"]))
+    return 1
+
+
+def _cmd_test_local_serving_smoke(args: argparse.Namespace) -> int:
+    if args.fixture:
+        fixture = args.fixture
+    else:
+        fixture = args.out or "/tmp/fornax_local_serving_smoke_reference_test"
+        run_local_serving_smoke(
+            out_dir=fixture,
+            pipeline_backend="cpu-stdlib",
+            pipeline_iterations=1,
+            pipeline_warmup=0,
+            pipeline_hidden_dim=4,
+            pipeline_new_tokens=2,
+            moe_backend="cpu-stdlib",
+            moe_iterations=1,
+            moe_warmup=0,
+            moe_token_count=2,
+            moe_hidden_dim=4,
+            moe_intermediate_dim=6,
+            moe_vocab_size=11,
+            moe_expert_count=2,
+            moe_top_k=1,
+            require_accelerator=False,
+        )
+    result = validate_local_serving_smoke(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS local-serving-smoke: {fixture} "
+            f"checks={summary['passed_count']}/{summary['check_count']} "
+            f"pipeline_accelerator={summary['pipeline_correctness_accelerator_measured']} "
+            f"moe_accelerator={summary['moe_parity_accelerator_measured']} "
+            f"t2_smoke={summary['t2_smoke_passed']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL local-serving-smoke: " + "; ".join(result["errors"]))
     return 1
 
 
@@ -2207,6 +2316,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_stage_host(args)
     if args.test_name == "serving-adapter":
         return _cmd_test_serving_adapter(args)
+    if args.test_name == "local-serving-smoke":
+        return _cmd_test_local_serving_smoke(args)
     if args.test_name == "state-ownership":
         return _cmd_test_state_ownership(args)
     if args.test_name == "engine-simulation":
@@ -2538,6 +2649,45 @@ def build_parser() -> argparse.ArgumentParser:
     local_accel.add_argument("--allow-reference", action="store_true")
     local_accel.add_argument("--timeout-s", type=float, default=180.0)
     local_accel.set_defaults(func=_cmd_program_local_accelerator_smoke)
+
+    local_serving = program_sub.add_parser("local-serving-smoke")
+    local_serving.add_argument("--out-dir", required=True)
+    local_serving.add_argument("--torch-python")
+    local_serving.add_argument("--plan-id", default="local-serving-smoke-plan")
+    local_serving.add_argument("--request-id", default="local-serving-smoke-request")
+    local_serving.add_argument("--model", default="qwen3-moe-class-target")
+    local_serving.add_argument("--no-stream", action="store_true")
+    local_serving.add_argument("--max-tokens", type=int, default=64)
+    local_serving.add_argument("--skip-pipeline-correctness", action="store_true")
+    local_serving.add_argument("--pipeline-backend", choices=["cpu-stdlib", "torch"], default="torch")
+    local_serving.add_argument("--pipeline-source-device", default="cuda:0")
+    local_serving.add_argument("--pipeline-destination-device", default="cuda:1")
+    local_serving.add_argument("--pipeline-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    local_serving.add_argument("--pipeline-iterations", type=int, default=5)
+    local_serving.add_argument("--pipeline-warmup", type=int, default=1)
+    local_serving.add_argument("--pipeline-vocab-size", type=int, default=17)
+    local_serving.add_argument("--pipeline-hidden-dim", type=int, default=16)
+    local_serving.add_argument("--pipeline-new-tokens", type=int, default=4)
+    local_serving.add_argument("--pipeline-tolerance", type=float, default=1e-4)
+    local_serving.add_argument("--skip-moe-parity", action="store_true")
+    local_serving.add_argument("--moe-backend", choices=["cpu-stdlib", "torch"], default="torch")
+    local_serving.add_argument("--moe-source-device", default="cuda:0")
+    local_serving.add_argument("--moe-expert-device", default="cuda:1")
+    local_serving.add_argument("--moe-dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    local_serving.add_argument("--moe-iterations", type=int, default=5)
+    local_serving.add_argument("--moe-warmup", type=int, default=1)
+    local_serving.add_argument("--moe-token-count", type=int, default=4)
+    local_serving.add_argument("--moe-hidden-dim", type=int, default=16)
+    local_serving.add_argument("--moe-intermediate-dim", type=int, default=32)
+    local_serving.add_argument("--moe-vocab-size", type=int, default=17)
+    local_serving.add_argument("--moe-expert-count", type=int, default=4)
+    local_serving.add_argument("--moe-top-k", type=int, default=2)
+    local_serving.add_argument("--moe-tolerance", type=float, default=1e-4)
+    local_serving.add_argument("--logical-source-host", default="logical-host-0")
+    local_serving.add_argument("--logical-destination-host", default="logical-host-1")
+    local_serving.add_argument("--allow-reference", action="store_true")
+    local_serving.add_argument("--timeout-s", type=float, default=180.0)
+    local_serving.set_defaults(func=_cmd_program_local_serving_smoke)
 
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)
@@ -2966,6 +3116,7 @@ def build_parser() -> argparse.ArgumentParser:
             "engine-seam",
             "stage-host",
             "serving-adapter",
+            "local-serving-smoke",
             "state-ownership",
             "engine-simulation",
             "observability",

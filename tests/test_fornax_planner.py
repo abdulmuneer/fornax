@@ -58,6 +58,11 @@ from fornax.local_accelerator_smoke import (
     validate_local_accelerator_smoke,
     validate_local_accelerator_smoke_fixture,
 )
+from fornax.local_serving_smoke import (
+    run_local_serving_smoke,
+    validate_local_serving_smoke,
+    validate_local_serving_smoke_fixture,
+)
 from fornax.inventory import build_logical_cluster_inventory
 from fornax.inventory.local import (
     collect_local_inventory,
@@ -663,6 +668,63 @@ class FornaxPlannerTest(unittest.TestCase):
         text = "; ".join(result["errors"])
         self.assertIn("bundle-policy", text)
         self.assertIn("t2_smoke_passed", text)
+
+
+    def test_local_serving_smoke_allows_reference_for_ci(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = run_local_serving_smoke(
+                out_dir=d,
+                pipeline_backend="cpu-stdlib",
+                pipeline_iterations=1,
+                pipeline_warmup=0,
+                pipeline_hidden_dim=4,
+                pipeline_new_tokens=2,
+                include_moe_parity=True,
+                moe_backend="cpu-stdlib",
+                moe_iterations=1,
+                moe_warmup=0,
+                moe_token_count=2,
+                moe_hidden_dim=4,
+                moe_intermediate_dim=6,
+                moe_vocab_size=11,
+                moe_expert_count=2,
+                moe_top_k=1,
+                require_accelerator=False,
+            )
+            result = validate_local_serving_smoke(d)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(4, bundle["summary"]["check_count"])
+        self.assertTrue(bundle["summary"]["serving_adapter_valid"])
+        self.assertTrue(bundle["summary"]["serving_correctness_passed"])
+        self.assertTrue(bundle["summary"]["pipeline_correctness_included"])
+        self.assertFalse(bundle["summary"]["pipeline_correctness_accelerator_measured"])
+        self.assertTrue(bundle["summary"]["moe_parity_included"])
+        self.assertFalse(bundle["summary"]["moe_parity_accelerator_measured"])
+        self.assertTrue(bundle["summary"]["local_runtime_smoke_passed"])
+        self.assertFalse(bundle["summary"]["t2_smoke_passed"])
+        self.assertFalse(bundle["summary"]["live_http_endpoint"])
+        self.assertFalse(bundle["summary"]["target_model_parity"])
+        self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+
+    def test_local_serving_smoke_rejects_reference_as_required_accelerator(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            bundle = run_local_serving_smoke(
+                out_dir=d,
+                pipeline_backend="cpu-stdlib",
+                pipeline_iterations=1,
+                pipeline_warmup=0,
+                pipeline_hidden_dim=4,
+                pipeline_new_tokens=2,
+                include_moe_parity=False,
+                require_accelerator=True,
+            )
+            result = validate_local_serving_smoke_fixture(bundle)
+        self.assertFalse(bundle["ok"])
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("bundle-policy", text)
+        self.assertIn("t2_smoke_passed", text)
+
 
 
     def test_cpu_activation_transfer_probe_validates_reference_not_accelerator(self) -> None:
