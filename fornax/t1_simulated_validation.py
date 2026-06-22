@@ -44,6 +44,10 @@ from .pipeline_probe import (
     run_cpu_pipeline_correctness_probe,
     validate_pipeline_correctness_probe_fixture,
 )
+from .program_governance import (
+    simulate_program_governance,
+    validate_program_governance_fixture,
+)
 from .remote_expert_probe import (
     run_cpu_remote_expert_batch_probe,
     validate_remote_expert_batch_probe_fixture,
@@ -213,6 +217,7 @@ def run_t1_simulated_validation(
     resilience_path = bundle / "resilience-replay.json"
     ops_lifecycle_path = bundle / "ops-lifecycle.json"
     onboarding_path = bundle / "onboarding-methodology.json"
+    program_governance_path = bundle / "program-governance.json"
     moe_path = bundle / "moe-runtime.json"
     moe_migration_path = bundle / "moe-migration.json"
     remote_expert_path = bundle / "remote-expert-batch.json"
@@ -332,6 +337,12 @@ def run_t1_simulated_validation(
         plan_id=f"{plan_id}-onboarding",
         package_id=f"{plan_id}-operator-onboarding",
     )
+    program_governance = simulate_program_governance(
+        plan_id=f"{plan_id}-governance",
+        report_date="2026-06-22",
+        plan_version="v3",
+        current_gate="G1",
+    )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)
     write_json(transport_path, transport)
@@ -344,6 +355,7 @@ def run_t1_simulated_validation(
     write_json(resilience_path, resilience)
     write_json(ops_lifecycle_path, ops_lifecycle)
     write_json(onboarding_path, onboarding)
+    write_json(program_governance_path, program_governance)
     write_json(moe_path, moe)
     write_json(moe_migration_path, moe_migration)
     write_json(remote_expert_path, remote_expert)
@@ -442,6 +454,12 @@ def run_t1_simulated_validation(
             str(onboarding_path),
         ),
         _check(
+            "program-governance",
+            "T1/X1-X3",
+            validate_program_governance_fixture(program_governance),
+            str(program_governance_path),
+        ),
+        _check(
             "moe-runtime",
             "T1",
             validate_moe_contract_fixture(moe),
@@ -522,6 +540,7 @@ def run_t1_simulated_validation(
             "resilience_replay": str(resilience_path),
             "ops_lifecycle": str(ops_lifecycle_path),
             "onboarding_methodology": str(onboarding_path),
+            "program_governance": str(program_governance_path),
             "moe_runtime": str(moe_path),
             "moe_migration": str(moe_migration_path),
             "remote_expert_batch": str(remote_expert_path),

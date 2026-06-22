@@ -1,0 +1,430 @@
+{
+  "cadence": {
+    "artifacts": [
+      {
+        "artifact_id": "weekly-status",
+        "cadence": "weekly",
+        "owner": "PM",
+        "path": "docs/fornax/program_management/templates/status-report.md",
+        "required_sections": [
+          "headline",
+          "gate posture",
+          "top risks",
+          "decisions needed",
+          "workstream progress",
+          "external watch",
+          "next week"
+        ]
+      },
+      {
+        "artifact_id": "gate-review",
+        "cadence": "every gate",
+        "owner": "Sponsor/PM/TL",
+        "path": "docs/fornax/program_management/templates/gate-review.md",
+        "required_sections": [
+          "entry criteria",
+          "evidence presented",
+          "risk and assumption check",
+          "decision",
+          "actions"
+        ]
+      },
+      {
+        "artifact_id": "decision-log",
+        "cadence": "on irreversible or expensive decision",
+        "owner": "PM",
+        "path": "docs/fornax/program_management/08-decision-log.md",
+        "required_sections": [
+          "decision log",
+          "ADR index",
+          "rules"
+        ]
+      },
+      {
+        "artifact_id": "raid-log",
+        "cadence": "weekly and every gate",
+        "owner": "PM",
+        "path": "docs/fornax/program_management/05-raid-log.md",
+        "required_sections": [
+          "risks",
+          "assumptions",
+          "issues",
+          "dependencies"
+        ]
+      },
+      {
+        "artifact_id": "external-watch",
+        "cadence": "each MAX nightly or release",
+        "owner": "KER",
+        "path": "docs/fornax/program_management/06-dependencies-and-external-watch.md",
+        "required_sections": [
+          "source precedence",
+          "watch register",
+          "dependency-driven sequencing"
+        ]
+      },
+      {
+        "artifact_id": "phase0-status",
+        "cadence": "per Phase-0 validation bundle",
+        "owner": "PM/SRE",
+        "path": "phase0-status.json",
+        "required_sections": [
+          "deliverables",
+          "g1",
+          "simulation",
+          "markdown"
+        ]
+      }
+    ],
+    "current_gate": "G1",
+    "report_date": "2026-06-22"
+  },
+  "controls": [
+    {
+      "control_id": "X1-gate-operation",
+      "evidence": [
+        "gate-review template",
+        "DEC-005 pending",
+        "allowed outcomes"
+      ],
+      "failure_mode": "gate outcome is implied without Sponsor decision",
+      "status": "active",
+      "validator": "validate_program_governance_fixture",
+      "workstream": "X1"
+    },
+    {
+      "control_id": "X1-decision-log",
+      "evidence": [
+        "DEC-001..DEC-006 present",
+        "DEC-005 pending"
+      ],
+      "failure_mode": "expensive decision lacks DEC entry",
+      "status": "active",
+      "validator": "validate_program_governance_fixture",
+      "workstream": "X1"
+    },
+    {
+      "control_id": "X2-raid-upkeep",
+      "evidence": [
+        "R/A/I/D IDs stable",
+        "R-10 status drift tracked"
+      ],
+      "failure_mode": "risk or issue is renumbered or silently closed",
+      "status": "active",
+      "validator": "validate_program_governance_fixture",
+      "workstream": "X2"
+    },
+    {
+      "control_id": "X2-external-watch",
+      "evidence": [
+        "D-1 source precedence",
+        "rank-1 local probe gate"
+      ],
+      "failure_mode": "blog/nightly evidence is treated as a gate pass",
+      "status": "active",
+      "validator": "validate_program_governance_fixture",
+      "workstream": "X2"
+    },
+    {
+      "control_id": "X3-cadence-reporting",
+      "evidence": [
+        "weekly status template",
+        "phase0-status artifact"
+      ],
+      "failure_mode": "status cannot be produced without oral context",
+      "status": "active",
+      "validator": "validate_program_governance_fixture",
+      "workstream": "X3"
+    },
+    {
+      "control_id": "R10-status-drift",
+      "evidence": [
+        "simulation-only warnings",
+        "G1 not gate-ready"
+      ],
+      "failure_mode": "planned or simulated work is reported as proven closure",
+      "status": "active",
+      "validator": "validate_program_governance_fixture",
+      "workstream": "X3"
+    }
+  ],
+  "current_gate": "G1",
+  "decision_log": {
+    "allowed_gate_outcomes": [
+      "ITERATE",
+      "KILL",
+      "NARROW",
+      "PROCEED"
+    ],
+    "decision_authority": "Sponsor",
+    "entries": [
+      {
+        "authority": "Sponsor",
+        "decision": "Fornax is an engine, not a llama.cpp harness",
+        "id": "DEC-001",
+        "ref": "plan v3 section 5.4",
+        "reverses": "one-way-ish",
+        "status": "Accepted"
+      },
+      {
+        "authority": "Sponsor",
+        "decision": "Pipeline-parallel spine with bounded remote experts",
+        "id": "DEC-002",
+        "ref": "plan v3 section 5.1",
+        "reverses": "reversible per deployment",
+        "status": "Accepted"
+      },
+      {
+        "authority": "Sponsor",
+        "decision": "Apple participation is staged and gated",
+        "id": "DEC-003",
+        "ref": "plan v3 section 5.5",
+        "reverses": "reversible",
+        "status": "Accepted"
+      },
+      {
+        "authority": "Sponsor",
+        "decision": "Plan changes only by version bump",
+        "id": "DEC-004",
+        "ref": "program governance",
+        "reverses": "no",
+        "status": "Accepted"
+      },
+      {
+        "authority": "Sponsor",
+        "decision": "G1 go/no-go outcome plus re-baselined schedule",
+        "id": "DEC-005",
+        "ref": "stage gate G1",
+        "reverses": "no",
+        "status": "Pending"
+      },
+      {
+        "authority": "Sponsor",
+        "decision": "Speculative decoding is out of v0 unless the target contract opts in",
+        "id": "DEC-006",
+        "ref": "plan v3 section 3.5",
+        "reverses": "contract opt-in",
+        "status": "Accepted"
+      }
+    ],
+    "path": "docs/fornax/program_management/08-decision-log.md",
+    "silent_proceed_forbidden": true
+  },
+  "external_watch": {
+    "capability_needed": "target-model expert-MLP on target Mac within tolerance and throughput bound",
+    "dependency_id": "D-1",
+    "last_checked": "2026-06-22",
+    "local_probe_required": true,
+    "path": "docs/fornax/program_management/06-dependencies-and-external-watch.md",
+    "pinned_build": "max-26.4.0",
+    "policy": "future promises never unblock a gate; capability is unproven until local probe passes",
+    "reversal_trigger_armed": true,
+    "source_precedence": [
+      {
+        "gate_of_record": true,
+        "rank": 1,
+        "source": "local probe on pinned build"
+      },
+      {
+        "gate_of_record": false,
+        "rank": 2,
+        "source": "package docs and changelog for pinned build"
+      },
+      {
+        "gate_of_record": false,
+        "rank": 3,
+        "source": "supported-model catalog and model docs"
+      },
+      {
+        "gate_of_record": false,
+        "rank": 4,
+        "source": "blog posts and launch announcements"
+      },
+      {
+        "gate_of_record": false,
+        "rank": 5,
+        "source": "nightly behavior"
+      }
+    ],
+    "status": "probing"
+  },
+  "governance_scope": {
+    "advised_by": [
+      "PM",
+      "TL"
+    ],
+    "decision_authority": "Sponsor",
+    "gate_of_record": "G1",
+    "phase1_authorized": false,
+    "workstreams": [
+      "X1",
+      "X2",
+      "X3"
+    ]
+  },
+  "mode": "t1-simulation",
+  "note": "T1 program governance simulation: validates WS-X gate, decision-log, RAID, external-watch, and cadence controls. Not G1/G5 closure evidence.",
+  "plan_id": "golden-program-governance",
+  "plan_version": "v3",
+  "raid_register": {
+    "assumptions": [
+      {
+        "id": "A-1",
+        "kind": "assumption",
+        "mitigation": "contract concurrency sweep or narrowed scope",
+        "owner": "PM",
+        "status": "Unvalidated -> G1",
+        "summary": "Persona supplies pipeline-filling concurrency"
+      },
+      {
+        "id": "A-2",
+        "kind": "assumption",
+        "mitigation": "rank-1 local probe decides Apple role",
+        "owner": "KER",
+        "status": "Unvalidated -> G1",
+        "summary": "MAX can run target expert-MLP on the target Mac acceptably"
+      },
+      {
+        "id": "A-5",
+        "kind": "assumption",
+        "mitigation": "named owner or Sponsor accepts narrowed scope",
+        "owner": "PM",
+        "status": "Unvalidated",
+        "summary": "Required skills are staffable"
+      }
+    ],
+    "dependencies": [
+      {
+        "id": "D-1",
+        "kind": "dependency",
+        "mitigation": "external watch and local probe",
+        "owner": "KER",
+        "status": "Open",
+        "summary": "Modular/MAX Apple plus MoE capability"
+      },
+      {
+        "id": "D-2",
+        "kind": "dependency",
+        "mitigation": "order lead-time hardware early",
+        "owner": "PM",
+        "status": "Open",
+        "summary": "Hardware procurement for lab tiers"
+      },
+      {
+        "id": "D-3",
+        "kind": "dependency",
+        "mitigation": "keep generate boundary stable",
+        "owner": "TL",
+        "status": "Open",
+        "summary": "Ignis Engine seam stability"
+      },
+      {
+        "id": "D-4",
+        "kind": "dependency",
+        "mitigation": "prioritize WS-A/G1 evidence",
+        "owner": "DIST",
+        "status": "Open",
+        "summary": "Planner blocks downstream phases"
+      }
+    ],
+    "ids_stable": true,
+    "issues": [
+      {
+        "id": "I-1",
+        "kind": "issue",
+        "mitigation": "target contract review before G1",
+        "owner": "DIST/PM",
+        "status": "Open",
+        "summary": "v0-target-contract.md not signed off"
+      },
+      {
+        "id": "I-2",
+        "kind": "issue",
+        "mitigation": "reviewed spec before G1",
+        "owner": "RT",
+        "status": "Open",
+        "summary": "runtime-format spec review remains required"
+      },
+      {
+        "id": "I-3",
+        "kind": "issue",
+        "mitigation": "reviewed spec before G1",
+        "owner": "NET",
+        "status": "Open",
+        "summary": "networking/security spec review remains required"
+      },
+      {
+        "id": "I-4",
+        "kind": "issue",
+        "mitigation": "reviewed ADR before G1",
+        "owner": "TL",
+        "status": "Open",
+        "summary": "substrate ADR review remains required"
+      },
+      {
+        "id": "I-5",
+        "kind": "issue",
+        "mitigation": "name owner or narrow scope",
+        "owner": "PM",
+        "status": "Open",
+        "summary": "KER/Apple staffing unresolved"
+      },
+      {
+        "id": "I-6",
+        "kind": "issue",
+        "mitigation": "runnable bundle plus review",
+        "owner": "DIST/SRE",
+        "status": "Open",
+        "summary": "Phase-0 preflight workflow needs G1 closure review"
+      }
+    ],
+    "path": "docs/fornax/program_management/05-raid-log.md",
+    "review_cadence": "weekly and every gate",
+    "risks": [
+      {
+        "id": "R-4",
+        "kind": "risk",
+        "mitigation": "source precedence ladder; pinned local probe; staged role demotion",
+        "owner": "KER",
+        "rank": 1,
+        "status": "Open",
+        "summary": "Apple/MAX readiness misses target role"
+      },
+      {
+        "id": "R-8",
+        "kind": "risk",
+        "mitigation": "persona concurrency evidence or NARROW at G1",
+        "owner": "PM",
+        "rank": 2,
+        "status": "Open - resolved at G1",
+        "summary": "Concurrency-market fit"
+      },
+      {
+        "id": "R-10",
+        "kind": "risk",
+        "mitigation": "owner checklist per artifact and explicit evidence tier",
+        "owner": "PM",
+        "rank": 10,
+        "status": "Open",
+        "summary": "Status drift: planned artifacts look proven"
+      }
+    ]
+  },
+  "record_kind": "program-governance-contract",
+  "simulation_method": "program-governance-x1-x3-controls",
+  "summary": {
+    "cadence_artifact_count": 6,
+    "control_count": 6,
+    "dec005_pending": true,
+    "decision_count": 6,
+    "dependency_count": 4,
+    "external_watch_rank1_required": true,
+    "g1_gate_ready": false,
+    "issue_count": 6,
+    "risk_count": 3,
+    "silent_proceed_forbidden": true,
+    "simulation_only": true,
+    "status_drift_controlled": true
+  },
+  "version": 1
+}

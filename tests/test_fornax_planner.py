@@ -103,6 +103,11 @@ from fornax.phase0_status import render_phase0_status_report
 from fornax.phase0_simulated_validation import run_phase0_simulated_validation
 from fornax.t1_simulated_validation import run_t1_simulated_validation
 from fornax.preflight import run_phase0_preflight
+from fornax.program_governance import (
+    simulate_program_governance,
+    validate_program_governance,
+    validate_program_governance_fixture,
+)
 from fornax.program_rebaseline import render_program_rebaseline_draft
 from fornax.remote_expert_probe import (
     run_cpu_remote_expert_batch_probe,
@@ -1069,8 +1074,8 @@ class FornaxPlannerTest(unittest.TestCase):
             transport = read_json(bundle / "transport-contract.json")
             validation = read_json(bundle / "t1-simulated-validation.json")
         self.assertTrue(result["ok"], result["summary"])
-        self.assertEqual(25, result["summary"]["check_count"])
-        self.assertEqual(25, result["summary"]["passed_count"])
+        self.assertEqual(26, result["summary"]["check_count"])
+        self.assertEqual(26, result["summary"]["passed_count"])
         self.assertEqual(2, result["summary"]["logical_host_count"])
         self.assertEqual("logical_multi_host", result["simulation"]["mode"])
         self.assertEqual("two_gpu_logical_hosts", transport["simulation"]["method"])
@@ -1087,6 +1092,7 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertIn("resilience-replay", {check["name"] for check in validation["checks"]})
         self.assertIn("ops-lifecycle", {check["name"] for check in validation["checks"]})
         self.assertIn("onboarding-methodology", {check["name"] for check in validation["checks"]})
+        self.assertIn("program-governance", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-runtime", {check["name"] for check in validation["checks"]})
         self.assertIn("moe-migration", {check["name"] for check in validation["checks"]})
         self.assertIn("remote-expert-batch", {check["name"] for check in validation["checks"]})
@@ -1689,6 +1695,65 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_onboarding_methodology_fixture(contract)
         self.assertFalse(result["ok"])
         self.assertIn("glossary.md", "; ".join(result["errors"]))
+
+    def test_program_governance_fixture_passes(self) -> None:
+        result = validate_program_governance("fornax/golden_vectors/program_governance")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(6, result["summary"]["decision_count"])
+        self.assertTrue(result["summary"]["dec005_pending"])
+        self.assertFalse(result["summary"]["g1_gate_ready"])
+
+    def test_simulated_program_governance_validates_controls(self) -> None:
+        contract = simulate_program_governance(plan_id="unit-program-governance")
+        result = validate_program_governance_fixture(contract)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertFalse(contract["summary"]["g1_gate_ready"])
+        self.assertTrue(contract["summary"]["silent_proceed_forbidden"])
+        self.assertTrue(contract["external_watch"]["local_probe_required"])
+        self.assertEqual({"X1", "X2", "X3"}, set(contract["governance_scope"]["workstreams"]))
+
+    def test_program_governance_rejects_dec005_proceed_claim(self) -> None:
+        contract = simulate_program_governance()
+        for entry in contract["decision_log"]["entries"]:
+            if entry["id"] == "DEC-005":
+                entry["status"] = "Accepted"
+                entry["decision"] = "G1 PROCEED"
+        contract["summary"]["g1_gate_ready"] = True
+        contract["summary"]["dec005_pending"] = False
+        result = validate_program_governance_fixture(contract)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("DEC-005.status", text)
+        self.assertIn("g1_gate_ready", text)
+
+    def test_program_governance_rejects_missing_status_drift_control(self) -> None:
+        contract = simulate_program_governance()
+        contract["raid_register"]["risks"] = [
+            risk for risk in contract["raid_register"]["risks"] if risk["id"] != "R-10"
+        ]
+        contract["summary"]["risk_count"] = len(contract["raid_register"]["risks"])
+        contract["summary"]["status_drift_controlled"] = False
+        result = validate_program_governance_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("R-10", "; ".join(result["errors"]))
+
+    def test_program_governance_rejects_blog_as_gate_record(self) -> None:
+        contract = simulate_program_governance()
+        contract["external_watch"]["source_precedence"][0]["gate_of_record"] = False
+        contract["external_watch"]["source_precedence"][3]["gate_of_record"] = True
+        result = validate_program_governance_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("rank 1", "; ".join(result["errors"]))
+
+    def test_program_governance_rejects_missing_cadence_artifact(self) -> None:
+        contract = simulate_program_governance()
+        contract["cadence"]["artifacts"] = [
+            item for item in contract["cadence"]["artifacts"] if item["artifact_id"] != "weekly-status"
+        ]
+        contract["summary"]["cadence_artifact_count"] = len(contract["cadence"]["artifacts"])
+        result = validate_program_governance_fixture(contract)
+        self.assertFalse(result["ok"])
+        self.assertIn("weekly-status", "; ".join(result["errors"]))
 
     def test_continuous_batching_fixture_passes(self) -> None:
         result = validate_continuous_batching("fornax/golden_vectors/continuous_batching")

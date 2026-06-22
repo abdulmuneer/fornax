@@ -59,6 +59,10 @@ from .resilience import (
     simulate_resilience_replay,
     validate_resilience_replay,
 )
+from .program_governance import (
+    simulate_program_governance,
+    validate_program_governance,
+)
 from .program_rebaseline import (
     KER_STATUS_VALUES,
     SCOPE_VALUES,
@@ -1027,6 +1031,30 @@ def _cmd_program_rebaseline(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_program_governance_simulate(args: argparse.Namespace) -> int:
+    try:
+        result = simulate_program_governance(
+            plan_id=args.plan_id,
+            report_date=args.report_date,
+            plan_version=args.plan_version,
+            current_gate=args.current_gate,
+        )
+    except ValueError as exc:
+        print(f"program governance-simulate: {exc}")
+        return 2
+    write_json(args.out, result)
+    summary = result["summary"]
+    print(
+        "program governance-simulate: "
+        f"decisions={summary['decision_count']} "
+        f"controls={summary['control_count']} "
+        f"dec005_pending={summary['dec005_pending']} "
+        f"g1_ready={summary['g1_gate_ready']} "
+        f"status_drift={summary['status_drift_controlled']}"
+    )
+    return 0
+
+
 def _cmd_program_g1_review(args: argparse.Namespace) -> int:
     result = render_g1_gate_review_draft(
         args.bundle,
@@ -1674,6 +1702,28 @@ def _cmd_test_ops_lifecycle(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_program_governance(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/program_governance"
+    result = validate_program_governance(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS program-governance: {fixture} "
+            f"decisions={summary['decision_count']} "
+            f"controls={summary['control_count']} "
+            f"dec005_pending={summary['dec005_pending']} "
+            f"g1_ready={summary['g1_gate_ready']} "
+            f"status_drift={summary['status_drift_controlled']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL program-governance: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_onboarding_methodology(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/onboarding_methodology"
     result = validate_onboarding_methodology(fixture)
@@ -1805,6 +1855,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_ops_lifecycle(args)
     if args.test_name == "onboarding-methodology":
         return _cmd_test_onboarding_methodology(args)
+    if args.test_name == "program-governance":
+        return _cmd_test_program_governance(args)
     if args.test_name == "backend-coverage":
         return _cmd_test_backend_coverage(args)
     if args.test_name == "benchmark-ledger":
@@ -1959,6 +2011,14 @@ def build_parser() -> argparse.ArgumentParser:
     rebaseline.add_argument("--ker-status", choices=KER_STATUS_VALUES, default="unassigned")
     rebaseline.add_argument("--scope", choices=SCOPE_VALUES, default="pending")
     rebaseline.set_defaults(func=_cmd_program_rebaseline)
+
+    governance = program_sub.add_parser("governance-simulate")
+    governance.add_argument("--out", required=True)
+    governance.add_argument("--plan-id", default="program-governance-plan")
+    governance.add_argument("--report-date", default="2026-06-22")
+    governance.add_argument("--plan-version", default="v3")
+    governance.add_argument("--current-gate", default="G1")
+    governance.set_defaults(func=_cmd_program_governance_simulate)
 
     g1_review = program_sub.add_parser("g1-review")
     g1_review.add_argument("--bundle", required=True)
@@ -2407,6 +2467,7 @@ def build_parser() -> argparse.ArgumentParser:
             "resilience-replay",
             "ops-lifecycle",
             "onboarding-methodology",
+            "program-governance",
             "backend-coverage",
             "benchmark-ledger",
             "expert-mlp-probe",
