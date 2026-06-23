@@ -33,6 +33,34 @@ def boundary_transfer_s(model: ModelSpec, target: Target, link: Link) -> float:
     return payload / link.bandwidth_bytes_s + link.latency_s
 
 
+def _context_tokens(target: Target) -> int:
+    return target.prompt_len + target.gen_len
+
+
+def kv_cache_bytes(model: ModelSpec, layers: tuple[int, ...], target: Target) -> float:
+    selected = [model.layers[i] for i in layers]
+    return (
+        target.concurrency
+        * _context_tokens(target)
+        * sum(layer.kv_bytes_per_token for layer in selected)
+    )
+
+
+def routing_metadata_bytes(
+    model: ModelSpec, layers: tuple[int, ...], target: Target
+) -> float:
+    selected = [model.layers[i] for i in layers]
+    active_experts = sum(
+        layer.experts_active for layer in selected if layer.kind == "moe"
+    )
+    return (
+        target.concurrency
+        * _context_tokens(target)
+        * active_experts
+        * target.routing_metadata_bytes_per_token
+    )
+
+
 def stage_memory_bytes(
     model: ModelSpec, layers: tuple[int, ...], target: Target, mode: str
 ) -> float:
@@ -43,8 +71,20 @@ def stage_memory_bytes(
         weight_bytes = sum(layer.base_weight_bytes for layer in selected)
     else:
         raise ValueError(f"unsupported stage mode: {mode}")
-    kv_bytes = target.concurrency * sum(layer.kv_bytes_per_token for layer in selected)
-    return weight_bytes + kv_bytes + activation_buffer_bytes(model, target)
+    working_bytes = (
+        weight_bytes
+        + kv_cache_bytes(model, layers, target)
+        + activation_buffer_bytes(model, target)
+        + routing_metadata_bytes(model, layers, target)
+    )
+    temp_bytes = working_bytes * target.temp_buffer_fraction
+    reserved_bytes = target.runtime_reserve_bytes + (
+        working_bytes * target.memory_reserve_fraction
+    )
+    fragmented_bytes = (
+        working_bytes + temp_bytes + reserved_bytes
+    ) * target.fragmentation_margin_fraction
+    return working_bytes + temp_bytes + reserved_bytes + fragmented_bytes
 
 
 def _local_flops_per_token(layers: list, mode: str) -> int:
@@ -74,29 +114,49 @@ def _best_expert_host(
     return best
 
 
+def _expected_decode_experts(model: ModelSpec, layer_id: int) -> tuple[float, float]:
+    layer = model.layers[layer_id]
+    if layer.kind != "moe":
+        return 0.0, 0.0
+    traces = [trace for trace in model.expert_traces if trace.layer_id == layer_id]
+    if traces:
+        expected = min(
+            sum(trace.hit_rate_decode for trace in traces),
+            float(layer.experts_active),
+        )
+    else:
+        expected = float(layer.experts_active)
+    hit_rate = min(expected / max(layer.num_experts, 1), 1.0)
+    return expected, hit_rate
+
+
 def _remote_expert_wait_s(
     inventory: Inventory,
     node: Node,
     model: ModelSpec,
     target: Target,
-    layers: list,
+    layer_ids: tuple[int, ...],
 ) -> tuple[float, float, tuple[str, ...]]:
-    remote_layers = [layer for layer in layers if layer.kind == "moe"]
-    if not remote_layers:
+    remote_layer_ids = [
+        layer_id for layer_id in layer_ids if model.layers[layer_id].kind == "moe"
+    ]
+    if not remote_layer_ids:
         return 0.0, 0.0, ()
     host, transfer_per_expert = _best_expert_host(inventory, node, model, target)
     if host is None:
         return float("inf"), 1.0, ()
 
     remote_wait = 0.0
-    total_active = 0
-    for layer in remote_layers:
-        total_active += layer.experts_active
+    remote_hit_rate = 0.0
+    for layer_id in remote_layer_ids:
+        layer = model.layers[layer_id]
+        expected_experts, layer_hit_rate = _expected_decode_experts(model, layer_id)
         expert_compute = (
             target.concurrency * layer.expert_flops_per_token / host.compute_class
         )
-        remote_wait += layer.experts_active * (transfer_per_expert + expert_compute)
-    return remote_wait, 1.0 if total_active else 0.0, (host.id,)
+        remote_wait += expected_experts * (transfer_per_expert + expert_compute)
+        remote_hit_rate += layer_hit_rate
+    return remote_wait, remote_hit_rate / len(remote_layer_ids), (host.id,)
 
 
 def estimate_stage_cost(
@@ -124,7 +184,7 @@ def estimate_stage_cost(
     else:
         remote_mem = stage_memory_bytes(model, layers, target, "remote_experts")
         remote_wait, remote_hit_rate, expert_hosts = _remote_expert_wait_s(
-            inventory, node, model, target, selected
+            inventory, node, model, target, layers
         )
         if (
             remote_mem > node.mem_free_bytes
@@ -143,8 +203,9 @@ def estimate_stage_cost(
         if mode == "resident"
         else sum(layer.base_weight_bytes for layer in selected)
     )
-    kv_bytes = target.concurrency * sum(layer.kv_bytes_per_token for layer in selected)
+    kv_bytes = kv_cache_bytes(model, layers, target)
     local_flops = target.concurrency * _local_flops_per_token(selected, mode)
+    # Conservative serial roofline: do not credit memory/compute overlap yet.
     local_decode = (
         weight_bytes / node.mem_bandwidth_bytes_s
         + kv_bytes / node.mem_bandwidth_bytes_s

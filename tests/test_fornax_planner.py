@@ -132,6 +132,7 @@ from fornax.network_contract import (
     validate_network_contract_fixture,
 )
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
+from fornax.planner.cost import stage_memory_bytes
 from fornax.phase0_status import render_phase0_status_report
 from fornax.phase0_simulated_validation import run_phase0_simulated_validation
 from fornax.phase3_proxy_gate import validate_phase3_proxy_gate_packet
@@ -4037,6 +4038,211 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertTrue(plan.feasible, plan.infeasible_reason)
         self.assertEqual((0, 1, 2), plan.stages[0].layers)
         self.assertEqual((3,), plan.stages[1].layers)
+
+    def test_remote_expert_hit_rate_uses_expert_trace(self) -> None:
+        model = ModelSpec.from_dict(
+            {
+                "hidden_dim": 16,
+                "num_layers": 1,
+                "dtype_weight": "q4",
+                "dtype_activation": "fp16",
+                "layers": [
+                    {
+                        "kind": "moe",
+                        "weight_bytes": 1000,
+                        "active_flops_per_token": 1000,
+                        "num_experts": 4,
+                        "experts_active": 2,
+                        "expert_bytes": 1_000_000,
+                        "expert_flops_per_token": 1000,
+                    }
+                ],
+                "expert_traces": [
+                    {
+                        "layer_id": 0,
+                        "expert_id": 0,
+                        "hit_rate_prefill": 0.10,
+                        "hit_rate_decode": 0.20,
+                    },
+                    {
+                        "layer_id": 0,
+                        "expert_id": 1,
+                        "hit_rate_prefill": 0.15,
+                        "hit_rate_decode": 0.30,
+                    },
+                ],
+            }
+        )
+        inventory = Inventory.from_dict(
+            {
+                "nodes": [
+                    {
+                        "id": "stage",
+                        "vendor": "nvidia",
+                        "runtime": "max",
+                        "mem_free_bytes": 100_000,
+                        "compute_class": 1_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 1_000_000_000.0,
+                        "supports_stage": True,
+                        "supports_expert_worker": False,
+                        "supported_dtypes": ["fp16"],
+                    },
+                    {
+                        "id": "expert",
+                        "vendor": "nvidia",
+                        "runtime": "max",
+                        "mem_free_bytes": 10_000_000,
+                        "compute_class": 1_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 1_000_000_000.0,
+                        "supports_stage": False,
+                        "supports_expert_worker": True,
+                        "supported_dtypes": ["fp16"],
+                    },
+                ],
+                "links": [
+                    {
+                        "a": "stage",
+                        "b": "expert",
+                        "bandwidth_bytes_s": 1_000_000_000.0,
+                        "latency_s": 0.0,
+                    }
+                ],
+            }
+        )
+        target = Target(
+            4,
+            16,
+            8,
+            memory_reserve_fraction=0.0,
+            fragmentation_margin_fraction=0.0,
+            routing_metadata_bytes_per_token=0.0,
+            temp_buffer_fraction=0.0,
+        )
+        plan = plan_placement(model, inventory, target)
+        self.assertTrue(plan.feasible, plan.infeasible_reason)
+        self.assertEqual("remote_experts", plan.stages[0].mode)
+        assert plan.predicted is not None
+        self.assertAlmostEqual(0.125, plan.predicted.remote_expert_hit_rate_decode)
+        self.assertGreater(plan.predicted.remote_expert_wait_s_per_token, 0.0)
+
+    def test_stage_memory_counts_context_and_budget_terms(self) -> None:
+        model = ModelSpec.from_dict(
+            {
+                "hidden_dim": 32,
+                "num_layers": 1,
+                "dtype_weight": "q4",
+                "dtype_activation": "fp16",
+                "layers": [
+                    {
+                        "kind": "moe",
+                        "weight_bytes": 1000,
+                        "active_flops_per_token": 1000,
+                        "kv_bytes_per_token": 100,
+                        "num_experts": 4,
+                        "experts_active": 2,
+                        "expert_bytes": 100,
+                        "expert_flops_per_token": 1000,
+                    }
+                ],
+            }
+        )
+        bare_short = Target(
+            2,
+            4,
+            1,
+            memory_reserve_fraction=0.0,
+            fragmentation_margin_fraction=0.0,
+            routing_metadata_bytes_per_token=0.0,
+            temp_buffer_fraction=0.0,
+        )
+        bare_long = Target(
+            2,
+            8,
+            1,
+            memory_reserve_fraction=0.0,
+            fragmentation_margin_fraction=0.0,
+            routing_metadata_bytes_per_token=0.0,
+            temp_buffer_fraction=0.0,
+        )
+        budgeted = Target(
+            2,
+            4,
+            1,
+            memory_reserve_fraction=0.10,
+            fragmentation_margin_fraction=0.10,
+            routing_metadata_bytes_per_token=8.0,
+            temp_buffer_fraction=0.10,
+            runtime_reserve_bytes=128,
+        )
+        short_bytes = stage_memory_bytes(model, (0,), bare_short, "resident")
+        long_bytes = stage_memory_bytes(model, (0,), bare_long, "resident")
+        budgeted_bytes = stage_memory_bytes(model, (0,), budgeted, "resident")
+        self.assertEqual(2 * (9 - 5) * 100, long_bytes - short_bytes)
+        self.assertGreater(budgeted_bytes, short_bytes + 128)
+
+    def test_partition_dp_accounts_for_inbound_transfer(self) -> None:
+        model = ModelSpec.from_dict(
+            {
+                "hidden_dim": 1,
+                "num_layers": 6,
+                "dtype_weight": "q4",
+                "dtype_activation": "fp16",
+                "layers": [
+                    {
+                        "kind": "dense",
+                        "weight_bytes": 0,
+                        "active_flops_per_token": 100_000_000,
+                    }
+                    for _ in range(6)
+                ],
+            }
+        )
+        inventory = Inventory.from_dict(
+            {
+                "nodes": [
+                    {
+                        "id": "n0",
+                        "vendor": "cpu",
+                        "runtime": "custom",
+                        "mem_free_bytes": 1_000_000,
+                        "compute_class": 1_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 1_000_000_000.0,
+                        "supported_dtypes": ["fp16"],
+                    },
+                    {
+                        "id": "n1",
+                        "vendor": "cpu",
+                        "runtime": "custom",
+                        "mem_free_bytes": 1_000_000,
+                        "compute_class": 1_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 1_000_000_000.0,
+                        "supported_dtypes": ["fp16"],
+                    },
+                ],
+                "links": [
+                    {
+                        "a": "n0",
+                        "b": "n1",
+                        "bandwidth_bytes_s": 10.0,
+                        "latency_s": 0.2,
+                    }
+                ],
+            }
+        )
+        target = Target(
+            1,
+            1,
+            1,
+            "balanced",
+            memory_reserve_fraction=0.0,
+            fragmentation_margin_fraction=0.0,
+            routing_metadata_bytes_per_token=0.0,
+            temp_buffer_fraction=0.0,
+        )
+        plan = plan_placement(model, inventory, target, min_stages=2, max_stages=2)
+        self.assertTrue(plan.feasible, plan.infeasible_reason)
+        self.assertEqual((0, 1), plan.stages[0].layers)
+        self.assertEqual((2, 3, 4, 5), plan.stages[1].layers)
 
     def test_model_too_big_is_infeasible_with_reason(self) -> None:
         model = dense_model(2)

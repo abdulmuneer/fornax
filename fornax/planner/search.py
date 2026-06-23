@@ -83,7 +83,16 @@ def _partition_for_order(
                 cost = estimate_stage_cost(model, inventory, node, layers, target)
                 if cost is None:
                     continue
-                stage_load = cost.decode_compute_s + cost.remote_wait_exposed_s
+                transfer_in = 0.0
+                if stage_idx > 1:
+                    link = inventory.best_link(order[stage_idx - 2].id, node.id)
+                    if link is None:
+                        continue
+                    transfer_in = boundary_transfer_s(model, target, link)
+                stage_load = (
+                    max(cost.decode_compute_s, transfer_in)
+                    + cost.remote_wait_exposed_s
+                )
                 score = max(previous[0], stage_load)
                 cuts = previous[1] + ((start, end, cost),)
                 if best is None or score < best[0]:
@@ -128,7 +137,11 @@ def _with_replicas(
     model: ModelSpec, inventory: Inventory, target: Target, plan: _CandidatePlan
 ) -> _CandidatePlan:
     used = {stage.node.id for stage in plan.stages}
-    spare = [node for node in inventory.nodes if node.supports_stage and node.id not in used]
+    spare = [
+        node
+        for node in inventory.nodes
+        if node.supports_stage and node.id not in used
+    ]
     stages = list(plan.stages)
 
     while spare:
@@ -136,7 +149,7 @@ def _with_replicas(
             range(len(stages)), key=lambda idx: stages[idx].effective_time_s
         )
         bottleneck = stages[bottleneck_idx]
-        best: tuple[int, float] | None = None
+        best: tuple[int, float, StageCost, float] | None = None
         for node_idx, node in enumerate(spare):
             cost = estimate_stage_cost(model, inventory, node, bottleneck.layers, target)
             if cost is None:
@@ -152,13 +165,11 @@ def _with_replicas(
             )
             improvement = effective_before - 1.0 / capacity_after
             if best is None or improvement > best[1]:
-                best = (node_idx, improvement)
+                best = (node_idx, improvement, cost, replica_time)
         if best is None or best[1] <= 0:
             break
         node = spare.pop(best[0])
-        cost = estimate_stage_cost(model, inventory, node, bottleneck.layers, target)
-        assert cost is not None
-        replica_time = max(cost.decode_compute_s, bottleneck.transfer_in_s) + cost.remote_wait_exposed_s
+        _, _, cost, replica_time = best
         stages[bottleneck_idx] = _StageCandidate(
             layers=bottleneck.layers,
             node=bottleneck.node,

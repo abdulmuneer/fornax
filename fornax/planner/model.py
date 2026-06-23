@@ -129,6 +129,7 @@ class ModelSpec:
     layers: tuple[LayerSpec, ...]
     dtype_weight: str
     dtype_activation: str
+    expert_traces: tuple["ExpertTrace", ...] = ()
 
     def __post_init__(self) -> None:
         if self.hidden_dim <= 0:
@@ -138,6 +139,14 @@ class ModelSpec:
         activation_nbytes(self.dtype_activation)
         if self.dtype_weight not in DTYPE_BYTES:
             raise ValueError(f"unsupported weight dtype: {self.dtype_weight}")
+        for trace in self.expert_traces:
+            if trace.layer_id < 0 or trace.layer_id >= self.num_layers:
+                raise ValueError("expert trace layer_id out of range")
+            layer = self.layers[trace.layer_id]
+            if layer.kind != "moe":
+                raise ValueError("expert traces can only reference moe layers")
+            if trace.expert_id < 0 or trace.expert_id >= layer.num_experts:
+                raise ValueError("expert trace expert_id out of range")
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ModelSpec":
@@ -148,16 +157,22 @@ class ModelSpec:
             layers=layers,
             dtype_weight=str(_required(d, "dtype_weight")),
             dtype_activation=str(_required(d, "dtype_activation")),
+            expert_traces=tuple(
+                ExpertTrace.from_dict(x) for x in d.get("expert_traces", [])
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "hidden_dim": self.hidden_dim,
             "num_layers": self.num_layers,
             "layers": [x.to_dict() for x in self.layers],
             "dtype_weight": self.dtype_weight,
             "dtype_activation": self.dtype_activation,
         }
+        if self.expert_traces:
+            data["expert_traces"] = [x.to_dict() for x in self.expert_traces]
+        return data
 
     @property
     def resident_weight_bytes(self) -> int:
@@ -172,6 +187,21 @@ class ExpertTrace:
     hit_rate_decode: float
     coactivation: tuple[tuple[int, float], ...] = ()
 
+    def __post_init__(self) -> None:
+        if self.layer_id < 0:
+            raise ValueError("layer_id must be >= 0")
+        if self.expert_id < 0:
+            raise ValueError("expert_id must be >= 0")
+        for name in ("hit_rate_prefill", "hit_rate_decode"):
+            value = getattr(self, name)
+            if not (0.0 <= value <= 1.0):
+                raise ValueError(f"{name} must be 0..1")
+        for expert_id, rate in self.coactivation:
+            if expert_id < 0:
+                raise ValueError("coactivation expert_id must be >= 0")
+            if not (0.0 <= rate <= 1.0):
+                raise ValueError("coactivation rate must be 0..1")
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ExpertTrace":
         return cls(
@@ -181,6 +211,17 @@ class ExpertTrace:
             hit_rate_decode=float(_required(d, "hit_rate_decode")),
             coactivation=tuple((int(a), float(b)) for a, b in d.get("coactivation", [])),
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        data = {
+            "layer_id": self.layer_id,
+            "expert_id": self.expert_id,
+            "hit_rate_prefill": self.hit_rate_prefill,
+            "hit_rate_decode": self.hit_rate_decode,
+        }
+        if self.coactivation:
+            data["coactivation"] = [list(x) for x in self.coactivation]
+        return data
 
 
 @dataclass(frozen=True)
@@ -326,6 +367,11 @@ class Target:
     gen_len: int
     objective: str = "max_throughput"
     remote_expert_wait_slo_s: float | None = None
+    memory_reserve_fraction: float = 0.05
+    fragmentation_margin_fraction: float = 0.05
+    routing_metadata_bytes_per_token: float = 16.0
+    temp_buffer_fraction: float = 0.05
+    runtime_reserve_bytes: int = 0
 
     def __post_init__(self) -> None:
         if self.concurrency <= 0:
@@ -336,6 +382,15 @@ class Target:
             raise ValueError("gen_len must be > 0")
         if self.objective not in {"max_throughput", "min_latency", "balanced"}:
             raise ValueError(f"unsupported objective: {self.objective}")
+        for name in (
+            "memory_reserve_fraction",
+            "fragmentation_margin_fraction",
+            "routing_metadata_bytes_per_token",
+            "temp_buffer_fraction",
+            "runtime_reserve_bytes",
+        ):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must be >= 0")
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Target":
@@ -349,6 +404,15 @@ class Target:
                 if d.get("remote_expert_wait_slo_s") is not None
                 else None
             ),
+            memory_reserve_fraction=float(d.get("memory_reserve_fraction", 0.05)),
+            fragmentation_margin_fraction=float(
+                d.get("fragmentation_margin_fraction", 0.05)
+            ),
+            routing_metadata_bytes_per_token=float(
+                d.get("routing_metadata_bytes_per_token", 16.0)
+            ),
+            temp_buffer_fraction=float(d.get("temp_buffer_fraction", 0.05)),
+            runtime_reserve_bytes=int(d.get("runtime_reserve_bytes", 0)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -360,6 +424,18 @@ class Target:
         }
         if self.remote_expert_wait_slo_s is not None:
             data["remote_expert_wait_slo_s"] = self.remote_expert_wait_slo_s
+        if self.memory_reserve_fraction != 0.05:
+            data["memory_reserve_fraction"] = self.memory_reserve_fraction
+        if self.fragmentation_margin_fraction != 0.05:
+            data["fragmentation_margin_fraction"] = self.fragmentation_margin_fraction
+        if self.routing_metadata_bytes_per_token != 16.0:
+            data["routing_metadata_bytes_per_token"] = (
+                self.routing_metadata_bytes_per_token
+            )
+        if self.temp_buffer_fraction != 0.05:
+            data["temp_buffer_fraction"] = self.temp_buffer_fraction
+        if self.runtime_reserve_bytes:
+            data["runtime_reserve_bytes"] = self.runtime_reserve_bytes
         return data
 
 

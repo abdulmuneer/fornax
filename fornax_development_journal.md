@@ -2682,3 +2682,48 @@
   - Organizational: approve with comments. The accepted-by and deferral invariants reduce handoff ambiguity for later Sponsor and operator review.
   - Analytical: approve. The packet cannot claim a proxy pass when the assumptions that keep formal work deferred have been edited away.
 - Verification: `python3 -m py_compile fornax/phase4_resilience_gate.py fornax/phase5_ga_gate.py tests/test_fornax_planner.py` passed; focused gate metadata/deferral regression tests passed 4/4; `python3 -m fornax test phase4-resilience-gate` passed; `python3 -m fornax test phase5-ga-gate` passed; `python3 -m unittest tests.test_fornax_planner` passed 243 tests; `python3 -m compileall -q fornax tests` passed; `make fornax-golden` passed; `make fornax-test` passed 243 tests.
+
+### Whole-package skill-lens code review (2026-06-23)
+
+- Ran a code review of the `fornax/` package (~38 KLOC) through the skill review
+  lenses in `docs/fornax/review_lenses_by_skill_for_fornax.md`. Output written to
+  `docs/fornax/code_review_claude.md`. Overall: Approve with comments —
+  honesty architecture is strong; findings are about cost-model fidelity, module
+  size, and proxy-regime reach, not dishonesty.
+- Top code findings (ranked):
+  - Analytical/LLM (High): `planner/cost.py:99` returns `remote_expert_hit_rate_decode`
+    as a constant `1.0` whenever experts are active; a §8 success metric is not
+    actually modeled and `ExpertTrace` hit-rates are never consumed by the cost model.
+  - Hardware/Analytical (High): `stage_memory_bytes` (`cost.py:36-47`) omits routing
+    metadata, temp buffers, OS/runtime reserve, and fragmentation margin that the v0
+    target contract §3.1 calls load-bearing; activation buffer is a fixed
+    `2*concurrency*hidden_dim` and resident KV ignores context length.
+  - Software Engineering (High): `cli.py` (3,681 lines) and
+    `local_http_serving_smoke.py` (~189 KB) are past the maintainability cliff; 243
+    tests are concentrated in one `test_fornax_planner.py`, so non-planner modules
+    rely on their own validators + CLI smoke rather than direct unit tests.
+  - Analytical/Low-level (Medium): the DP partition objective (`search.py:86`,
+    `decode+remote_wait`) ignores boundary transfer that the final stage-time score
+    includes (`search.py:113`), so the chosen cut can be suboptimal on transfer-bound
+    fabrics.
+  - Hardware Acceleration/Networking (Medium): same-host CUDA P2P (~296 GiB/s) is a
+    25–100x flattering stand-in for the 25–100 GbE v0 fabric; the proxy cannot
+    exercise the communication-bound risks (R1/R3/R5). Recommended a bandwidth-throttle
+    probe mode.
+- What to preserve: the deferred-requirement/`formal_*_passed` gate validators, the
+  probe-vs-CPU-reference correctness pattern, and the phased deferral of real
+  transport/security are all correct and should not change.
+- No code was modified by this review; it is an assessment artifact only.
+
+
+### Code-review response: planner cost model and package map (2026-06-23)
+
+- Addressed top findings from `docs/fornax/code_review_claude.md` at the T0/planner scope.
+- Fixed Analytical/LLM high finding: `remote_expert_hit_rate_decode` is no longer a constant. `ModelSpec` now accepts optional `ExpertTrace` records, validates them against MoE layers/experts, and the remote expert cost path derives expected decode expert calls and hit-rate from trace hit rates when present.
+- Fixed Hardware/Analytical high finding: `stage_memory_bytes` now uses context-length-aware resident KV sizing and explicit routing metadata, temp-buffer, runtime reserve, memory reserve, and fragmentation-margin terms via `Target` knobs.
+- Fixed Analytical medium finding: `_partition_for_order` now scores candidate cuts with the same inbound transfer term used by final stage timing, so transfer-bound fabrics influence the DP objective.
+- Fixed Low-level medium finding: replica selection no longer relies on a load-bearing `assert`; it carries the selected `StageCost` and replica time through the best-candidate record.
+- Added `fornax/README.md` mapping package modules to WBS streams and owning review lenses, while preserving the two-H100 proxy vs formal evidence boundary.
+- Added focused regression coverage for trace-driven remote expert hit rate, context-aware memory/budget terms, and transfer-aware DP partitioning.
+- Deliberately deferred the larger maintainability refactor of `cli.py` and `local_http_serving_smoke.py`, bandwidth-throttle probe mode, and per-module oracle test split; those remain follow-up items because they are broader than this review-response pass.
+- Verification: `python3 -m py_compile fornax/planner/model.py fornax/planner/cost.py fornax/planner/search.py tests/test_fornax_planner.py` passed; focused planner review-regression tests passed 5/5; `python3 -m unittest tests.test_fornax_planner` passed 246 tests; `python3 -m compileall -q fornax tests` passed; `make fornax-golden` passed; `make fornax-test` passed 246 tests; `git diff --check` passed.
