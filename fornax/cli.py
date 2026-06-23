@@ -121,6 +121,12 @@ from .phase3_proxy_gate import (
     build_phase3_proxy_gate_packet,
     validate_phase3_proxy_gate_packet,
 )
+from .phase4_resilience_gate import (
+    build_phase4_resilience_gate_packet,
+    render_phase4_t4_runbook_markdown,
+    validate_phase4_resilience_gate,
+    validate_phase4_resilience_gate_packet,
+)
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
 from .serving import (
@@ -1314,6 +1320,48 @@ def _cmd_program_phase3_proxy_gate(args: argparse.Namespace) -> int:
     )
     return 1
 
+
+def _cmd_program_phase4_resilience_gate(args: argparse.Namespace) -> int:
+    try:
+        result = build_phase4_resilience_gate_packet(
+            args.resilience_artifact,
+            args.replication_artifact,
+            args.ops_artifact,
+            packet_date=args.date,
+            outcome=args.outcome,
+            accepted_by=args.accepted_by,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program phase4-resilience-gate: {exc}")
+        return 2
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    write_json(args.out, result)
+    if args.runbook_out:
+        Path(args.runbook_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.runbook_out).write_text(
+            render_phase4_t4_runbook_markdown(result["runbook"]),
+            encoding="utf-8",
+        )
+    validation = validate_phase4_resilience_gate_packet(result)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    if validation["ok"]:
+        print(
+            "wrote Phase 4 resilience proxy gate packet: "
+            f"{args.out} proxy_passed={summary['phase4_proxy_passed']} "
+            f"formal_g4_passed={summary['formal_g4_passed']} "
+            f"checks={summary['passed_count']}/{summary['check_count']} "
+            f"runbook_scenarios={summary['runbook_scenario_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print(
+        "wrote invalid Phase 4 resilience proxy gate packet: "
+        f"{args.out} errors=" + "; ".join(validation["errors"])
+    )
+    return 1
 
 def _cmd_program_g1_evidence_packet(args: argparse.Namespace) -> int:
     try:
@@ -2525,6 +2573,26 @@ def _cmd_test_benchmark_ledger(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_phase4_resilience_gate(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/phase4_resilience_gate"
+    result = validate_phase4_resilience_gate(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS phase4-resilience-gate: {fixture} "
+            f"proxy_passed={summary['phase4_proxy_passed']} "
+            f"formal_g4_passed={summary['formal_g4_passed']} "
+            f"checks={summary['passed_count']}/{summary['check_count']} "
+            f"runbook_scenarios={summary['runbook_scenario_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL phase4-resilience-gate: " + "; ".join(result["errors"]))
+    return 1
+
 def _cmd_test_backend_coverage(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/backend_coverage"
     result = validate_backend_coverage_contract(fixture)
@@ -2597,6 +2665,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_program_governance(args)
     if args.test_name == "backend-coverage":
         return _cmd_test_backend_coverage(args)
+    if args.test_name == "phase4-resilience-gate":
+        return _cmd_test_phase4_resilience_gate(args)
     if args.test_name == "benchmark-ledger":
         return _cmd_test_benchmark_ledger(args)
     if args.test_name == "expert-mlp-probe":
@@ -2782,6 +2852,18 @@ def build_parser() -> argparse.ArgumentParser:
     phase3_proxy.add_argument("--outcome", choices=["PROCEED", "ITERATE", "NARROW", "KILL"], default="PROCEED")
     phase3_proxy.add_argument("--accepted-by", default="operator")
     phase3_proxy.set_defaults(func=_cmd_program_phase3_proxy_gate)
+
+
+    phase4_resilience = program_sub.add_parser("phase4-resilience-gate")
+    phase4_resilience.add_argument("--resilience-artifact", required=True)
+    phase4_resilience.add_argument("--replication-artifact", required=True)
+    phase4_resilience.add_argument("--ops-artifact", required=True)
+    phase4_resilience.add_argument("--out", required=True)
+    phase4_resilience.add_argument("--runbook-out")
+    phase4_resilience.add_argument("--date")
+    phase4_resilience.add_argument("--outcome", choices=["PROCEED", "ITERATE", "NARROW", "KILL"], default="PROCEED")
+    phase4_resilience.add_argument("--accepted-by", default="operator")
+    phase4_resilience.set_defaults(func=_cmd_program_phase4_resilience_gate)
 
     g1_packet = program_sub.add_parser("g1-evidence-packet")
     g1_packet.add_argument("--bundle", required=True)
@@ -3481,6 +3563,7 @@ def build_parser() -> argparse.ArgumentParser:
             "activation-transfer-probe",
             "pipeline-correctness-probe",
             "throughput-scaling",
+            "phase4-resilience-gate",
         ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")

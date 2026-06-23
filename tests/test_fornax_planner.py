@@ -135,6 +135,12 @@ from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 from fornax.phase0_status import render_phase0_status_report
 from fornax.phase0_simulated_validation import run_phase0_simulated_validation
 from fornax.phase3_proxy_gate import validate_phase3_proxy_gate_packet
+from fornax.phase4_resilience_gate import (
+    build_phase4_resilience_gate_packet,
+    render_phase4_t4_runbook_markdown,
+    validate_phase4_resilience_gate,
+    validate_phase4_resilience_gate_packet,
+)
 from fornax.t1_simulated_validation import run_t1_simulated_validation
 from fornax.preflight import run_phase0_preflight
 from fornax.program_governance import (
@@ -2727,6 +2733,55 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_phase3_proxy_gate_packet(packet)
         self.assertFalse(result["ok"])
         self.assertIn("formal_g3_passed", "; ".join(result["errors"]))
+
+
+    def _valid_phase4_resilience_gate_packet(self) -> dict[str, object]:
+        return build_phase4_resilience_gate_packet(
+            "fornax/golden_vectors/resilience_replay",
+            "fornax/golden_vectors/stage_replication",
+            "fornax/golden_vectors/ops_lifecycle",
+            packet_date="2026-06-23",
+            outcome="PROCEED",
+            accepted_by="operator",
+        )
+
+    def test_phase4_resilience_gate_packet_validates_two_h100_proxy(self) -> None:
+        packet = self._valid_phase4_resilience_gate_packet()
+        result = validate_phase4_resilience_gate_packet(packet)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(result["summary"]["phase4_proxy_passed"])
+        self.assertFalse(result["summary"]["formal_g4_passed"])
+        self.assertEqual(7, result["summary"]["passed_count"])
+        self.assertEqual(4, result["summary"]["runbook_scenario_count"])
+        self.assertIn("two local H100", "; ".join(result["warnings"]))
+        markdown = render_phase4_t4_runbook_markdown(packet["runbook"])
+        self.assertIn("single-node-loss-zero-drop", markdown)
+        self.assertIn("added-node-scaling", markdown)
+
+    def test_phase4_resilience_gate_rejects_formal_g4_overclaim(self) -> None:
+        packet = self._valid_phase4_resilience_gate_packet()
+        packet["formal_g4_passed"] = True
+        result = validate_phase4_resilience_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("formal_g4_passed", "; ".join(result["errors"]))
+
+    def test_phase4_resilience_gate_rejects_missing_runbook_scenario(self) -> None:
+        packet = self._valid_phase4_resilience_gate_packet()
+        packet["runbook"]["scenarios"] = [
+            scenario
+            for scenario in packet["runbook"]["scenarios"]
+            if scenario["id"] != "added-node-scaling"
+        ]
+        packet["summary"]["runbook_scenario_count"] = len(packet["runbook"]["scenarios"])
+        result = validate_phase4_resilience_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("added-node-scaling", "; ".join(result["errors"]))
+
+    def test_phase4_resilience_gate_fixture_passes(self) -> None:
+        result = validate_phase4_resilience_gate("fornax/golden_vectors/phase4_resilience_gate")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(result["summary"]["phase4_proxy_passed"])
+        self.assertFalse(result["summary"]["formal_g4_passed"])
 
     def test_program_governance_rejects_missing_cadence_artifact(self) -> None:
         contract = simulate_program_governance()

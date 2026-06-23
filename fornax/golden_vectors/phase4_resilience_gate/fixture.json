@@ -1,0 +1,215 @@
+{
+  "accepted_by": "operator",
+  "artifact_validation": {
+    "ops_lifecycle": {
+      "errors": [],
+      "ok": true,
+      "warnings": [
+        "ops lifecycle is simulation evidence, not G5 product-ops closure evidence"
+      ]
+    },
+    "resilience_replay": {
+      "errors": [],
+      "ok": true,
+      "warnings": [
+        "resilience replay is simulation evidence, not real T4 node-loss evidence"
+      ]
+    },
+    "stage_replication": {
+      "errors": [],
+      "ok": true,
+      "warnings": [
+        "stage replication is simulation evidence, not real added-node scaling evidence"
+      ]
+    }
+  },
+  "artifacts": {
+    "ops_lifecycle": "fornax/golden_vectors/ops_lifecycle/fixture.json",
+    "resilience_replay": "fornax/golden_vectors/resilience_replay/fixture.json",
+    "stage_replication": "fornax/golden_vectors/stage_replication/fixture.json"
+  },
+  "date": "2026-06-23",
+  "decision": "Use two local H100 GPUs as logical hosts for the current Phase 4 resilience/elasticity proxy gate; defer formal heterogeneous T4 validation.",
+  "deferred_requirements": [
+    {
+      "id": "real-single-node-loss",
+      "reason": "current evidence replays deterministic in-flight requests in simulation; real node power/network loss remains T4 lab work",
+      "status": "deferred"
+    },
+    {
+      "id": "real-added-node-scaling",
+      "reason": "current added-node evidence is simulated stage replication over two local logical hosts",
+      "status": "deferred"
+    },
+    {
+      "id": "real-amd-gpu-node",
+      "reason": "AMD GPU node is not present on this development machine",
+      "status": "deferred"
+    },
+    {
+      "id": "real-apple-silicon-mac",
+      "reason": "Apple Silicon Mac is not present on this development machine",
+      "status": "deferred"
+    },
+    {
+      "id": "production-drain-restart-hooks",
+      "reason": "operator lifecycle hooks are simulated and auditable but not wired to a production deployment",
+      "status": "deferred"
+    }
+  ],
+  "evidence_checks": [
+    {
+      "evidence": "validate_resilience_replay_fixture(fornax/golden_vectors/resilience_replay/fixture.json)",
+      "name": "resilience-artifact-valid",
+      "ok": true
+    },
+    {
+      "evidence": "single-node-loss replay completes every in-flight request without dropped or duplicate tokens",
+      "name": "zero-dropped-in-flight",
+      "ok": true
+    },
+    {
+      "evidence": "stage replication uses added capacity, improves modeled makespan, and preserves output parity",
+      "name": "added-node-scaling",
+      "ok": true
+    },
+    {
+      "evidence": "operator deploy, drain, restart, rollback, and node replacement hooks are auditable",
+      "name": "drain-restart-rollback-hooks",
+      "ok": true
+    },
+    {
+      "evidence": "runbook defines node-loss, added-node, lifecycle, and heterogeneous-lab follow-up evidence collection",
+      "name": "t4-runbook-defined",
+      "ok": true
+    },
+    {
+      "evidence": "current evidence is simulation/proxy scope suitable for development with two local H100 logical hosts",
+      "name": "two-h100-proxy-scope",
+      "ok": true
+    },
+    {
+      "evidence": "formal_g4_passed remains false until real T4 node-loss and added-node evidence is attached",
+      "name": "no-formal-g4-overclaim",
+      "ok": true
+    }
+  ],
+  "formal_g4_passed": false,
+  "formal_g4_validation_deferred": true,
+  "gate": "G4",
+  "mode": "two-h100-local-proxy",
+  "outcome": "PROCEED",
+  "phase4_proxy_passed": true,
+  "record_kind": "phase4-g4-resilience-proxy-gate",
+  "runbook": {
+    "formal_gate_rule": "G4 can pass only with real lab node-loss and added-node evidence; two-H100 local proxy evidence may pass only the current development proxy gate.",
+    "plan_id": "phase4-resilience-elasticity",
+    "proxy_development_scope": "two local H100 GPUs may stand in for two logical hosts until AMD/Mac lab hardware is available",
+    "required_artifacts": [
+      "resilience replay artifact",
+      "stage replication or added-node scaling artifact",
+      "ops lifecycle artifact",
+      "hardware inventory and topology record",
+      "operator gate decision record"
+    ],
+    "scenarios": [
+      {
+        "evidence_commands": [
+          "python3 -m fornax test resilience-replay",
+          "python3 -m fornax resilience replay-simulate --out <artifact.json>"
+        ],
+        "goal": "prove in-flight requests survive loss of one serving/stage node",
+        "id": "single-node-loss-zero-drop",
+        "pass_criteria": [
+          "dropped_request_count == 0",
+          "dropped_token_count == 0",
+          "duplicate_token_count == 0",
+          "completed_tokens match reference_tokens for every replayed request"
+        ],
+        "setup": [
+          "start from a validated placement over at least two logical hosts",
+          "record request ids, plan id, KV/checkpoint owner, and active node ownership before fault injection",
+          "disable new admission to the failed node before replay scheduling if the control plane is reachable"
+        ]
+      },
+      {
+        "evidence_commands": [
+          "python3 -m fornax test stage-replication",
+          "python3 -m fornax replication simulate --out <artifact.json>"
+        ],
+        "goal": "prove adding a replica increases modeled bottleneck-stage throughput without correctness regression",
+        "id": "added-node-scaling",
+        "pass_criteria": [
+          "replicated_makespan_s < baseline_makespan_s",
+          "speedup >= speedup_floor",
+          "every replica receives work",
+          "max_abs_error <= tolerance"
+        ],
+        "setup": [
+          "capture baseline bottleneck-stage makespan with one replica",
+          "admit a second logical host as a stage replica",
+          "assign microbatches across both replicas using deterministic scheduling"
+        ]
+      },
+      {
+        "evidence_commands": [
+          "python3 -m fornax test ops-lifecycle",
+          "python3 -m fornax ops lifecycle-simulate --out <artifact.json>"
+        ],
+        "goal": "prove operator mutations are auditable and drain in-flight work before node changes",
+        "id": "drain-restart-rollback",
+        "pass_criteria": [
+          "drain_completed precedes each mutation",
+          "dropped_in_flight_total == 0",
+          "rollback_verified is true",
+          "node_replace_verified is true"
+        ],
+        "setup": [
+          "load cluster, model, and placement operator configs",
+          "run deploy, upgrade, restart, rollback, and node replacement actions",
+          "record drain and health-check events around every mutation"
+        ]
+      },
+      {
+        "evidence_commands": [
+          "python3 -m fornax program phase4-resilience-gate --resilience-artifact <real-node-loss.json> --replication-artifact <real-added-node.json> --ops-artifact <real-lifecycle.json> --out <packet.json>"
+        ],
+        "goal": "turn proxy evidence into formal T4/G4 evidence once AMD and Apple systems are available",
+        "id": "heterogeneous-lab-followup",
+        "pass_criteria": [
+          "formal_g4_passed remains false until real heterogeneous evidence is attached",
+          "zero dropped in-flight requests under real single-node loss",
+          "added-node throughput improves on real hardware",
+          "operator signs the G4 gate packet"
+        ],
+        "setup": [
+          "replace same-host logical H100 stand-ins with real NVIDIA, AMD, and Apple nodes",
+          "collect node-loss and added-node evidence with production transport and auth enabled",
+          "attach raw artifacts, hardware inventory, operator acceptance, and gate-review decision record"
+        ]
+      }
+    ],
+    "scope": "G4 evidence collection for node loss, replay, added capacity, and operator lifecycle hooks",
+    "title": "T4 Resilience and Elasticity Runbook",
+    "version": 1
+  },
+  "summary": {
+    "check_count": 7,
+    "dropped_request_count": 0,
+    "dropped_token_count": 0,
+    "duplicate_token_count": 0,
+    "formal_g4_deferred_requirement_count": 5,
+    "in_flight_request_count": 3,
+    "lifecycle_action_count": 6,
+    "lifecycle_dropped_in_flight_count": 0,
+    "node_replace_verified": true,
+    "passed_count": 7,
+    "replica_count": 2,
+    "replication_correctness_passed": true,
+    "replication_speedup": 2.0,
+    "rollback_verified": true,
+    "runbook_scenario_count": 4,
+    "zero_dropped_in_flight": true
+  },
+  "version": 1
+}
