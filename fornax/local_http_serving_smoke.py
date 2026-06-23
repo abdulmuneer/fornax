@@ -270,6 +270,10 @@ def _fixture_tokenize(text: str) -> list[str]:
     return [token for token in normalized.split(" ") if token]
 
 
+def _retry_after_seconds(retry_after_ms: int) -> int:
+    return max(1, (retry_after_ms + 999) // 1000)
+
+
 class LocalFornaxBackend:
     """Local smoke implementation of the FornaxBackend Engine seam."""
 
@@ -826,11 +830,19 @@ class _SmokeHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
-    def _json_response(self, status: int, payload: dict[str, Any]) -> None:
+    def _json_response(
+        self,
+        status: int,
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(data)))
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(data)
 
@@ -930,6 +942,10 @@ class _SmokeHandler(BaseHTTPRequestHandler):
                         "message": "Local smoke inflight capacity is exhausted.",
                     },
                     "retry_after_ms": config["retry_after_ms"],
+                },
+                headers={
+                    "Retry-After": str(_retry_after_seconds(int(config["retry_after_ms"]))),
+                    "X-Fornax-Retry-After-Ms": str(config["retry_after_ms"]),
                 },
             )
             return
@@ -1100,6 +1116,7 @@ def _post_json(
             return {
                 "status": int(response.status),
                 "content_type": response.headers.get("content-type"),
+                "headers": {key.lower(): value for key, value in response.headers.items()},
                 "body": json.loads(data),
             }
     except urllib.error.HTTPError as exc:
@@ -1107,6 +1124,7 @@ def _post_json(
         return {
             "status": int(exc.code),
             "content_type": exc.headers.get("content-type"),
+            "headers": {key.lower(): value for key, value in exc.headers.items()},
             "body": json.loads(data) if data else {},
         }
 
@@ -1819,6 +1837,11 @@ def run_local_http_serving_smoke(
             for holder in backpressure_holders
         )
     )
+    backpressure_reject_headers = backpressure_reject.get("headers", {})
+    if not isinstance(backpressure_reject_headers, dict):
+        backpressure_reject_headers = {}
+    expected_retry_after_seconds = str(_retry_after_seconds(retry_after_ms))
+    expected_retry_after_ms_header = str(retry_after_ms)
     backpressure_reject_ok = (
         backpressure_reject.get("status") == 429
         and backpressure_reject.get("body", {}).get("error", {}).get("code") == "backpressure_queue_full"
@@ -1826,6 +1849,10 @@ def run_local_http_serving_smoke(
         and backpressure_summary.get("backpressure_reject_count") == 1
         and backpressure_summary.get("max_observed_inflight") == max_inflight
         and backpressure_summary.get("current_inflight") == 0
+    )
+    backpressure_retry_header_ok = (
+        backpressure_reject_headers.get("retry-after") == expected_retry_after_seconds
+        and backpressure_reject_headers.get("x-fornax-retry-after-ms") == expected_retry_after_ms_header
     )
     backpressure_retry_ok = (
         backpressure_retry.get("status") == 200
@@ -1977,6 +2004,7 @@ def run_local_http_serving_smoke(
         *([{"name": "local-tls-handshake", "ok": tls_ok, "errors": [] if tls_ok else ["local TLS handshake invalid"], "warnings": ["local self-signed TLS is not product TLS/mTLS evidence"]}] if enable_tls else []),
         *([{"name": "local-mtls-node-identity", "ok": mtls_ok, "errors": [] if mtls_ok else ["local mTLS node identity invalid"], "warnings": ["local mTLS client identity is not production node identity evidence"]}] if enable_mtls else []),
         {"name": "backpressure-reject", "ok": backpressure_reject_ok and backpressure_holder_ok, "errors": [] if backpressure_reject_ok and backpressure_holder_ok else ["backpressure rejection invalid"], "warnings": []},
+        {"name": "http-retry-after-header", "ok": backpressure_retry_header_ok, "errors": [] if backpressure_retry_header_ok else ["HTTP Retry-After metadata invalid"], "warnings": ["local Retry-After metadata is not distributed retry evidence"]},
         {"name": "backpressure-retry-after", "ok": backpressure_retry_ok, "errors": [] if backpressure_retry_ok else ["backpressure retry-after recovery invalid"], "warnings": ["local retry-after recovery is not distributed retry evidence"]},
         {"name": "admitted-cancel-cleanup", "ok": cancel_ok, "errors": [] if cancel_ok else ["admitted cancellation cleanup invalid"], "warnings": ["local admitted cancellation is not distributed partition or client-disconnect evidence"]},
         {"name": "admitted-timeout-cleanup", "ok": timeout_ok, "errors": [] if timeout_ok else ["admitted timeout cleanup invalid"], "warnings": ["local admitted timeout is not distributed partition evidence"]},
@@ -2037,6 +2065,9 @@ def run_local_http_serving_smoke(
         "backpressure_status": backpressure_reject.get("status"),
         "backpressure_rejected": backpressure_reject_ok,
         "backpressure_retry_after_ms": backpressure_reject.get("body", {}).get("retry_after_ms"),
+        "backpressure_retry_after_header_seconds": backpressure_reject_headers.get("retry-after"),
+        "backpressure_retry_after_header_ms": backpressure_reject_headers.get("x-fornax-retry-after-ms"),
+        "backpressure_retry_after_header_verified": backpressure_retry_header_ok,
         "backpressure_retry_status": backpressure_retry.get("status"),
         "backpressure_retry_admitted": backpressure_retry_ok,
         "backpressure_retry_after_capacity_clear": backpressure_retry_ok,
@@ -2060,7 +2091,7 @@ def run_local_http_serving_smoke(
         "partition_recovery_status": partition_recovery.get("status"),
         "partition_recovery_admitted": partition_recovery_ok,
         "partition_recovery_after_fence": partition_recovery_ok,
-        "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok and backpressure_retry_ok and cancel_ok and timeout_ok and partition_ok and partition_recovery_ok,
+        "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok and backpressure_retry_header_ok and backpressure_retry_ok and cancel_ok and timeout_ok and partition_ok and partition_recovery_ok,
         "lifecycle_tracked": True,
         "lifecycle_request_count": lifecycle_summary.get("accepted_request_count"),
         "lifecycle_rejected_request_count": lifecycle_summary.get("rejected_request_count"),
@@ -2197,6 +2228,9 @@ def run_local_http_serving_smoke(
             "mode": "local-http-failure-semantics-smoke",
             "backpressure_rejected": backpressure_reject_ok and backpressure_holder_ok,
             "retry_after_ms": backpressure_reject.get("body", {}).get("retry_after_ms"),
+            "retry_after_header_seconds": backpressure_reject_headers.get("retry-after"),
+            "retry_after_header_ms": backpressure_reject_headers.get("x-fornax-retry-after-ms"),
+            "retry_after_header_verified": backpressure_retry_header_ok,
             "retry_after_recovered": backpressure_retry_ok,
             "retry_after_capacity_cleared": backpressure_retry_ok,
             "cancel_after_admit_verified": cancel_ok,
@@ -2265,7 +2299,7 @@ def run_local_http_serving_smoke(
             "Local HTTP/SSE serving smoke for the OpenAI-compatible endpoint path. "
             "This proves local endpoint request/response behavior, plan-integrity "
             "rejection, local bearer-token auth rejection, deterministic "
-            "backpressure rejection, retry-after recovery, admitted cancellation cleanup, admitted timeout cleanup, local partition fencing and recovery, and local lifecycle cleanup. When target-fixture "
+            "backpressure rejection, HTTP Retry-After metadata, retry-after recovery, admitted cancellation cleanup, admitted timeout cleanup, local partition fencing and recovery, and local lifecycle cleanup. When target-fixture "
             "mode is enabled, it also proves deterministic local fixture loading and "
             "non-stream/stream parity only. When activation-transfer probe mode is enabled, "
             "it records measured same-host transfer timing only. When runtime probe mode is enabled, "
@@ -2528,6 +2562,12 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
     config = data.get("config")
     if isinstance(config, dict) and "auth_token" in config:
         errors.append("config.auth_token must be redacted")
+    config_retry_after_ms = config.get("retry_after_ms") if isinstance(config, dict) else None
+    retry_after_headers_expected = isinstance(config_retry_after_ms, int) and not isinstance(config_retry_after_ms, bool)
+    expected_retry_after_header_seconds = (
+        str(_retry_after_seconds(config_retry_after_ms)) if retry_after_headers_expected else None
+    )
+    expected_retry_after_header_ms = str(config_retry_after_ms) if retry_after_headers_expected else None
     lifecycle = data.get("lifecycle")
     if not isinstance(lifecycle, dict):
         errors.append("lifecycle must be an object")
@@ -2665,6 +2705,13 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("failure_semantics.retry_after_recovered must be true")
     if failure_semantics.get("retry_after_capacity_cleared") is not True:
         errors.append("failure_semantics.retry_after_capacity_cleared must be true")
+    if failure_semantics.get("retry_after_header_verified") is not True:
+        errors.append("failure_semantics.retry_after_header_verified must be true")
+    if retry_after_headers_expected:
+        if failure_semantics.get("retry_after_header_seconds") != expected_retry_after_header_seconds:
+            errors.append("failure_semantics.retry_after_header_seconds must match config.retry_after_ms rounded up to seconds")
+        if failure_semantics.get("retry_after_header_ms") != expected_retry_after_header_ms:
+            errors.append("failure_semantics.retry_after_header_ms must match config.retry_after_ms")
     if failure_semantics.get("cancel_after_admit_verified") is not True:
         errors.append("failure_semantics.cancel_after_admit_verified must be true")
     if failure_semantics.get("cancelled_before_backend") is not True:
@@ -2734,6 +2781,14 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("responses.backpressure_reject.status must be 429")
         if backpressure_reject.get("body", {}).get("error", {}).get("code") != "backpressure_queue_full":
             errors.append("responses.backpressure_reject error code must be backpressure_queue_full")
+        backpressure_reject_headers = backpressure_reject.get("headers")
+        if not isinstance(backpressure_reject_headers, dict):
+            errors.append("responses.backpressure_reject.headers must be an object")
+        elif retry_after_headers_expected:
+            if backpressure_reject_headers.get("retry-after") != expected_retry_after_header_seconds:
+                errors.append("responses.backpressure_reject Retry-After header must match config.retry_after_ms rounded up to seconds")
+            if backpressure_reject_headers.get("x-fornax-retry-after-ms") != expected_retry_after_header_ms:
+                errors.append("responses.backpressure_reject x-fornax-retry-after-ms header must match config.retry_after_ms")
     backpressure_retry = responses.get("backpressure_retry") if isinstance(responses, dict) else None
     if not isinstance(backpressure_retry, dict):
         errors.append("responses.backpressure_retry must be an object")
@@ -2810,6 +2865,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("checks must include pipeline-correctness-probe when runtime probes are included")
         if "moe-layer-parity-probe" not in check_names:
             errors.append("checks must include moe-layer-parity-probe when runtime probes are included")
+    if "http-retry-after-header" not in check_names:
+        errors.append("checks must include http-retry-after-header")
     if "backpressure-retry-after" not in check_names:
         errors.append("checks must include backpressure-retry-after")
     if "admitted-cancel-cleanup" not in check_names:
@@ -2841,9 +2898,15 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.backpressure_status must be 429")
     if summary.get("backpressure_rejected") is not True:
         errors.append("summary.backpressure_rejected must be true")
-    config_retry_after_ms = config.get("retry_after_ms") if isinstance(config, dict) else None
     if summary.get("backpressure_retry_after_ms") != config_retry_after_ms:
         errors.append("summary.backpressure_retry_after_ms must match config.retry_after_ms")
+    if summary.get("backpressure_retry_after_header_verified") is not True:
+        errors.append("summary.backpressure_retry_after_header_verified must be true")
+    if retry_after_headers_expected:
+        if summary.get("backpressure_retry_after_header_seconds") != expected_retry_after_header_seconds:
+            errors.append("summary.backpressure_retry_after_header_seconds must match config.retry_after_ms rounded up to seconds")
+        if summary.get("backpressure_retry_after_header_ms") != expected_retry_after_header_ms:
+            errors.append("summary.backpressure_retry_after_header_ms must match config.retry_after_ms")
     if summary.get("backpressure_retry_status") != 200:
         errors.append("summary.backpressure_retry_status must be 200")
     if summary.get("backpressure_retry_admitted") is not True:
@@ -3026,6 +3089,9 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "backpressure_rejected": summary.get("backpressure_rejected") is True,
             "backpressure_reject_count": summary.get("backpressure_reject_count"),
             "backpressure_retry_after_ms": summary.get("backpressure_retry_after_ms"),
+            "backpressure_retry_after_header_seconds": summary.get("backpressure_retry_after_header_seconds"),
+            "backpressure_retry_after_header_ms": summary.get("backpressure_retry_after_header_ms"),
+            "backpressure_retry_after_header_verified": summary.get("backpressure_retry_after_header_verified") is True,
             "backpressure_retry_admitted": summary.get("backpressure_retry_admitted") is True,
             "backpressure_retry_after_capacity_clear": summary.get("backpressure_retry_after_capacity_clear") is True,
             "request_cancelled_after_admit": summary.get("request_cancelled_after_admit") is True,
