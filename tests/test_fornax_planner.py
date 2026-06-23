@@ -794,6 +794,9 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(bundle["summary"]["production_auth_enabled"])
         self.assertFalse(bundle["summary"]["target_model_parity"])
         self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
+        self.assertFalse(bundle["summary"]["local_topology_route_included"])
+        self.assertFalse(bundle["summary"]["local_topology_route_verified"])
+        self.assertIsNone(bundle["local_topology_route"])
 
     def test_local_http_serving_smoke_validates_target_fixture_backend(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -844,8 +847,8 @@ class FornaxPlannerTest(unittest.TestCase):
             result = validate_local_http_serving_smoke(artifact)
         self.assertTrue(result["ok"], result["errors"])
         self.assertTrue(bundle["ok"])
-        self.assertEqual(17, bundle["summary"]["check_count"])
-        self.assertEqual(17, bundle["summary"]["passed_count"])
+        self.assertEqual(18, bundle["summary"]["check_count"])
+        self.assertEqual(18, bundle["summary"]["passed_count"])
         self.assertTrue(bundle["summary"]["target_fixture_parity"])
         self.assertTrue(bundle["summary"]["target_fixture_execution_probe_included"])
         self.assertTrue(bundle["summary"]["target_fixture_execution_probe_ok"])
@@ -857,6 +860,20 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(bundle["summary"]["target_fixture_execution_real_frontier_model"])
         self.assertEqual("target-fixture-execution-probe", bundle["target_fixture_execution_probe"]["probe_kind"])
         self.assertTrue(bundle["target_fixture_execution_validation"]["ok"])
+        self.assertTrue(bundle["summary"]["local_topology_route_included"])
+        self.assertTrue(bundle["summary"]["local_topology_route_verified"])
+        topology_route = bundle["local_topology_route"]
+        self.assertEqual("local-logical-host-route", topology_route["mode"])
+        self.assertEqual("local-logical-host-only", topology_route["scope"])
+        self.assertIn("logical-host-0", topology_route["logical_hosts"])
+        self.assertFalse(topology_route["production_topology_evidence"])
+        self.assertFalse(topology_route["distributed_topology_evidence"])
+        self.assertFalse(topology_route["g3_gate_evidence"])
+        component_names = {component["name"] for component in topology_route["components"]}
+        self.assertIn("target-fixture-execution", component_names)
+        deferred_hardware = {item["hardware_class"] for item in topology_route["deferred_hardware"]}
+        self.assertIn("AMD GPU node", deferred_hardware)
+        self.assertIn("Apple Silicon Mac", deferred_hardware)
         self.assertFalse(bundle["summary"]["target_model_parity"])
         self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
 
@@ -875,8 +892,8 @@ class FornaxPlannerTest(unittest.TestCase):
             result = validate_local_http_serving_smoke(artifact)
         self.assertTrue(result["ok"], result["errors"])
         self.assertTrue(bundle["ok"])
-        self.assertEqual(17, bundle["summary"]["check_count"])
-        self.assertEqual(17, bundle["summary"]["passed_count"])
+        self.assertEqual(18, bundle["summary"]["check_count"])
+        self.assertEqual(18, bundle["summary"]["passed_count"])
         self.assertTrue(bundle["summary"]["activation_transfer_probe_included"])
         self.assertTrue(bundle["summary"]["activation_transfer_probe_ok"])
         self.assertEqual("cpu-stdlib", bundle["summary"]["activation_transfer_backend"])
@@ -886,6 +903,17 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertEqual(128, bundle["summary"]["activation_transfer_bytes_transferred"])
         self.assertEqual("activation-transfer-probe", bundle["activation_transfer_probe"]["probe_kind"])
         self.assertTrue(bundle["activation_transfer_validation"]["ok"])
+        self.assertTrue(bundle["summary"]["local_topology_route_included"])
+        self.assertTrue(bundle["summary"]["local_topology_route_verified"])
+        topology_route = bundle["local_topology_route"]
+        self.assertEqual("local-logical-host-route", topology_route["mode"])
+        self.assertEqual("local-logical-host-only", topology_route["scope"])
+        self.assertEqual(["localhost", "logical-host-0", "logical-host-1"], topology_route["logical_hosts"])
+        component_names = {component["name"] for component in topology_route["components"]}
+        self.assertIn("activation-transfer", component_names)
+        deferred_hardware = {item["hardware_class"] for item in topology_route["deferred_hardware"]}
+        self.assertIn("AMD GPU node", deferred_hardware)
+        self.assertIn("Apple Silicon Mac", deferred_hardware)
         self.assertFalse(bundle["summary"]["target_model_parity"])
         self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
 
@@ -911,8 +939,8 @@ class FornaxPlannerTest(unittest.TestCase):
             result = validate_local_http_serving_smoke(artifact)
         self.assertTrue(result["ok"], result["errors"])
         self.assertTrue(bundle["ok"])
-        self.assertEqual(18, bundle["summary"]["check_count"])
-        self.assertEqual(18, bundle["summary"]["passed_count"])
+        self.assertEqual(19, bundle["summary"]["check_count"])
+        self.assertEqual(19, bundle["summary"]["passed_count"])
         self.assertTrue(bundle["summary"]["runtime_probes_included"])
         self.assertEqual("cpu-stdlib", bundle["summary"]["runtime_probe_backend"])
         self.assertEqual(0, bundle["summary"]["runtime_probe_accelerator_probe_count"])
@@ -931,6 +959,14 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertEqual("moe-layer-parity-probe", bundle["moe_layer_parity_probe"]["probe_kind"])
         self.assertTrue(bundle["pipeline_correctness_validation"]["ok"])
         self.assertTrue(bundle["moe_layer_parity_validation"]["ok"])
+        self.assertTrue(bundle["summary"]["local_topology_route_included"])
+        self.assertTrue(bundle["summary"]["local_topology_route_verified"])
+        topology_route = bundle["local_topology_route"]
+        self.assertEqual("local-logical-host-route", topology_route["mode"])
+        self.assertEqual("local-logical-host-only", topology_route["scope"])
+        component_names = {component["name"] for component in topology_route["components"]}
+        self.assertIn("split-pipeline", component_names)
+        self.assertIn("remote-moe-expert", component_names)
         self.assertFalse(bundle["summary"]["target_model_parity"])
         self.assertFalse(bundle["summary"]["g2_g3_gate_evidence"])
 

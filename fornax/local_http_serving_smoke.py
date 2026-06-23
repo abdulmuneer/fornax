@@ -1969,6 +1969,145 @@ def run_local_http_serving_smoke(
             and target_fixture_execution_summary.get("real_frontier_model") is False
         )
     )
+    local_topology_route_required = (
+        include_activation_transfer_probe
+        or include_runtime_probes
+        or include_target_fixture_execution_probe
+    )
+    local_topology_logical_hosts = ["localhost"]
+
+    def _add_logical_host(value: Any) -> None:
+        if isinstance(value, str) and value and value not in local_topology_logical_hosts:
+            local_topology_logical_hosts.append(value)
+
+    local_topology_components: list[dict[str, Any]] = [
+        {
+            "name": "serving-gateway",
+            "kind": "endpoint",
+            "logical_host": "localhost",
+            "network_host": server_host,
+            "scheme": scheme,
+            "selected": True,
+            "reason": "localhost OpenAI-compatible gateway for local endpoint smoke",
+        },
+        {
+            "name": "scheduler-admission",
+            "kind": "scheduler",
+            "logical_host": "localhost",
+            "selected": True,
+            "reason": "local bounded admission slot owns endpoint request lifecycle",
+        },
+    ]
+    if include_activation_transfer_probe:
+        _add_logical_host(activation_transfer_logical_source_host)
+        _add_logical_host(activation_transfer_logical_destination_host)
+        local_topology_components.append(
+            {
+                "name": "activation-transfer",
+                "kind": "transport",
+                "source_logical_host": activation_transfer_logical_source_host,
+                "destination_logical_host": activation_transfer_logical_destination_host,
+                "source_device": activation_transfer_summary.get("source_device"),
+                "destination_device": activation_transfer_summary.get("destination_device"),
+                "measured": activation_transfer_summary.get("measured") is True,
+                "selected": True,
+                "reason": "configured same-host logical activation transfer route measured in this endpoint artifact",
+            }
+        )
+    if include_runtime_probes:
+        _add_logical_host(runtime_probe_logical_source_host)
+        _add_logical_host(runtime_probe_logical_destination_host)
+        local_topology_components.extend(
+            [
+                {
+                    "name": "split-pipeline",
+                    "kind": "pipeline",
+                    "source_logical_host": runtime_probe_logical_source_host,
+                    "destination_logical_host": runtime_probe_logical_destination_host,
+                    "source_device": pipeline_correctness_summary.get("source_device"),
+                    "destination_device": pipeline_correctness_summary.get("destination_device"),
+                    "measured": pipeline_correctness_summary.get("measured") is True,
+                    "selected": True,
+                    "reason": "configured logical source/destination route for local split-pipeline correctness probe",
+                },
+                {
+                    "name": "remote-moe-expert",
+                    "kind": "moe-expert",
+                    "source_logical_host": runtime_probe_logical_source_host,
+                    "expert_logical_host": runtime_probe_logical_destination_host,
+                    "source_device": moe_layer_parity_summary.get("source_device"),
+                    "expert_device": moe_layer_parity_summary.get("expert_device"),
+                    "measured": moe_layer_parity_summary.get("measured") is True,
+                    "selected": True,
+                    "reason": "configured logical source/expert route for local MoE parity probe",
+                },
+            ]
+        )
+    if include_target_fixture_execution_probe:
+        _add_logical_host(target_fixture_execution_logical_host)
+        local_topology_components.append(
+            {
+                "name": "target-fixture-execution",
+                "kind": "target-fixture",
+                "logical_host": target_fixture_execution_logical_host,
+                "device": target_fixture_execution_summary.get("device"),
+                "measured": target_fixture_execution_summary.get("measured") is True,
+                "selected": True,
+                "reason": "configured logical host for measured local target-fixture execution",
+            }
+        )
+    local_topology_deferred_hardware = [
+        {
+            "hardware_class": "AMD GPU node",
+            "reason": "not present in this local development machine; H100 logical-host proxy is not G3 evidence",
+            "blocks_local_validation": False,
+        },
+        {
+            "hardware_class": "Apple Silicon Mac",
+            "reason": "not present in this local development machine; Apple role evidence remains a separate gate item",
+            "blocks_local_validation": False,
+        },
+    ]
+    local_topology_route = (
+        {
+            "version": 1,
+            "mode": "local-logical-host-route",
+            "scope": "local-logical-host-only",
+            "endpoint": endpoint,
+            "plan_id": plan_id,
+            "plan_hash": plan_hash,
+            "logical_hosts": local_topology_logical_hosts,
+            "components": local_topology_components,
+            "deferred_hardware": local_topology_deferred_hardware,
+            "production_topology_evidence": False,
+            "distributed_topology_evidence": False,
+            "g3_gate_evidence": False,
+        }
+        if local_topology_route_required
+        else None
+    )
+    required_topology_components: set[str] = set()
+    if include_activation_transfer_probe:
+        required_topology_components.add("activation-transfer")
+    if include_runtime_probes:
+        required_topology_components.update({"split-pipeline", "remote-moe-expert"})
+    if include_target_fixture_execution_probe:
+        required_topology_components.add("target-fixture-execution")
+    topology_component_names = {component.get("name") for component in local_topology_components}
+    local_topology_route_ok = (
+        not local_topology_route_required
+        or (
+            isinstance(local_topology_route, dict)
+            and local_topology_route.get("mode") == "local-logical-host-route"
+            and local_topology_route.get("scope") == "local-logical-host-only"
+            and len(local_topology_logical_hosts) >= 2
+            and required_topology_components.issubset(topology_component_names)
+            and len(local_topology_deferred_hardware) >= 2
+            and local_topology_route.get("production_topology_evidence") is False
+            and local_topology_route.get("distributed_topology_evidence") is False
+            and local_topology_route.get("g3_gate_evidence") is False
+        )
+    )
     backend_target_ok = target_fixture_ok if target_fixture_enabled else (
         backend_summary.get("target_model_loaded") is False
         and backend_summary.get("target_model_parity") is False
@@ -2042,6 +2181,14 @@ def run_local_http_serving_smoke(
                 "warnings": ["target fixture execution probe is not real frontier target-model parity"],
             }
         ] if include_target_fixture_execution_probe else []),
+        *([
+            {
+                "name": "local-topology-route",
+                "ok": local_topology_route_ok,
+                "errors": [] if local_topology_route_ok else ["local topology route invalid"],
+                "warnings": ["local logical-host route is not real heterogeneous fabric evidence"],
+            }
+        ] if local_topology_route_required else []),
         {"name": "non-stream-http", "ok": non_stream_ok, "errors": [] if non_stream_ok else ["non-stream HTTP response invalid"], "warnings": []},
         {"name": "stream-sse", "ok": stream_ok, "errors": [] if stream_ok else ["SSE stream response invalid"], "warnings": []},
         {"name": "plan-integrity-reject", "ok": plan_reject_ok, "errors": [] if plan_reject_ok else ["plan integrity rejection invalid"], "warnings": []},
@@ -2166,6 +2313,15 @@ def run_local_http_serving_smoke(
         "target_fixture_execution_tokens_s": target_fixture_execution_summary.get("tokens_s"),
         "target_fixture_execution_max_abs_error": target_fixture_execution_summary.get("max_abs_error"),
         "target_fixture_execution_real_frontier_model": target_fixture_execution_summary.get("real_frontier_model") if include_target_fixture_execution_probe else False,
+        "local_topology_route_included": local_topology_route_required,
+        "local_topology_route_verified": local_topology_route_ok if local_topology_route_required else False,
+        "local_topology_route_scope": "local-logical-host-only" if local_topology_route_required else None,
+        "local_topology_logical_hosts": local_topology_logical_hosts if local_topology_route_required else [],
+        "local_topology_logical_host_count": len(local_topology_logical_hosts) if local_topology_route_required else 0,
+        "local_topology_component_count": len(local_topology_components) if local_topology_route_required else 0,
+        "local_topology_deferred_hardware_count": len(local_topology_deferred_hardware) if local_topology_route_required else 0,
+        "local_topology_production_evidence": False,
+        "local_topology_distributed_evidence": False,
         "real_frontier_model_loaded": False,
         "real_frontier_model_parity": False,
         "elapsed_s": elapsed_ns / 1_000_000_000.0,
@@ -2266,6 +2422,7 @@ def run_local_http_serving_smoke(
             "production_mtls": False,
         },
         "lifecycle": lifecycle_summary,
+        "local_topology_route": local_topology_route,
         "backend": backend_summary,
         "target_fixture": target_fixture_summary,
         "activation_transfer_probe": activation_transfer_probe,
@@ -2305,7 +2462,8 @@ def run_local_http_serving_smoke(
             "it records measured same-host transfer timing only. When runtime probe mode is enabled, "
             "it records measured split-pipeline and MoE-layer parity probes only. "
             "When target-fixture execution probe mode is enabled, "
-            "it records measured local fixture execution only. TLS mode uses a local self-signed fixture "
+            "it records measured local fixture execution only. When any measured probe is enabled, "
+            "it also records the local logical-host route and deferred hardware explanations. TLS mode uses a local self-signed fixture "
             "certificate with client verification; mTLS mode additionally requires a local "
             "client certificate and records the peer identity. It is not product auth/mTLS, real frontier "
             "multi-host serving, or G2/G3 closure evidence."
@@ -2559,6 +2717,81 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("moe_layer_parity_probe must be null unless runtime probes are included")
         if moe_layer_parity_validation is not None:
             errors.append("moe_layer_parity_validation must be null unless runtime probes are included")
+    local_topology_route_required = (
+        activation_transfer_probe_included
+        or runtime_probes_included
+        or target_fixture_execution_probe_included
+    )
+    local_topology_route = data.get("local_topology_route")
+    required_topology_components: set[str] = set()
+    if activation_transfer_probe_included:
+        required_topology_components.add("activation-transfer")
+    if runtime_probes_included:
+        required_topology_components.update({"split-pipeline", "remote-moe-expert"})
+    if target_fixture_execution_probe_included:
+        required_topology_components.add("target-fixture-execution")
+    if local_topology_route_required:
+        if summary.get("local_topology_route_included") is not True:
+            errors.append("summary.local_topology_route_included must be true when measured probes are included")
+        if summary.get("local_topology_route_verified") is not True:
+            errors.append("summary.local_topology_route_verified must be true when measured probes are included")
+        if summary.get("local_topology_route_scope") != "local-logical-host-only":
+            errors.append("summary.local_topology_route_scope must be local-logical-host-only")
+        if summary.get("local_topology_production_evidence") is not False:
+            errors.append("summary.local_topology_production_evidence must be false")
+        if summary.get("local_topology_distributed_evidence") is not False:
+            errors.append("summary.local_topology_distributed_evidence must be false")
+        if not isinstance(local_topology_route, dict):
+            errors.append("local_topology_route must be an object when measured probes are included")
+            local_topology_route = {}
+        if local_topology_route.get("version") != 1:
+            errors.append("local_topology_route.version must be 1")
+        if local_topology_route.get("mode") != "local-logical-host-route":
+            errors.append("local_topology_route.mode must be local-logical-host-route")
+        if local_topology_route.get("scope") != "local-logical-host-only":
+            errors.append("local_topology_route.scope must be local-logical-host-only")
+        if local_topology_route.get("production_topology_evidence") is not False:
+            errors.append("local_topology_route.production_topology_evidence must be false")
+        if local_topology_route.get("distributed_topology_evidence") is not False:
+            errors.append("local_topology_route.distributed_topology_evidence must be false")
+        if local_topology_route.get("g3_gate_evidence") is not False:
+            errors.append("local_topology_route.g3_gate_evidence must be false")
+        logical_hosts = local_topology_route.get("logical_hosts")
+        if not isinstance(logical_hosts, list) or len(logical_hosts) < 2:
+            errors.append("local_topology_route.logical_hosts must contain at least two logical hosts")
+            logical_hosts = []
+        if summary.get("local_topology_logical_hosts") != logical_hosts:
+            errors.append("summary.local_topology_logical_hosts must match local_topology_route.logical_hosts")
+        if summary.get("local_topology_logical_host_count") != len(logical_hosts):
+            errors.append("summary.local_topology_logical_host_count must match local_topology_route.logical_hosts")
+        components = local_topology_route.get("components")
+        if not isinstance(components, list) or not components:
+            errors.append("local_topology_route.components must be a non-empty list")
+            components = []
+        component_names = {component.get("name") for component in components if isinstance(component, dict)}
+        missing_components = sorted(required_topology_components - component_names)
+        if missing_components:
+            errors.append(f"local_topology_route.components missing required components: {missing_components}")
+        if summary.get("local_topology_component_count") != len(components):
+            errors.append("summary.local_topology_component_count must match local_topology_route.components")
+        deferred_hardware = local_topology_route.get("deferred_hardware")
+        if not isinstance(deferred_hardware, list) or len(deferred_hardware) < 2:
+            errors.append("local_topology_route.deferred_hardware must include AMD and Apple deferrals")
+            deferred_hardware = []
+        deferred_classes = {item.get("hardware_class") for item in deferred_hardware if isinstance(item, dict)}
+        if "AMD GPU node" not in deferred_classes:
+            errors.append("local_topology_route.deferred_hardware must include AMD GPU node")
+        if "Apple Silicon Mac" not in deferred_classes:
+            errors.append("local_topology_route.deferred_hardware must include Apple Silicon Mac")
+        if summary.get("local_topology_deferred_hardware_count") != len(deferred_hardware):
+            errors.append("summary.local_topology_deferred_hardware_count must match local_topology_route.deferred_hardware")
+    else:
+        if summary.get("local_topology_route_included") is not False:
+            errors.append("summary.local_topology_route_included must be false when measured probes are omitted")
+        if summary.get("local_topology_route_verified") is not False:
+            errors.append("summary.local_topology_route_verified must be false when measured probes are omitted")
+        if local_topology_route is not None:
+            errors.append("local_topology_route must be null when measured probes are omitted")
     config = data.get("config")
     if isinstance(config, dict) and "auth_token" in config:
         errors.append("config.auth_token must be redacted")
@@ -2858,6 +3091,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("checks must include local-mtls-node-identity when mTLS is enabled")
     if target_fixture_execution_probe_included and "target-fixture-execution-probe" not in check_names:
         errors.append("checks must include target-fixture-execution-probe when included")
+    if local_topology_route_required and "local-topology-route" not in check_names:
+        errors.append("checks must include local-topology-route when measured probes are included")
     if activation_transfer_probe_included and "activation-transfer-probe" not in check_names:
         errors.append("checks must include activation-transfer-probe when included")
     if runtime_probes_included:
@@ -3062,6 +3297,10 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.production_auth_enabled must be false for local smoke")
     if summary.get("target_model_parity") is not False:
         errors.append("summary.target_model_parity must be false")
+    if summary.get("local_topology_production_evidence") is not False:
+        errors.append("summary.local_topology_production_evidence must be false")
+    if summary.get("local_topology_distributed_evidence") is not False:
+        errors.append("summary.local_topology_distributed_evidence must be false")
     if summary.get("g2_g3_gate_evidence") is not False:
         errors.append("summary.g2_g3_gate_evidence must be false")
     if summary.get("correctness_passed") is not True:
@@ -3144,6 +3383,11 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "target_fixture_execution_accelerator_measured": summary.get("target_fixture_execution_accelerator_measured") is True,
             "target_fixture_execution_generated_text": summary.get("target_fixture_execution_generated_text"),
             "target_fixture_execution_real_frontier_model": summary.get("target_fixture_execution_real_frontier_model"),
+            "local_topology_route_included": summary.get("local_topology_route_included") is True,
+            "local_topology_route_verified": summary.get("local_topology_route_verified") is True,
+            "local_topology_logical_hosts": summary.get("local_topology_logical_hosts"),
+            "local_topology_component_count": summary.get("local_topology_component_count"),
+            "local_topology_deferred_hardware_count": summary.get("local_topology_deferred_hardware_count"),
             "real_frontier_model_parity": summary.get("real_frontier_model_parity") is True,
             "live_http_endpoint": summary.get("live_http_endpoint") is True,
             "target_model_parity": summary.get("target_model_parity") is True,
