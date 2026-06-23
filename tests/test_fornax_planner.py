@@ -2801,6 +2801,15 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("artifact_validation.ops_lifecycle.artifact", "; ".join(result["errors"]))
 
+    def test_phase4_resilience_gate_rejects_missing_gate_signer(self) -> None:
+        packet = self._valid_phase4_resilience_gate_packet()
+        packet["accepted_by"] = ""
+        result = validate_phase4_resilience_gate_packet(packet)
+        errors = "; ".join(result["errors"])
+        self.assertFalse(result["ok"])
+        self.assertIn("accepted_by", errors)
+        self.assertIn("phase4_proxy_passed", errors)
+
     def test_phase4_resilience_gate_reports_malformed_evidence_check(self) -> None:
         packet = self._valid_phase4_resilience_gate_packet()
         packet["evidence_checks"].append("not-a-check")
@@ -2882,6 +2891,15 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_phase5_ga_gate_packet(packet)
         self.assertFalse(result["ok"])
         self.assertIn("artifact_validation.benchmark_ledger.artifact", "; ".join(result["errors"]))
+
+    def test_phase5_ga_gate_rejects_non_deferred_requirement_status(self) -> None:
+        packet = self._valid_phase5_ga_gate_packet()
+        packet["deferred_requirements"][0]["status"] = "completed"
+        result = validate_phase5_ga_gate_packet(packet)
+        errors = "; ".join(result["errors"])
+        self.assertFalse(result["ok"])
+        self.assertIn("deferred_requirements.installable-release-package.status", errors)
+        self.assertIn("phase5_proxy_passed", errors)
 
     def test_phase5_ga_gate_reports_malformed_evidence_check(self) -> None:
         packet = self._valid_phase5_ga_gate_packet()

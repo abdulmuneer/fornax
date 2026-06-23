@@ -126,6 +126,51 @@ def _validate_artifact_paths(
     return result
 
 
+def _validate_gate_metadata(packet: dict[str, Any], errors: list[str]) -> None:
+    packet_date = packet.get("date")
+    if not isinstance(packet_date, str) or not packet_date:
+        errors.append("date must be a non-empty ISO date string")
+    else:
+        try:
+            date.fromisoformat(packet_date)
+        except ValueError:
+            errors.append("date must be a valid ISO date string")
+    for field in ("accepted_by", "decision"):
+        if not isinstance(packet.get(field), str) or not packet.get(field):
+            errors.append(f"{field} must be a non-empty string")
+
+
+def _validate_deferred_requirements(
+    value: Any,
+    required_items: list[dict[str, Any]],
+    errors: list[str],
+) -> list[Any]:
+    required_ids = {item["id"] for item in required_items}
+    if not isinstance(value, list) or len(value) < len(required_items):
+        errors.append("deferred_requirements must include formal deferred items")
+        return []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(value):
+        field = f"deferred_requirements[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{field} must be an object")
+            continue
+        item_id = item.get("id")
+        if not isinstance(item_id, str) or not item_id:
+            errors.append(f"{field}.id must be a non-empty string")
+            continue
+        if item_id in seen_ids:
+            errors.append(f"deferred_requirements.{item_id} must not be duplicated")
+        seen_ids.add(item_id)
+        if item.get("status") != "deferred":
+            errors.append(f"deferred_requirements.{item_id}.status must be deferred")
+        if not isinstance(item.get("reason"), str) or not item.get("reason"):
+            errors.append(f"deferred_requirements.{item_id}.reason must be a non-empty string")
+    for required_id in sorted(required_ids - seen_ids):
+        errors.append(f"deferred_requirements missing {required_id}")
+    return value
+
+
 def _proxy_hardware_record(
     *,
     proxy_hardware_name: str,
@@ -586,6 +631,7 @@ def validate_phase5_ga_gate_packet(packet: dict[str, Any]) -> dict[str, Any]:
         errors.append("formal_g5_passed must remain false for the two-H100 proxy gate")
     if packet.get("formal_g5_validation_deferred") is not True:
         errors.append("formal_g5_validation_deferred must be true")
+    _validate_gate_metadata(packet, errors)
 
     selected_devices, logical_hosts = _validate_proxy_hardware(packet, errors)
 
@@ -679,17 +725,15 @@ def validate_phase5_ga_gate_packet(packet: dict[str, Any]) -> dict[str, Any]:
     if "G5 can pass only" not in str(runbook.get("formal_gate_rule", "")):
         errors.append("runbook.formal_gate_rule must preserve the formal G5 boundary")
 
-    deferred = packet.get("deferred_requirements")
-    if not isinstance(deferred, list) or len(deferred) < len(DEFERRED_REQUIREMENTS):
-        errors.append("deferred_requirements must include formal G5 deferred items")
-        deferred = []
-    deferred_ids = {item.get("id") for item in deferred if isinstance(item, dict)}
-    for required_id in {item["id"] for item in DEFERRED_REQUIREMENTS}:
-        if required_id not in deferred_ids:
-            errors.append(f"deferred_requirements missing {required_id}")
-    proxy_should_pass = packet.get("outcome") == "PROCEED" and not failed and not missing
+    deferred = _validate_deferred_requirements(
+        packet.get("deferred_requirements"),
+        DEFERRED_REQUIREMENTS,
+        errors,
+    )
+    pre_proxy_errors = list(errors)
+    proxy_should_pass = packet.get("outcome") == "PROCEED" and not failed and not missing and not pre_proxy_errors
     if packet.get("phase5_proxy_passed") is not proxy_should_pass:
-        errors.append("phase5_proxy_passed must match PROCEED outcome and passing evidence checks")
+        errors.append("phase5_proxy_passed must match PROCEED outcome and a fully valid proxy packet")
 
     summary = packet.get("summary")
     if not isinstance(summary, dict):

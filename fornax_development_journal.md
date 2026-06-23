@@ -2669,3 +2669,16 @@
   - System Engineering: approve with comments. Gate artifacts now have better internal chain-of-custody between artifact references and embedded validation records.
   - Hardware/Networking: approve with comments. H100 proxy scope and local lifecycle evidence remain explicit; formal hardware/network validation is still deferred by design.
 - Verification: `python3 -m py_compile fornax/phase4_resilience_gate.py fornax/phase5_ga_gate.py tests/test_fornax_planner.py` passed; focused review-regression tests passed 7/7; `python3 -m fornax test phase4-resilience-gate` passed; `python3 -m fornax test phase5-ga-gate` passed; `python3 -m unittest tests.test_fornax_planner` passed 241 tests after rerunning a transient local HTTP smoke timing failure in isolation; `python3 -m compileall -q fornax tests` passed; `make fornax-golden` passed; `make fornax-test` passed 241 tests.
+
+### Phase 4/5 gate metadata and deferral invariant review
+
+- Reviewed the latest Phase 4/5 proxy gate validators through the Software Engineering, System Engineering, Organizational, and Analytical review lenses.
+- Top issue fixed: gate decision metadata was not enforced. Phase 4 and Phase 5 validators now require a valid ISO `date`, non-empty `accepted_by`, and non-empty `decision` before a proxy pass can remain valid.
+- Top issue fixed: formal deferral rows were checked only by ID. Validators now require each deferred requirement to be an object with unique ID, `status: deferred`, and a non-empty reason. Changing a formal deferral status now invalidates the packet and forces the proxy-pass consistency check to fail closed.
+- Added regression tests for missing Phase 4 gate signer metadata and non-deferred Phase 5 requirement status.
+- Review-lens pass:
+  - Software Engineering: approve. Gate packets now validate as durable decision records, not just evidence bundles.
+  - System Engineering: approve. Proxy closure is now tied to complete metadata and explicit deferral state, so downstream reviewers cannot accidentally treat a malformed decision packet as accepted.
+  - Organizational: approve with comments. The accepted-by and deferral invariants reduce handoff ambiguity for later Sponsor and operator review.
+  - Analytical: approve. The packet cannot claim a proxy pass when the assumptions that keep formal work deferred have been edited away.
+- Verification: `python3 -m py_compile fornax/phase4_resilience_gate.py fornax/phase5_ga_gate.py tests/test_fornax_planner.py` passed; focused gate metadata/deferral regression tests passed 4/4; `python3 -m fornax test phase4-resilience-gate` passed; `python3 -m fornax test phase5-ga-gate` passed; `python3 -m unittest tests.test_fornax_planner` passed 243 tests; `python3 -m compileall -q fornax tests` passed; `make fornax-golden` passed; `make fornax-test` passed 243 tests.
