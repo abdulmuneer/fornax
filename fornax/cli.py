@@ -127,6 +127,12 @@ from .phase4_resilience_gate import (
     validate_phase4_resilience_gate,
     validate_phase4_resilience_gate_packet,
 )
+from .phase5_ga_gate import (
+    build_phase5_ga_gate_packet,
+    render_phase5_g5_runbook_markdown,
+    validate_phase5_ga_gate,
+    validate_phase5_ga_gate_packet,
+)
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
 from .serving import (
@@ -1330,6 +1336,9 @@ def _cmd_program_phase4_resilience_gate(args: argparse.Namespace) -> int:
             packet_date=args.date,
             outcome=args.outcome,
             accepted_by=args.accepted_by,
+            proxy_hardware_name=args.proxy_hardware_name,
+            proxy_devices=[item.strip() for item in args.proxy_devices.split(",") if item.strip()],
+            proxy_logical_hosts=[item.strip() for item in args.proxy_logical_hosts.split(",") if item.strip()],
         )
     except (OSError, ValueError) as exc:
         print(f"program phase4-resilience-gate: {exc}")
@@ -1362,6 +1371,54 @@ def _cmd_program_phase4_resilience_gate(args: argparse.Namespace) -> int:
         f"{args.out} errors=" + "; ".join(validation["errors"])
     )
     return 1
+
+
+def _cmd_program_phase5_ga_gate(args: argparse.Namespace) -> int:
+    try:
+        result = build_phase5_ga_gate_packet(
+            args.ops_artifact,
+            args.onboarding_artifact,
+            args.benchmark_ledger,
+            args.phase4_artifact,
+            packet_date=args.date,
+            outcome=args.outcome,
+            accepted_by=args.accepted_by,
+            proxy_hardware_name=args.proxy_hardware_name,
+            proxy_devices=[item.strip() for item in args.proxy_devices.split(",") if item.strip()],
+            proxy_logical_hosts=[item.strip() for item in args.proxy_logical_hosts.split(",") if item.strip()],
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program phase5-ga-gate: {exc}")
+        return 2
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    write_json(args.out, result)
+    if args.runbook_out:
+        Path(args.runbook_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.runbook_out).write_text(
+            render_phase5_g5_runbook_markdown(result["runbook"]),
+            encoding="utf-8",
+        )
+    validation = validate_phase5_ga_gate_packet(result)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    if validation["ok"]:
+        print(
+            "wrote Phase 5 GA proxy gate packet: "
+            f"{args.out} proxy_passed={summary['phase5_proxy_passed']} "
+            f"formal_g5_passed={summary['formal_g5_passed']} "
+            f"checks={summary['passed_count']}/{summary['check_count']} "
+            f"runbook_scenarios={summary['runbook_scenario_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print(
+        "wrote invalid Phase 5 GA proxy gate packet: "
+        f"{args.out} errors=" + "; ".join(validation["errors"])
+    )
+    return 1
+
 
 def _cmd_program_g1_evidence_packet(args: argparse.Namespace) -> int:
     try:
@@ -2593,6 +2650,28 @@ def _cmd_test_phase4_resilience_gate(args: argparse.Namespace) -> int:
     print("FAIL phase4-resilience-gate: " + "; ".join(result["errors"]))
     return 1
 
+
+def _cmd_test_phase5_ga_gate(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/phase5_ga_gate"
+    result = validate_phase5_ga_gate(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS phase5-ga-gate: {fixture} "
+            f"proxy_passed={summary['phase5_proxy_passed']} "
+            f"formal_g5_passed={summary['formal_g5_passed']} "
+            f"checks={summary['passed_count']}/{summary['check_count']} "
+            f"runbook_scenarios={summary['runbook_scenario_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL phase5-ga-gate: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_backend_coverage(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/backend_coverage"
     result = validate_backend_coverage_contract(fixture)
@@ -2667,6 +2746,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_backend_coverage(args)
     if args.test_name == "phase4-resilience-gate":
         return _cmd_test_phase4_resilience_gate(args)
+    if args.test_name == "phase5-ga-gate":
+        return _cmd_test_phase5_ga_gate(args)
     if args.test_name == "benchmark-ledger":
         return _cmd_test_benchmark_ledger(args)
     if args.test_name == "expert-mlp-probe":
@@ -2853,7 +2934,6 @@ def build_parser() -> argparse.ArgumentParser:
     phase3_proxy.add_argument("--accepted-by", default="operator")
     phase3_proxy.set_defaults(func=_cmd_program_phase3_proxy_gate)
 
-
     phase4_resilience = program_sub.add_parser("phase4-resilience-gate")
     phase4_resilience.add_argument("--resilience-artifact", required=True)
     phase4_resilience.add_argument("--replication-artifact", required=True)
@@ -2863,7 +2943,25 @@ def build_parser() -> argparse.ArgumentParser:
     phase4_resilience.add_argument("--date")
     phase4_resilience.add_argument("--outcome", choices=["PROCEED", "ITERATE", "NARROW", "KILL"], default="PROCEED")
     phase4_resilience.add_argument("--accepted-by", default="operator")
+    phase4_resilience.add_argument("--proxy-hardware-name", default="NVIDIA H100 80GB HBM3")
+    phase4_resilience.add_argument("--proxy-devices", default="cuda:0,cuda:1")
+    phase4_resilience.add_argument("--proxy-logical-hosts", default="logical-host-0,logical-host-1")
     phase4_resilience.set_defaults(func=_cmd_program_phase4_resilience_gate)
+
+    phase5_ga = program_sub.add_parser("phase5-ga-gate")
+    phase5_ga.add_argument("--ops-artifact", required=True)
+    phase5_ga.add_argument("--onboarding-artifact", required=True)
+    phase5_ga.add_argument("--benchmark-ledger", required=True)
+    phase5_ga.add_argument("--phase4-artifact", required=True)
+    phase5_ga.add_argument("--out", required=True)
+    phase5_ga.add_argument("--runbook-out")
+    phase5_ga.add_argument("--date")
+    phase5_ga.add_argument("--outcome", choices=["PROCEED", "ITERATE", "NARROW", "KILL"], default="PROCEED")
+    phase5_ga.add_argument("--accepted-by", default="operator")
+    phase5_ga.add_argument("--proxy-hardware-name", default="NVIDIA H100 80GB HBM3")
+    phase5_ga.add_argument("--proxy-devices", default="cuda:0,cuda:1")
+    phase5_ga.add_argument("--proxy-logical-hosts", default="logical-host-0,logical-host-1")
+    phase5_ga.set_defaults(func=_cmd_program_phase5_ga_gate)
 
     g1_packet = program_sub.add_parser("g1-evidence-packet")
     g1_packet.add_argument("--bundle", required=True)
@@ -3564,6 +3662,7 @@ def build_parser() -> argparse.ArgumentParser:
             "pipeline-correctness-probe",
             "throughput-scaling",
             "phase4-resilience-gate",
+            "phase5-ga-gate",
         ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")

@@ -64,6 +64,49 @@ def _load_fixture(path: str | Path) -> tuple[Path, dict[str, Any]]:
     return fixture_path, data
 
 
+
+def _normalize_string_list(value: list[str] | None, *, default: list[str], field: str) -> list[str]:
+    raw = default if value is None else value
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(f"{field} must be a non-empty list")
+    result: list[str] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, str) or not item:
+            raise ValueError(f"{field}[{index}] must be a non-empty string")
+        result.append(item)
+    if len(set(result)) != len(result):
+        raise ValueError(f"{field} must contain unique values")
+    return result
+
+
+def _proxy_hardware_record(
+    *,
+    proxy_hardware_name: str,
+    proxy_devices: list[str] | None,
+    proxy_logical_hosts: list[str] | None,
+) -> dict[str, Any]:
+    if not isinstance(proxy_hardware_name, str) or not proxy_hardware_name:
+        raise ValueError("proxy_hardware_name must be a non-empty string")
+    selected_devices = _normalize_string_list(
+        proxy_devices,
+        default=["cuda:0", "cuda:1"],
+        field="proxy_devices",
+    )
+    logical_hosts = _normalize_string_list(
+        proxy_logical_hosts,
+        default=["logical-host-0", "logical-host-1"],
+        field="proxy_logical_hosts",
+    )
+    return {
+        "hardware_name": proxy_hardware_name,
+        "selected_devices": selected_devices,
+        "logical_hosts": logical_hosts,
+        "proxy_mode": MODE,
+        "evidence_tier": "local-proxy",
+        "formal_lab_evidence": False,
+        "note": "Selected local H100 devices stand in for separate logical hosts during proxy development.",
+    }
+
 def build_phase4_t4_runbook(*, plan_id: str = "phase4-resilience-elasticity") -> dict[str, Any]:
     scenarios = [
         {
@@ -207,6 +250,9 @@ def build_phase4_resilience_gate_packet(
     outcome: str = "PROCEED",
     accepted_by: str = "operator",
     decision: str = "Use two local H100 GPUs as logical hosts for the current Phase 4 resilience/elasticity proxy gate; defer formal heterogeneous T4 validation.",
+    proxy_hardware_name: str = "NVIDIA H100 80GB HBM3",
+    proxy_devices: list[str] | None = None,
+    proxy_logical_hosts: list[str] | None = None,
 ) -> dict[str, Any]:
     if outcome not in VALID_OUTCOMES:
         raise ValueError(f"outcome must be one of {sorted(VALID_OUTCOMES)}")
@@ -224,6 +270,17 @@ def build_phase4_resilience_gate_packet(
     ops_summary = ops.get("summary") if isinstance(ops.get("summary"), dict) else {}
     ops_accounting = ops.get("request_accounting") if isinstance(ops.get("request_accounting"), dict) else {}
     runbook = build_phase4_t4_runbook()
+    proxy_hardware = _proxy_hardware_record(
+        proxy_hardware_name=proxy_hardware_name,
+        proxy_devices=proxy_devices,
+        proxy_logical_hosts=proxy_logical_hosts,
+    )
+    h100_proxy_scope = (
+        "H100" in proxy_hardware["hardware_name"]
+        and len(proxy_hardware["selected_devices"]) >= 2
+        and len(proxy_hardware["logical_hosts"]) >= 2
+        and proxy_hardware["formal_lab_evidence"] is False
+    )
     runbook_scenarios = {
         scenario.get("id")
         for scenario in runbook.get("scenarios", [])
@@ -271,10 +328,11 @@ def build_phase4_resilience_gate_packet(
         ),
         _check(
             "two-h100-proxy-scope",
-            resilience.get("mode") == "t1-simulation"
+            h100_proxy_scope
+            and resilience.get("mode") == "t1-simulation"
             and replication.get("mode") == "t1-simulation"
             and ops.get("mode") == "t1-simulation",
-            "current evidence is simulation/proxy scope suitable for development with two local H100 logical hosts",
+            "selected local H100 devices and logical hosts are recorded for the simulation/proxy scope",
         ),
         _check(
             "no-formal-g4-overclaim",
@@ -300,6 +358,7 @@ def build_phase4_resilience_gate_packet(
             "stage_replication": str(replication_path),
             "ops_lifecycle": str(ops_path),
         },
+        "proxy_hardware": proxy_hardware,
         "artifact_validation": {
             "resilience_replay": {
                 "ok": resilience_validation.get("ok") is True,
@@ -337,6 +396,9 @@ def build_phase4_resilience_gate_packet(
             "node_replace_verified": ops_summary.get("node_replace_verified") is True,
             "runbook_scenario_count": len(runbook_scenarios),
             "formal_g4_deferred_requirement_count": len(DEFERRED_REQUIREMENTS),
+            "proxy_hardware_name": proxy_hardware["hardware_name"],
+            "proxy_device_count": len(proxy_hardware["selected_devices"]),
+            "proxy_logical_host_count": len(proxy_hardware["logical_hosts"]),
         },
     }
 
@@ -358,6 +420,31 @@ def validate_phase4_resilience_gate_packet(packet: dict[str, Any]) -> dict[str, 
         errors.append("formal_g4_passed must remain false for the two-H100 proxy gate")
     if packet.get("formal_g4_validation_deferred") is not True:
         errors.append("formal_g4_validation_deferred must be true")
+
+
+    proxy_hardware = packet.get("proxy_hardware")
+    if not isinstance(proxy_hardware, dict):
+        errors.append("proxy_hardware must be an object")
+        proxy_hardware = {}
+    hardware_name = proxy_hardware.get("hardware_name")
+    if not isinstance(hardware_name, str) or not hardware_name:
+        errors.append("proxy_hardware.hardware_name must be a non-empty string")
+    elif "H100" not in hardware_name:
+        errors.append("proxy_hardware.hardware_name must identify local H100 proxy hardware")
+    selected_devices = proxy_hardware.get("selected_devices")
+    if not isinstance(selected_devices, list) or len(selected_devices) < 2:
+        errors.append("proxy_hardware.selected_devices must contain at least two devices")
+        selected_devices = []
+    elif len(set(selected_devices)) != len(selected_devices) or not all(isinstance(item, str) and item for item in selected_devices):
+        errors.append("proxy_hardware.selected_devices must contain unique non-empty strings")
+    logical_hosts = proxy_hardware.get("logical_hosts")
+    if not isinstance(logical_hosts, list) or len(logical_hosts) < 2:
+        errors.append("proxy_hardware.logical_hosts must contain at least two hosts")
+        logical_hosts = []
+    elif len(set(logical_hosts)) != len(logical_hosts) or not all(isinstance(item, str) and item for item in logical_hosts):
+        errors.append("proxy_hardware.logical_hosts must contain unique non-empty strings")
+    if proxy_hardware.get("formal_lab_evidence") is not False:
+        errors.append("proxy_hardware.formal_lab_evidence must be false for proxy gate packets")
 
     artifact_validation = packet.get("artifact_validation")
     if not isinstance(artifact_validation, dict):
@@ -444,6 +531,10 @@ def validate_phase4_resilience_gate_packet(packet: dict[str, Any]) -> dict[str, 
         errors.append("summary.replication_correctness_passed must be true")
     if summary.get("rollback_verified") is not True or summary.get("node_replace_verified") is not True:
         errors.append("summary rollback/node replacement flags must be true")
+    if selected_devices and summary.get("proxy_device_count") != len(selected_devices):
+        errors.append("summary.proxy_device_count must match proxy_hardware.selected_devices")
+    if logical_hosts and summary.get("proxy_logical_host_count") != len(logical_hosts):
+        errors.append("summary.proxy_logical_host_count must match proxy_hardware.logical_hosts")
     if packet.get("phase4_proxy_passed") is True:
         warnings.append("Phase 4 proxy gate passed using simulation artifacts over two local H100 logical hosts; formal G4 T4 validation remains deferred.")
     return {

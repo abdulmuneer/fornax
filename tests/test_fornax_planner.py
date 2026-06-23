@@ -141,6 +141,12 @@ from fornax.phase4_resilience_gate import (
     validate_phase4_resilience_gate,
     validate_phase4_resilience_gate_packet,
 )
+from fornax.phase5_ga_gate import (
+    build_phase5_ga_gate_packet,
+    render_phase5_g5_runbook_markdown,
+    validate_phase5_ga_gate,
+    validate_phase5_ga_gate_packet,
+)
 from fornax.t1_simulated_validation import run_t1_simulated_validation
 from fornax.preflight import run_phase0_preflight
 from fornax.program_governance import (
@@ -2754,6 +2760,8 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertEqual(7, result["summary"]["passed_count"])
         self.assertEqual(4, result["summary"]["runbook_scenario_count"])
         self.assertIn("two local H100", "; ".join(result["warnings"]))
+        self.assertEqual(["cuda:0", "cuda:1"], packet["proxy_hardware"]["selected_devices"])
+        self.assertFalse(packet["proxy_hardware"]["formal_lab_evidence"])
         markdown = render_phase4_t4_runbook_markdown(packet["runbook"])
         self.assertIn("single-node-loss-zero-drop", markdown)
         self.assertIn("added-node-scaling", markdown)
@@ -2777,11 +2785,80 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("added-node-scaling", "; ".join(result["errors"]))
 
+
+    def test_phase4_resilience_gate_rejects_missing_proxy_hardware(self) -> None:
+        packet = self._valid_phase4_resilience_gate_packet()
+        packet["proxy_hardware"]["selected_devices"] = ["cuda:0"]
+        packet["summary"]["proxy_device_count"] = 1
+        result = validate_phase4_resilience_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("selected_devices", "; ".join(result["errors"]))
+
     def test_phase4_resilience_gate_fixture_passes(self) -> None:
         result = validate_phase4_resilience_gate("fornax/golden_vectors/phase4_resilience_gate")
         self.assertTrue(result["ok"], result["errors"])
         self.assertTrue(result["summary"]["phase4_proxy_passed"])
         self.assertFalse(result["summary"]["formal_g4_passed"])
+
+    def _valid_phase5_ga_gate_packet(self) -> dict[str, object]:
+        return build_phase5_ga_gate_packet(
+            "fornax/golden_vectors/ops_lifecycle",
+            "fornax/golden_vectors/onboarding_methodology",
+            "fornax/golden_vectors/benchmark_ledger",
+            "fornax/golden_vectors/phase4_resilience_gate",
+            packet_date="2026-06-23",
+            outcome="PROCEED",
+            accepted_by="operator",
+        )
+
+    def test_phase5_ga_gate_packet_validates_two_h100_proxy(self) -> None:
+        packet = self._valid_phase5_ga_gate_packet()
+        result = validate_phase5_ga_gate_packet(packet)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(result["summary"]["phase5_proxy_passed"])
+        self.assertFalse(result["summary"]["formal_g5_passed"])
+        self.assertEqual(11, result["summary"]["passed_count"])
+        self.assertEqual(6, result["summary"]["runbook_scenario_count"])
+        self.assertIn("two local H100", "; ".join(result["warnings"]))
+        self.assertEqual(["cuda:0", "cuda:1"], packet["proxy_hardware"]["selected_devices"])
+        self.assertEqual("/v1/chat/completions", packet["operator_configs"]["serving_endpoint"])
+        self.assertFalse(packet["formal_g5_passed"])
+        markdown = render_phase5_g5_runbook_markdown(packet["runbook"])
+        self.assertIn("operator-config-doctor", markdown)
+        self.assertIn("benchmark-of-record", markdown)
+
+    def test_phase5_ga_gate_rejects_formal_g5_overclaim(self) -> None:
+        packet = self._valid_phase5_ga_gate_packet()
+        packet["formal_g5_passed"] = True
+        result = validate_phase5_ga_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("formal_g5_passed", "; ".join(result["errors"]))
+
+    def test_phase5_ga_gate_rejects_missing_runbook_scenario(self) -> None:
+        packet = self._valid_phase5_ga_gate_packet()
+        packet["runbook"]["scenarios"] = [
+            scenario
+            for scenario in packet["runbook"]["scenarios"]
+            if scenario["id"] != "benchmark-of-record"
+        ]
+        packet["summary"]["runbook_scenario_count"] = len(packet["runbook"]["scenarios"])
+        result = validate_phase5_ga_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("benchmark-of-record", "; ".join(result["errors"]))
+
+    def test_phase5_ga_gate_rejects_missing_proxy_hardware(self) -> None:
+        packet = self._valid_phase5_ga_gate_packet()
+        packet["proxy_hardware"]["logical_hosts"] = ["logical-host-0"]
+        packet["summary"]["proxy_logical_host_count"] = 1
+        result = validate_phase5_ga_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("logical_hosts", "; ".join(result["errors"]))
+
+    def test_phase5_ga_gate_fixture_passes(self) -> None:
+        result = validate_phase5_ga_gate("fornax/golden_vectors/phase5_ga_gate")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(result["summary"]["phase5_proxy_passed"])
+        self.assertFalse(result["summary"]["formal_g5_passed"])
 
     def test_program_governance_rejects_missing_cadence_artifact(self) -> None:
         contract = simulate_program_governance()

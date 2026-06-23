@@ -84,7 +84,7 @@
       "ok": true
     },
     {
-      "evidence": "current evidence is simulation/proxy scope suitable for development with two local H100 logical hosts",
+      "evidence": "selected local H100 devices and logical hosts are recorded for the simulation/proxy scope",
       "name": "two-h100-proxy-scope",
       "ok": true
     },
@@ -100,6 +100,21 @@
   "mode": "two-h100-local-proxy",
   "outcome": "PROCEED",
   "phase4_proxy_passed": true,
+  "proxy_hardware": {
+    "evidence_tier": "local-proxy",
+    "formal_lab_evidence": false,
+    "hardware_name": "NVIDIA H100 80GB HBM3",
+    "logical_hosts": [
+      "logical-host-0",
+      "logical-host-1"
+    ],
+    "note": "Selected local H100 devices stand in for separate logical hosts during proxy development.",
+    "proxy_mode": "two-h100-local-proxy",
+    "selected_devices": [
+      "cuda:0",
+      "cuda:1"
+    ]
+  },
   "record_kind": "phase4-g4-resilience-proxy-gate",
   "runbook": {
     "formal_gate_rule": "G4 can pass only with real lab node-loss and added-node evidence; two-H100 local proxy evidence may pass only the current development proxy gate.",
@@ -204,6 +219,9 @@
     "lifecycle_dropped_in_flight_count": 0,
     "node_replace_verified": true,
     "passed_count": 7,
+    "proxy_device_count": 2,
+    "proxy_hardware_name": "NVIDIA H100 80GB HBM3",
+    "proxy_logical_host_count": 2,
     "replica_count": 2,
     "replication_correctness_passed": true,
     "replication_speedup": 2.0,

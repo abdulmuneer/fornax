@@ -1,0 +1,307 @@
+{
+  "accepted_by": "operator",
+  "artifact_validation": {
+    "benchmark_ledger": {
+      "errors": [],
+      "ok": true,
+      "warnings": []
+    },
+    "onboarding_methodology": {
+      "errors": [],
+      "ok": true,
+      "warnings": [
+        "onboarding methodology is simulation evidence, not G5 product-GA closure evidence"
+      ]
+    },
+    "ops_lifecycle": {
+      "errors": [],
+      "ok": true,
+      "warnings": [
+        "ops lifecycle is simulation evidence, not G5 product-ops closure evidence"
+      ]
+    },
+    "phase4_resilience_gate": {
+      "errors": [],
+      "ok": true,
+      "warnings": [
+        "Phase 4 proxy gate passed using simulation artifacts over two local H100 logical hosts; formal G4 T4 validation remains deferred."
+      ]
+    }
+  },
+  "artifacts": {
+    "benchmark_ledger": "fornax/golden_vectors/benchmark_ledger/ledger.jsonl",
+    "onboarding_methodology": "fornax/golden_vectors/onboarding_methodology/fixture.json",
+    "ops_lifecycle": "fornax/golden_vectors/ops_lifecycle/fixture.json",
+    "phase4_resilience_gate": "fornax/golden_vectors/phase4_resilience_gate/fixture.json"
+  },
+  "date": "2026-06-23",
+  "decision": "Use two local H100 GPUs as logical hosts for the current Phase 5 productization/GA proxy gate; defer formal Sponsor G5 validation.",
+  "deferred_requirements": [
+    {
+      "id": "installable-release-package",
+      "reason": "current evidence validates productization contracts and docs, not a signed release artifact",
+      "status": "deferred"
+    },
+    {
+      "id": "real-design-partner-onboarding",
+      "reason": "onboarding paths are machine-validated but have not been completed by a fresh operator",
+      "status": "deferred"
+    },
+    {
+      "id": "lab-reference-benchmark-of-record",
+      "reason": "current benchmark ledger is a measured fixture record; gate-grade lab-reference benchmark remains future work",
+      "status": "deferred"
+    },
+    {
+      "id": "production-deploy-upgrade-rollback",
+      "reason": "lifecycle workflow is simulated over logical hosts and not wired to a production deployment",
+      "status": "deferred"
+    },
+    {
+      "id": "formal-sponsor-ga-acceptance",
+      "reason": "G5 requires Sponsor review after install, operate, upgrade, and serve evidence is attached",
+      "status": "deferred"
+    }
+  ],
+  "evidence_checks": [
+    {
+      "evidence": "validate_ops_lifecycle_fixture(fornax/golden_vectors/ops_lifecycle/fixture.json)",
+      "name": "ops-lifecycle-valid",
+      "ok": true
+    },
+    {
+      "evidence": "cluster.yaml, model.yaml, placement.json, auth, plan integrity, and serving endpoint are represented",
+      "name": "operator-ux-configs",
+      "ok": true
+    },
+    {
+      "evidence": "deploy, drain, upgrade, restart, rollback, and node replacement are audited with zero dropped in-flight requests",
+      "name": "upgrade-drain-rollback-node-replace",
+      "ok": true
+    },
+    {
+      "evidence": "validate_onboarding_methodology_fixture(fornax/golden_vectors/onboarding_methodology/fixture.json)",
+      "name": "onboarding-methodology-valid",
+      "ok": true
+    },
+    {
+      "evidence": "operator, developer, benchmark-owner, reviewer, required docs, and glossary are present for proxy handoff",
+      "name": "onboarding-and-glossary",
+      "ok": true
+    },
+    {
+      "evidence": "validate_benchmark_ledger(fornax/golden_vectors/benchmark_ledger/ledger.jsonl)",
+      "name": "benchmark-ledger-valid",
+      "ok": true
+    },
+    {
+      "evidence": "benchmark methodology defines gate mapping and required inputs; ledger contains measured records",
+      "name": "benchmark-methodology-of-record",
+      "ok": true
+    },
+    {
+      "evidence": "validate_phase4_resilience_gate_packet(fornax/golden_vectors/phase4_resilience_gate/fixture.json)",
+      "name": "prior-g4-proxy-attached",
+      "ok": true
+    },
+    {
+      "evidence": "runbook defines operator UX, lifecycle, node replacement, onboarding, benchmark, and Sponsor review evidence collection",
+      "name": "g5-runbook-defined",
+      "ok": true
+    },
+    {
+      "evidence": "selected local H100 devices and logical hosts are recorded for productization proxy scope",
+      "name": "two-h100-proxy-scope",
+      "ok": true
+    },
+    {
+      "evidence": "formal_g5_passed remains false until installable product, benchmark-of-record, and Sponsor GA evidence are attached",
+      "name": "no-formal-g5-overclaim",
+      "ok": true
+    }
+  ],
+  "formal_g5_passed": false,
+  "formal_g5_validation_deferred": true,
+  "gate": "G5",
+  "mode": "two-h100-local-proxy",
+  "operator_configs": {
+    "auth_required": true,
+    "cluster_node_count": 2,
+    "config_artifacts": [
+      "cluster.yaml",
+      "model.yaml",
+      "placement.json"
+    ],
+    "placement_feasible": true,
+    "plan_integrity_required": true,
+    "serving_endpoint": "/v1/chat/completions",
+    "serving_engine": "FornaxBackend"
+  },
+  "outcome": "PROCEED",
+  "phase5_proxy_passed": true,
+  "proxy_hardware": {
+    "evidence_tier": "local-proxy",
+    "formal_lab_evidence": false,
+    "hardware_name": "NVIDIA H100 80GB HBM3",
+    "logical_hosts": [
+      "logical-host-0",
+      "logical-host-1"
+    ],
+    "note": "Selected local H100 devices stand in for separate logical hosts during productization proxy validation.",
+    "proxy_mode": "two-h100-local-proxy",
+    "selected_devices": [
+      "cuda:0",
+      "cuda:1"
+    ]
+  },
+  "record_kind": "phase5-g5-productization-proxy-gate",
+  "runbook": {
+    "formal_gate_rule": "G5 can pass only with installable product evidence, operator acceptance, benchmark-of-record evidence, and Sponsor GA approval; two-H100 local proxy evidence may pass only the current development proxy gate.",
+    "plan_id": "phase5-productization-ga",
+    "proxy_development_scope": "two local H100 GPUs may stand in for two logical hosts until formal product, lab, and Sponsor evidence is available",
+    "required_artifacts": [
+      "cluster.yaml, model.yaml, and placement.json operator configs",
+      "fornax doctor preflight bundle or equivalent diagnostics",
+      "ops lifecycle artifact",
+      "onboarding package with glossary and benchmark methodology",
+      "benchmark ledger with measured records",
+      "prior G4 resilience gate packet",
+      "Sponsor G5 decision record"
+    ],
+    "scenarios": [
+      {
+        "evidence_commands": [
+          "python3 -m fornax doctor --bundle <preflight-bundle>",
+          "python3 -m fornax test ops-lifecycle"
+        ],
+        "goal": "prove the operator can prepare and inspect cluster, model, and placement artifacts",
+        "id": "operator-config-doctor",
+        "pass_criteria": [
+          "cluster.yaml, model.yaml, and placement.json are documented",
+          "doctor exits cleanly or reports only acknowledged evidence-tier warnings",
+          "operator config validation reports at least two nodes and a serving endpoint"
+        ],
+        "setup": [
+          "prepare cluster.yaml, model.yaml, and placement.json from the operator package",
+          "keep plan-integrity and auth requirements enabled",
+          "write a preflight bundle before lab deployment or Sponsor review"
+        ]
+      },
+      {
+        "evidence_commands": [
+          "python3 -m fornax test ops-lifecycle",
+          "python3 -m fornax ops lifecycle-simulate --out <ops-lifecycle.json>"
+        ],
+        "goal": "prove lifecycle actions are repeatable, audited, and drain before mutation",
+        "id": "deploy-upgrade-drain-restart-rollback",
+        "pass_criteria": [
+          "drain_completed precedes each mutation",
+          "dropped_in_flight_total == 0",
+          "rollback_verified is true"
+        ],
+        "setup": [
+          "load the operator lifecycle artifact",
+          "run deploy, upgrade, restart, and rollback actions with request accounting enabled",
+          "preserve event order and active version history"
+        ]
+      },
+      {
+        "evidence_commands": [
+          "python3 -m fornax test ops-lifecycle"
+        ],
+        "goal": "prove replacement preserves identity, placement, and cleanup invariants",
+        "id": "node-replacement",
+        "pass_criteria": [
+          "node_replace_verified is true",
+          "removed node is no longer active",
+          "traffic_restored event is present"
+        ],
+        "setup": [
+          "drain the old node before removal",
+          "admit a replacement node with managed identity",
+          "verify traffic restoration and final active-node state"
+        ]
+      },
+      {
+        "evidence_commands": [
+          "python3 -m fornax test onboarding-methodology"
+        ],
+        "goal": "prove operator, developer, benchmark-owner, and reviewer tracks are complete enough for proxy handoff",
+        "id": "onboarding-handoff",
+        "pass_criteria": [
+          "required tracks are present",
+          "required documents are present",
+          "required glossary terms are present"
+        ],
+        "setup": [
+          "publish quickstart, operator runbook, developer workflow, benchmark methodology, and glossary",
+          "map each track to first-run commands, success evidence, and escalation paths",
+          "preserve simulation warnings until formal GA evidence exists"
+        ]
+      },
+      {
+        "evidence_commands": [
+          "python3 -m fornax test benchmark-ledger",
+          "python3 -m fornax benchmark --plan placement.json --mode tiny-moe-or-expert-mlp --out benchmark.json"
+        ],
+        "goal": "prove benchmark methodology requires commands, traces, versions, correctness, environment, logs, and ledger records",
+        "id": "benchmark-of-record",
+        "pass_criteria": [
+          "ledger contains at least one measured record",
+          "required benchmark methodology inputs are defined",
+          "lab-reference boundary remains explicit for formal G5"
+        ],
+        "setup": [
+          "capture benchmark commands and raw logs",
+          "attach correctness artifacts before throughput claims",
+          "append each measured run to ledger.jsonl"
+        ]
+      },
+      {
+        "evidence_commands": [
+          "python3 -m fornax program phase5-ga-gate --ops-artifact <ops> --onboarding-artifact <onboarding> --benchmark-ledger <ledger> --phase4-artifact <phase4> --out <packet.json>"
+        ],
+        "goal": "package install, operate, upgrade, serve, and benchmark evidence for Sponsor G5 decision",
+        "id": "sponsor-ga-review",
+        "pass_criteria": [
+          "phase5_proxy_passed may be true only for the local proxy gate",
+          "formal_g5_passed remains false until Sponsor accepts real GA evidence",
+          "all deferred requirements are visible in the packet"
+        ],
+        "setup": [
+          "attach prior G4 proxy or formal packet",
+          "attach productization runbook, onboarding package, lifecycle evidence, and benchmark ledger",
+          "record which formal GA requirements remain deferred"
+        ]
+      }
+    ],
+    "scope": "operator UX, lifecycle, onboarding, benchmark methodology, and Sponsor GA evidence packaging",
+    "title": "G5 Productization and GA Runbook",
+    "version": 1
+  },
+  "summary": {
+    "benchmark_ledger_record_count": 1,
+    "benchmark_measured_record_count": 1,
+    "check_count": 11,
+    "cluster_node_count": 2,
+    "formal_g5_deferred_requirement_count": 5,
+    "lifecycle_action_count": 6,
+    "lifecycle_dropped_in_flight_count": 0,
+    "node_replace_verified": true,
+    "onboarding_document_count": 5,
+    "onboarding_glossary_term_count": 10,
+    "onboarding_track_count": 4,
+    "operator_config_count": 3,
+    "passed_count": 11,
+    "phase4_formal_g4_passed": false,
+    "phase4_proxy_passed": true,
+    "product_ga_complete": false,
+    "proxy_device_count": 2,
+    "proxy_hardware_name": "NVIDIA H100 80GB HBM3",
+    "proxy_logical_host_count": 2,
+    "rollback_verified": true,
+    "runbook_scenario_count": 6,
+    "serving_endpoint": "/v1/chat/completions"
+  },
+  "version": 1
+}
