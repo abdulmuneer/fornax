@@ -1572,6 +1572,20 @@ def run_local_http_serving_smoke(
             timeout_s=float(timeout_s),
             ssl_context=client_ssl_context,
         )
+        partition_recovery = _post_json(
+            endpoint,
+            {
+                "model": model,
+                "messages": adapter["openai_request"]["messages"],
+                "max_tokens": max_tokens,
+                "stream": False,
+            },
+            plan_id=plan_id,
+            plan_hash=plan_hash,
+            auth_token=auth_token,
+            timeout_s=float(timeout_s),
+            ssl_context=client_ssl_context,
+        )
         backpressure_holders: list[dict[str, Any]] = []
         backpressure_errors: list[BaseException] = []
         holder_lock = threading.Lock()
@@ -1784,7 +1798,7 @@ def run_local_http_serving_smoke(
     backpressure_summary = server.backpressure_summary()
     lifecycle_summary = server.lifecycle_summary()
     mtls_summary = server.mtls_summary()
-    expected_backend_request_count = 3 + max_inflight
+    expected_backend_request_count = 4 + max_inflight
     expected_cancelled_request_count = 1
     expected_timed_out_request_count = 1
     expected_partitioned_request_count = 1
@@ -1837,6 +1851,11 @@ def run_local_http_serving_smoke(
         and partition_after_admit.get("body", {}).get("retryable") is True
         and partition_after_admit.get("body", {}).get("scope") == "local-simulated-partition"
         and lifecycle_summary.get("partitioned_request_count") == expected_partitioned_request_count
+    )
+    partition_recovery_ok = (
+        partition_recovery.get("status") == 200
+        and partition_recovery.get("body", {}).get("object") == "chat.completion"
+        and partition_recovery.get("body", {}).get("model") == model
     )
     lifecycle_ok = (
         lifecycle_summary.get("accepted_request_count") == expected_lifecycle_request_count
@@ -1962,6 +1981,7 @@ def run_local_http_serving_smoke(
         {"name": "admitted-cancel-cleanup", "ok": cancel_ok, "errors": [] if cancel_ok else ["admitted cancellation cleanup invalid"], "warnings": ["local admitted cancellation is not distributed partition or client-disconnect evidence"]},
         {"name": "admitted-timeout-cleanup", "ok": timeout_ok, "errors": [] if timeout_ok else ["admitted timeout cleanup invalid"], "warnings": ["local admitted timeout is not distributed partition evidence"]},
         {"name": "local-partition-fence", "ok": partition_ok, "errors": [] if partition_ok else ["local partition fence invalid"], "warnings": ["local partition fence is not production distributed partition evidence"]},
+        {"name": "local-partition-recovery", "ok": partition_recovery_ok, "errors": [] if partition_recovery_ok else ["local partition recovery invalid"], "warnings": ["local partition recovery is not production distributed partition evidence"]},
         {"name": "lifecycle-cleanup", "ok": lifecycle_ok, "errors": [] if lifecycle_ok else ["lifecycle cleanup invalid"], "warnings": []},
         *([{"name": "target-fixture-parity", "ok": target_fixture_ok, "errors": [] if target_fixture_ok else ["target fixture parity invalid"], "warnings": ["local target fixture parity is not real frontier model parity"]}] if target_fixture_enabled else []),
         *([
@@ -2037,7 +2057,10 @@ def run_local_http_serving_smoke(
         "request_partitioned_after_admit": partition_ok,
         "partitioned_before_backend": partition_ok,
         "local_partition_fence_verified": partition_ok,
-        "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok and backpressure_retry_ok and cancel_ok and timeout_ok and partition_ok,
+        "partition_recovery_status": partition_recovery.get("status"),
+        "partition_recovery_admitted": partition_recovery_ok,
+        "partition_recovery_after_fence": partition_recovery_ok,
+        "failure_semantics_verified": backpressure_reject_ok and backpressure_holder_ok and backpressure_retry_ok and cancel_ok and timeout_ok and partition_ok and partition_recovery_ok,
         "lifecycle_tracked": True,
         "lifecycle_request_count": lifecycle_summary.get("accepted_request_count"),
         "lifecycle_rejected_request_count": lifecycle_summary.get("rejected_request_count"),
@@ -2185,6 +2208,9 @@ def run_local_http_serving_smoke(
             "local_partition_fence_verified": partition_ok,
             "partitioned_before_backend": partition_ok,
             "partitioned_request_count": lifecycle_summary.get("partitioned_request_count"),
+            "partition_recovered": partition_recovery_ok,
+            "partition_recovery_after_fence": partition_recovery_ok,
+            "partition_recovery_scope": "local-simulated-partition",
             "partition_scope": "local-simulated-partition",
             "production_partition_evidence": False,
             "distributed_cancel_evidence": False,
@@ -2228,6 +2254,7 @@ def run_local_http_serving_smoke(
             "cancel_after_admit": cancel_after_admit,
             "timeout_after_admit": timeout_after_admit,
             "partition_after_admit": partition_after_admit,
+            "partition_recovery": partition_recovery,
             "plan_reject": plan_reject,
             "bad_path": bad_path,
         },
@@ -2238,7 +2265,7 @@ def run_local_http_serving_smoke(
             "Local HTTP/SSE serving smoke for the OpenAI-compatible endpoint path. "
             "This proves local endpoint request/response behavior, plan-integrity "
             "rejection, local bearer-token auth rejection, deterministic "
-            "backpressure rejection, retry-after recovery, admitted cancellation cleanup, admitted timeout cleanup, local partition fencing, and local lifecycle cleanup. When target-fixture "
+            "backpressure rejection, retry-after recovery, admitted cancellation cleanup, admitted timeout cleanup, local partition fencing and recovery, and local lifecycle cleanup. When target-fixture "
             "mode is enabled, it also proves deterministic local fixture loading and "
             "non-stream/stream parity only. When activation-transfer probe mode is enabled, "
             "it records measured same-host transfer timing only. When runtime probe mode is enabled, "
@@ -2288,7 +2315,7 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary must be an object")
         summary = {}
     max_inflight = summary.get("max_inflight")
-    expected_backend_request_count = 3 + max_inflight if isinstance(max_inflight, int) and not isinstance(max_inflight, bool) and max_inflight > 0 else None
+    expected_backend_request_count = 4 + max_inflight if isinstance(max_inflight, int) and not isinstance(max_inflight, bool) and max_inflight > 0 else None
     expected_cancelled_request_count = 1 if expected_backend_request_count is not None else None
     expected_timed_out_request_count = 1 if expected_backend_request_count is not None else None
     expected_partitioned_request_count = 1 if expected_backend_request_count is not None else None
@@ -2656,6 +2683,12 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("failure_semantics.partitioned_before_backend must be true")
     if expected_partitioned_request_count is not None and failure_semantics.get("partitioned_request_count") != expected_partitioned_request_count:
         errors.append(f"failure_semantics.partitioned_request_count must be {expected_partitioned_request_count}")
+    if failure_semantics.get("partition_recovered") is not True:
+        errors.append("failure_semantics.partition_recovered must be true")
+    if failure_semantics.get("partition_recovery_after_fence") is not True:
+        errors.append("failure_semantics.partition_recovery_after_fence must be true")
+    if failure_semantics.get("partition_recovery_scope") != "local-simulated-partition":
+        errors.append("failure_semantics.partition_recovery_scope must be local-simulated-partition")
     if failure_semantics.get("partition_scope") != "local-simulated-partition":
         errors.append("failure_semantics.partition_scope must be local-simulated-partition")
     if failure_semantics.get("production_partition_evidence") is not False:
@@ -2743,6 +2776,14 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             errors.append("responses.partition_after_admit.retryable must be true")
         if partition_after_admit.get("body", {}).get("scope") != "local-simulated-partition":
             errors.append("responses.partition_after_admit.scope must be local-simulated-partition")
+    partition_recovery = responses.get("partition_recovery") if isinstance(responses, dict) else None
+    if not isinstance(partition_recovery, dict):
+        errors.append("responses.partition_recovery must be an object")
+    else:
+        if partition_recovery.get("status") != 200:
+            errors.append("responses.partition_recovery.status must be 200")
+        if partition_recovery.get("body", {}).get("object") != "chat.completion":
+            errors.append("responses.partition_recovery object must be chat.completion")
     checks = data.get("checks")
     if not isinstance(checks, list) or not checks:
         errors.append("checks must be a non-empty list")
@@ -2777,6 +2818,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("checks must include admitted-timeout-cleanup")
     if "local-partition-fence" not in check_names:
         errors.append("checks must include local-partition-fence")
+    if "local-partition-recovery" not in check_names:
+        errors.append("checks must include local-partition-recovery")
     passed_count = sum(1 for check in checks if isinstance(check, dict) and check.get("ok") is True)
     if summary.get("check_count") != len(checks):
         errors.append("summary.check_count must match checks")
@@ -2841,6 +2884,12 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
         errors.append("summary.partitioned_before_backend must be true")
     if summary.get("local_partition_fence_verified") is not True:
         errors.append("summary.local_partition_fence_verified must be true")
+    if summary.get("partition_recovery_status") != 200:
+        errors.append("summary.partition_recovery_status must be 200")
+    if summary.get("partition_recovery_admitted") is not True:
+        errors.append("summary.partition_recovery_admitted must be true")
+    if summary.get("partition_recovery_after_fence") is not True:
+        errors.append("summary.partition_recovery_after_fence must be true")
     if summary.get("failure_semantics_verified") is not True:
         errors.append("summary.failure_semantics_verified must be true")
     if expected_lifecycle_request_count is not None:
@@ -2986,6 +3035,8 @@ def validate_local_http_serving_smoke_fixture(data: dict[str, Any]) -> dict[str,
             "request_partitioned_after_admit": summary.get("request_partitioned_after_admit") is True,
             "partitioned_before_backend": summary.get("partitioned_before_backend") is True,
             "local_partition_fence_verified": summary.get("local_partition_fence_verified") is True,
+            "partition_recovery_admitted": summary.get("partition_recovery_admitted") is True,
+            "partition_recovery_after_fence": summary.get("partition_recovery_after_fence") is True,
             "failure_semantics_verified": summary.get("failure_semantics_verified") is True,
             "lifecycle_tracked": summary.get("lifecycle_tracked") is True,
             "lifecycle_request_count": summary.get("lifecycle_request_count"),
