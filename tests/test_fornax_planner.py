@@ -2794,6 +2794,21 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("selected_devices", "; ".join(result["errors"]))
 
+    def test_phase4_resilience_gate_rejects_artifact_validation_mismatch(self) -> None:
+        packet = self._valid_phase4_resilience_gate_packet()
+        packet["artifact_validation"]["ops_lifecycle"]["artifact"] = "wrong-ops.json"
+        result = validate_phase4_resilience_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("artifact_validation.ops_lifecycle.artifact", "; ".join(result["errors"]))
+
+    def test_phase4_resilience_gate_reports_malformed_evidence_check(self) -> None:
+        packet = self._valid_phase4_resilience_gate_packet()
+        packet["evidence_checks"].append("not-a-check")
+        packet["summary"]["check_count"] = len(packet["evidence_checks"])
+        result = validate_phase4_resilience_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("index-7", "; ".join(result["errors"]))
+
     def test_phase4_resilience_gate_fixture_passes(self) -> None:
         result = validate_phase4_resilience_gate("fornax/golden_vectors/phase4_resilience_gate")
         self.assertTrue(result["ok"], result["errors"])
@@ -2853,6 +2868,28 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_phase5_ga_gate_packet(packet)
         self.assertFalse(result["ok"])
         self.assertIn("logical_hosts", "; ".join(result["errors"]))
+
+    def test_phase5_ga_gate_reports_malformed_proxy_hardware(self) -> None:
+        packet = self._valid_phase5_ga_gate_packet()
+        packet["proxy_hardware"]["selected_devices"] = ["cuda:0", {"device": "cuda:1"}]
+        result = validate_phase5_ga_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("selected_devices[1]", "; ".join(result["errors"]))
+
+    def test_phase5_ga_gate_rejects_artifact_validation_mismatch(self) -> None:
+        packet = self._valid_phase5_ga_gate_packet()
+        packet["artifact_validation"]["benchmark_ledger"]["artifact"] = "wrong-ledger.jsonl"
+        result = validate_phase5_ga_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("artifact_validation.benchmark_ledger.artifact", "; ".join(result["errors"]))
+
+    def test_phase5_ga_gate_reports_malformed_evidence_check(self) -> None:
+        packet = self._valid_phase5_ga_gate_packet()
+        packet["evidence_checks"].append("not-a-check")
+        packet["summary"]["check_count"] = len(packet["evidence_checks"])
+        result = validate_phase5_ga_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("index-11", "; ".join(result["errors"]))
 
     def test_phase5_ga_gate_fixture_passes(self) -> None:
         result = validate_phase5_ga_gate("fornax/golden_vectors/phase5_ga_gate")

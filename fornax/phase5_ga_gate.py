@@ -81,6 +81,51 @@ def _normalize_string_list(value: list[str] | None, *, default: list[str], field
     return result
 
 
+def _validate_string_list(
+    value: Any,
+    field: str,
+    errors: list[str],
+    *,
+    min_count: int = 2,
+) -> list[str]:
+    if not isinstance(value, list) or len(value) < min_count:
+        errors.append(f"{field} must contain at least {min_count} entries")
+        return []
+    result: list[str] = []
+    valid = True
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            errors.append(f"{field}[{index}] must be a non-empty string")
+            valid = False
+        else:
+            result.append(item)
+    if not valid:
+        return []
+    if len(set(result)) != len(result):
+        errors.append(f"{field} must contain unique non-empty strings")
+        return []
+    return result
+
+
+def _validate_artifact_paths(
+    packet: dict[str, Any],
+    required_names: tuple[str, ...],
+    errors: list[str],
+) -> dict[str, str]:
+    artifacts = packet.get("artifacts")
+    if not isinstance(artifacts, dict):
+        errors.append("artifacts must be an object")
+        return {}
+    result: dict[str, str] = {}
+    for name in required_names:
+        value = artifacts.get(name)
+        if not isinstance(value, str) or not value:
+            errors.append(f"artifacts.{name} must be a non-empty string")
+        else:
+            result[name] = value
+    return result
+
+
 def _proxy_hardware_record(
     *,
     proxy_hardware_name: str,
@@ -323,7 +368,6 @@ def build_phase5_ga_gate_packet(
     ops_accounting = ops.get("request_accounting") if isinstance(ops.get("request_accounting"), dict) else {}
     onboarding_summary = onboarding.get("summary") if isinstance(onboarding.get("summary"), dict) else {}
     benchmark_summary = benchmark_validation.get("summary") if isinstance(benchmark_validation.get("summary"), dict) else {}
-    phase4_summary = phase4.get("summary") if isinstance(phase4.get("summary"), dict) else {}
     operator_configs = _operator_config_summary(ops)
     runbook = build_phase5_g5_runbook()
     proxy_hardware = _proxy_hardware_record(
@@ -446,21 +490,25 @@ def build_phase5_ga_gate_packet(
         "operator_configs": operator_configs,
         "artifact_validation": {
             "ops_lifecycle": {
+                "artifact": str(ops_path),
                 "ok": ops_validation.get("ok") is True,
                 "errors": list(ops_validation.get("errors", [])),
                 "warnings": list(ops_validation.get("warnings", [])),
             },
             "onboarding_methodology": {
+                "artifact": str(onboarding_path),
                 "ok": onboarding_validation.get("ok") is True,
                 "errors": list(onboarding_validation.get("errors", [])),
                 "warnings": list(onboarding_validation.get("warnings", [])),
             },
             "benchmark_ledger": {
+                "artifact": str(benchmark_validation.get("ledger", benchmark_ledger)),
                 "ok": benchmark_validation.get("ok") is True,
                 "errors": list(benchmark_validation.get("errors", [])),
                 "warnings": list(benchmark_validation.get("warnings", [])),
             },
             "phase4_resilience_gate": {
+                "artifact": str(phase4_path),
                 "ok": phase4_validation.get("ok") is True,
                 "errors": list(phase4_validation.get("errors", [])),
                 "warnings": list(phase4_validation.get("warnings", [])),
@@ -506,18 +554,16 @@ def _validate_proxy_hardware(packet: dict[str, Any], errors: list[str]) -> tuple
         errors.append("proxy_hardware.hardware_name must be a non-empty string")
     elif "H100" not in hardware_name:
         errors.append("proxy_hardware.hardware_name must identify local H100 proxy hardware")
-    selected_devices = proxy_hardware.get("selected_devices")
-    if not isinstance(selected_devices, list) or len(selected_devices) < 2:
-        errors.append("proxy_hardware.selected_devices must contain at least two devices")
-        selected_devices = []
-    elif len(set(selected_devices)) != len(selected_devices) or not all(isinstance(item, str) and item for item in selected_devices):
-        errors.append("proxy_hardware.selected_devices must contain unique non-empty strings")
-    logical_hosts = proxy_hardware.get("logical_hosts")
-    if not isinstance(logical_hosts, list) or len(logical_hosts) < 2:
-        errors.append("proxy_hardware.logical_hosts must contain at least two hosts")
-        logical_hosts = []
-    elif len(set(logical_hosts)) != len(logical_hosts) or not all(isinstance(item, str) and item for item in logical_hosts):
-        errors.append("proxy_hardware.logical_hosts must contain unique non-empty strings")
+    selected_devices = _validate_string_list(
+        proxy_hardware.get("selected_devices"),
+        "proxy_hardware.selected_devices",
+        errors,
+    )
+    logical_hosts = _validate_string_list(
+        proxy_hardware.get("logical_hosts"),
+        "proxy_hardware.logical_hosts",
+        errors,
+    )
     if proxy_hardware.get("formal_lab_evidence") is not False:
         errors.append("proxy_hardware.formal_lab_evidence must be false for proxy gate packets")
     return selected_devices, logical_hosts
@@ -543,6 +589,11 @@ def validate_phase5_ga_gate_packet(packet: dict[str, Any]) -> dict[str, Any]:
 
     selected_devices, logical_hosts = _validate_proxy_hardware(packet, errors)
 
+    artifact_paths = _validate_artifact_paths(
+        packet,
+        ("ops_lifecycle", "onboarding_methodology", "benchmark_ledger", "phase4_resilience_gate"),
+        errors,
+    )
     artifact_validation = packet.get("artifact_validation")
     if not isinstance(artifact_validation, dict):
         errors.append("artifact_validation must be an object")
@@ -551,8 +602,11 @@ def validate_phase5_ga_gate_packet(packet: dict[str, Any]) -> dict[str, Any]:
         entry = artifact_validation.get(name)
         if not isinstance(entry, dict):
             errors.append(f"artifact_validation.{name} must be an object")
-        elif entry.get("ok") is not True:
-            errors.append(f"artifact_validation.{name}.ok must be true")
+        else:
+            if entry.get("ok") is not True:
+                errors.append(f"artifact_validation.{name}.ok must be true")
+            if artifact_paths.get(name) is not None and entry.get("artifact") != artifact_paths[name]:
+                errors.append(f"artifact_validation.{name}.artifact must match artifacts.{name}")
 
     operator_configs = packet.get("operator_configs")
     if not isinstance(operator_configs, dict):
@@ -590,7 +644,12 @@ def validate_phase5_ga_gate_packet(packet: dict[str, Any]) -> dict[str, Any]:
     missing = sorted(required_checks - names)
     if missing:
         errors.append(f"evidence_checks missing required checks: {missing}")
-    failed = [item.get("name") for item in checks if not isinstance(item, dict) or item.get("ok") is not True]
+    failed: list[Any] = []
+    for index, item in enumerate(checks):
+        if not isinstance(item, dict):
+            failed.append(f"index-{index}")
+        elif item.get("ok") is not True:
+            failed.append(item.get("name"))
     if failed:
         errors.append(f"evidence_checks failed: {failed}")
 

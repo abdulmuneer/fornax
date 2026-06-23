@@ -2,11 +2,13 @@
   "accepted_by": "operator",
   "artifact_validation": {
     "benchmark_ledger": {
+      "artifact": "fornax/golden_vectors/benchmark_ledger/ledger.jsonl",
       "errors": [],
       "ok": true,
       "warnings": []
     },
     "onboarding_methodology": {
+      "artifact": "fornax/golden_vectors/onboarding_methodology/fixture.json",
       "errors": [],
       "ok": true,
       "warnings": [
@@ -14,6 +16,7 @@
       ]
     },
     "ops_lifecycle": {
+      "artifact": "fornax/golden_vectors/ops_lifecycle/fixture.json",
       "errors": [],
       "ok": true,
       "warnings": [
@@ -21,6 +24,7 @@
       ]
     },
     "phase4_resilience_gate": {
+      "artifact": "fornax/golden_vectors/phase4_resilience_gate/fixture.json",
       "errors": [],
       "ok": true,
       "warnings": [

@@ -2,6 +2,7 @@
   "accepted_by": "operator",
   "artifact_validation": {
     "ops_lifecycle": {
+      "artifact": "fornax/golden_vectors/ops_lifecycle/fixture.json",
       "errors": [],
       "ok": true,
       "warnings": [
@@ -9,6 +10,7 @@
       ]
     },
     "resilience_replay": {
+      "artifact": "fornax/golden_vectors/resilience_replay/fixture.json",
       "errors": [],
       "ok": true,
       "warnings": [
@@ -16,6 +18,7 @@
       ]
     },
     "stage_replication": {
+      "artifact": "fornax/golden_vectors/stage_replication/fixture.json",
       "errors": [],
       "ok": true,
       "warnings": [
