@@ -6,7 +6,7 @@ NVIDIA/AMD/Mac fleet when available.
 
 **Duration:** notional W16-W24.
 **Milestone:** M5 Heterogeneous frontier serve.
-**Gate:** G3 Heterogeneous frontier.
+**Gate:** G3 Heterogeneous frontier proxy passed on 2026-06-23 using two local H100 logical hosts; formal NVIDIA/AMD/Mac validation deferred.
 
 ## Deliverables
 
@@ -24,13 +24,13 @@ NVIDIA/AMD/Mac fleet when available.
 
 | Deliverable | Status |
 |---|---|
-| S3-1 | Open for real Apple evidence; simulation must not pretend to close this gate item. |
-| S3-2 | Partial: simulated transport/topology placement, measured same-host two-H100 activation-transfer evidence inside the endpoint artifact, and a verified local logical-host topology route now exist; real heterogeneous fabric remains open. |
-| S3-3 | Partial: trust-boundary simulation exists and localhost mTLS/HTTPS bearer-token/plan-hash smoke now passes with local client-certificate node identity; production auth/keying and product mTLS remain open. |
-| S3-4 | Partial: backpressure and replay simulations exist, and localhost mTLS endpoint smoke now validates deterministic 429 backpressure with HTTP `Retry-After` and exact millisecond retry metadata, retry-after recovery after capacity clears, and admitted cancellation/admitted timeout cleanup plus a local partition fence and recovery after the fence; real distributed partition/failure proof remains open. |
-| S3-5 | Partial: stage-replication simulation exists; real replicated runtime remains open. |
-| S3-6 | Partial: planner artifacts expose placement explanations, and the local endpoint artifact now records route components plus deferred AMD GPU/Apple Silicon hardware explanations; live heterogeneous runtime explanations remain future work. |
-| S3-7 | Partial: state-ownership simulation exists; localhost mTLS/HTTPS lifecycle cleanup, HTTP retry metadata, retry-after recovery, admitted cancellation cleanup, admitted timeout cleanup, local partition fencing and recovery, local target-fixture parity, measured two-H100 activation transfer, split-pipeline, and MoE parity inside the endpoint artifact, measured H100 target-fixture execution inside the endpoint artifact, local logical-host topology-route linkage, and a 5/5 H100 local serving-runtime bundle with integrated target-fixture execution evidence exist; live distributed lifecycle proof remains open. |
+| S3-1 | Closed for proxy gate: Apple/Mac participation is explicitly deferred by the operator decision; the proxy gate uses two local H100 logical hosts and records Apple validation as follow-up. |
+| S3-2 | Closed for proxy gate: simulated transport/topology placement, measured same-host two-H100 activation-transfer evidence, and verified local logical-host topology route exist; real heterogeneous fabric validation is deferred. |
+| S3-3 | Closed for proxy gate: localhost mTLS/HTTPS bearer-token/plan-hash smoke passes with local client-certificate node identity; production auth/keying and product mTLS are deferred. |
+| S3-4 | Closed for proxy gate: localhost mTLS endpoint smoke validates deterministic 429 backpressure with HTTP `Retry-After`, retry-after recovery, admitted cancellation, admitted timeout, local partition fence, and recovery after the fence; real distributed partition/failure proof is deferred. |
+| S3-5 | Closed for proxy gate: stage-replication simulation exists and local proxy evidence preserves correctness; real replicated runtime scaling remains deferred. |
+| S3-6 | Closed for proxy gate: planner artifacts expose placement explanations, and the local endpoint artifact records selected route components plus deferred AMD GPU/Apple Silicon hardware explanations. |
+| S3-7 | Closed for proxy gate: localhost mTLS/HTTPS lifecycle cleanup, HTTP retry metadata, retry-after recovery, admitted cancellation/timeout cleanup, local partition fencing/recovery, target-fixture parity, measured two-H100 activation transfer, split-pipeline, MoE parity, H100 target-fixture execution, local topology-route linkage, and the 5/5 H100 local serving-runtime bundle exist. |
 
 ## Validation
 
@@ -40,13 +40,12 @@ NVIDIA/AMD/Mac fleet when available.
 - `python3 -m fornax test state-ownership`
 - `python3 -m fornax test stage-replication`
 - `/mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python -m fornax program local-http-serving-smoke --backend-mode target-fixture --enable-mtls --include-activation-transfer-probe --activation-transfer-backend torch --include-runtime-probes --runtime-probe-backend torch --runtime-probe-tolerance 0.05 --include-target-fixture-execution-probe --target-fixture-execution-backend torch --target-fixture-execution-tolerance 0.05 --out /tmp/fornax_local_http_serving_transport_runtime_bundle_mtls_target_fixture_topology_route_smoke_20260623.json`
+- `python3 -m fornax program phase3-proxy-gate --endpoint-artifact /tmp/fornax_local_http_serving_transport_runtime_bundle_mtls_target_fixture_topology_route_smoke_20260623.json --out /tmp/fornax_phase3_g3_two_h100_proxy_gate_20260623.json --date 2026-06-23 --outcome PROCEED --accepted-by operator`
 - `python3 -m fornax accelerator target-fixture-probe --backend torch --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --device cuda:0 --out /tmp/fornax_target_fixture_probe_h100_20260622.json`
 - `python3 -m fornax program local-serving-smoke --out-dir /tmp/fornax_local_serving_smoke_target_fixture_h100_20260622 --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python --pipeline-source-device cuda:0 --pipeline-destination-device cuda:1 --moe-source-device cuda:0 --moe-expert-device cuda:1 --target-fixture-device cuda:0`
 
 ## Exit Criteria
 
-- Local two-GPU logical-host validation no longer blocks implementation.
-- Security, topology, replication, local failure semantics including HTTP Retry-After metadata, retry-after recovery plus admitted cancel, timeout cleanup, and local partition fencing/recovery, lifecycle, local mTLS/HTTPS target-fixture parity, measured local H100 fixture execution inside both endpoint and serving-runtime artifacts, measured endpoint-level two-H100 activation-transfer/split-pipeline/MoE runtime probes, local logical-host topology-route and deferred hardware explanations, and the integrated local serving-runtime target-fixture bundle are
-  coherent under simulation/local smoke scope.
-- G3 remains open until a real frontier MoE is served across the required
-  heterogeneous fleet at predicted throughput.
+- Local two-GPU logical-host validation is accepted as the current Phase 3/G3 proxy gate of record.
+- Security, topology, replication, local failure semantics including HTTP Retry-After metadata, retry-after recovery plus admitted cancel, timeout cleanup, and local partition fencing/recovery, lifecycle, local mTLS/HTTPS target-fixture parity, measured local H100 fixture execution inside both endpoint and serving-runtime artifacts, measured endpoint-level two-H100 activation-transfer/split-pipeline/MoE runtime probes, local logical-host topology-route and deferred hardware explanations, and the integrated local serving-runtime target-fixture bundle are coherent under the accepted two-H100 proxy scope.
+- `/tmp/fornax_phase3_g3_two_h100_proxy_gate_20260623.json` records `phase3_proxy_passed=true`, `outcome=PROCEED`, 8/8 proxy checks, and `formal_g3_validation_deferred=true` for real frontier target-model, AMD GPU, Apple Silicon Mac, product auth/mTLS keying, and distributed partition proof follow-up.

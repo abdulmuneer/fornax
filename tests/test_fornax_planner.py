@@ -134,6 +134,7 @@ from fornax.network_contract import (
 from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 from fornax.phase0_status import render_phase0_status_report
 from fornax.phase0_simulated_validation import run_phase0_simulated_validation
+from fornax.phase3_proxy_gate import validate_phase3_proxy_gate_packet
 from fornax.t1_simulated_validation import run_t1_simulated_validation
 from fornax.preflight import run_phase0_preflight
 from fornax.program_governance import (
@@ -2669,6 +2670,63 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_program_governance_fixture(contract)
         self.assertFalse(result["ok"])
         self.assertIn("rank 1", "; ".join(result["errors"]))
+
+    def _valid_phase3_proxy_gate_packet(self) -> dict[str, object]:
+        checks = [
+            {"name": "endpoint-artifact-valid", "ok": True, "evidence": "unit"},
+            {"name": "h100-two-logical-hosts", "ok": True, "evidence": "unit"},
+            {"name": "endpoint-security", "ok": True, "evidence": "unit"},
+            {"name": "failure-semantics", "ok": True, "evidence": "unit"},
+            {"name": "lifecycle-state-ownership", "ok": True, "evidence": "unit"},
+            {"name": "runtime-probes", "ok": True, "evidence": "unit"},
+            {"name": "topology-route", "ok": True, "evidence": "unit"},
+            {"name": "no-formal-g3-overclaim", "ok": True, "evidence": "unit"},
+        ]
+        return {
+            "version": 1,
+            "record_kind": "phase3-g3-proxy-gate",
+            "gate": "G3",
+            "mode": "two-h100-local-proxy",
+            "date": "2026-06-23",
+            "outcome": "PROCEED",
+            "accepted_by": "operator",
+            "decision": "unit proxy decision",
+            "phase3_proxy_passed": True,
+            "formal_g3_passed": False,
+            "formal_g3_validation_deferred": True,
+            "endpoint_artifact": "/tmp/unit.json",
+            "endpoint_validation": {"ok": True, "errors": [], "warnings": []},
+            "evidence_checks": checks,
+            "deferred_requirements": [
+                {"id": "real-frontier-target-model", "status": "deferred", "reason": "unit"},
+                {"id": "real-amd-gpu-node", "status": "deferred", "reason": "unit"},
+                {"id": "real-apple-silicon-mac", "status": "deferred", "reason": "unit"},
+                {"id": "product-auth-mtls-keying", "status": "deferred", "reason": "unit"},
+                {"id": "distributed-partition-proof", "status": "deferred", "reason": "unit"},
+            ],
+            "summary": {
+                "check_count": len(checks),
+                "passed_count": len(checks),
+                "endpoint_check_count": 23,
+                "endpoint_passed_count": 23,
+            },
+        }
+
+    def test_phase3_proxy_gate_packet_validates_two_h100_proxy(self) -> None:
+        packet = self._valid_phase3_proxy_gate_packet()
+        result = validate_phase3_proxy_gate_packet(packet)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(result["summary"]["phase3_proxy_passed"])
+        self.assertFalse(result["summary"]["formal_g3_passed"])
+        self.assertEqual(8, result["summary"]["passed_count"])
+        self.assertIn("two local H100", "; ".join(result["warnings"]))
+
+    def test_phase3_proxy_gate_rejects_formal_g3_overclaim(self) -> None:
+        packet = self._valid_phase3_proxy_gate_packet()
+        packet["formal_g3_passed"] = True
+        result = validate_phase3_proxy_gate_packet(packet)
+        self.assertFalse(result["ok"])
+        self.assertIn("formal_g3_passed", "; ".join(result["errors"]))
 
     def test_program_governance_rejects_missing_cadence_artifact(self) -> None:
         contract = simulate_program_governance()

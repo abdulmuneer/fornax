@@ -117,6 +117,10 @@ from .ops_lifecycle import (
 )
 from .phase0_status import render_phase0_status_report
 from .phase0_simulated_validation import run_phase0_simulated_validation
+from .phase3_proxy_gate import (
+    build_phase3_proxy_gate_packet,
+    validate_phase3_proxy_gate_packet,
+)
 from .runtime_format import validate_runtime_format_golden
 from .runtime_format_spec import render_runtime_format_spec_draft
 from .serving import (
@@ -1275,6 +1279,40 @@ def _cmd_program_governance_simulate(args: argparse.Namespace) -> int:
         f"status_drift={summary['status_drift_controlled']}"
     )
     return 0
+
+
+def _cmd_program_phase3_proxy_gate(args: argparse.Namespace) -> int:
+    try:
+        result = build_phase3_proxy_gate_packet(
+            args.endpoint_artifact,
+            packet_date=args.date,
+            outcome=args.outcome,
+            accepted_by=args.accepted_by,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program phase3-proxy-gate: {exc}")
+        return 2
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    write_json(args.out, result)
+    validation = validate_phase3_proxy_gate_packet(result)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    if validation["ok"]:
+        print(
+            "wrote Phase 3 proxy gate packet: "
+            f"{args.out} proxy_passed={summary['phase3_proxy_passed']} "
+            f"formal_g3_passed={summary['formal_g3_passed']} "
+            f"checks={summary['passed_count']}/{summary['check_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print(
+        "wrote invalid Phase 3 proxy gate packet: "
+        f"{args.out} errors=" + "; ".join(validation["errors"])
+    )
+    return 1
 
 
 def _cmd_program_g1_evidence_packet(args: argparse.Namespace) -> int:
@@ -2736,6 +2774,14 @@ def build_parser() -> argparse.ArgumentParser:
     governance.add_argument("--plan-version", default="v3")
     governance.add_argument("--current-gate", default="G1")
     governance.set_defaults(func=_cmd_program_governance_simulate)
+
+    phase3_proxy = program_sub.add_parser("phase3-proxy-gate")
+    phase3_proxy.add_argument("--endpoint-artifact", required=True)
+    phase3_proxy.add_argument("--out", required=True)
+    phase3_proxy.add_argument("--date")
+    phase3_proxy.add_argument("--outcome", choices=["PROCEED", "ITERATE", "NARROW", "KILL"], default="PROCEED")
+    phase3_proxy.add_argument("--accepted-by", default="operator")
+    phase3_proxy.set_defaults(func=_cmd_program_phase3_proxy_gate)
 
     g1_packet = program_sub.add_parser("g1-evidence-packet")
     g1_packet.add_argument("--bundle", required=True)
