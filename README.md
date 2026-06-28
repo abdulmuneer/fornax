@@ -54,11 +54,11 @@ irreducible price of spanning.
 |---|---|
 | `fornax/` | The Python package: planner (cost model + placement search), engine/serving simulations, gate validators, golden plans/vectors, and the `python -m fornax` CLI. |
 | `tests/` | `unittest` suites (planner and contracts). |
-| `docs/fornax/` | Project plan (v1–v3), partitioner spec, the Apple-Silicon/MAX skill map, design reviews, and the full `program_management/` tree (charter, RACI, WBS, roadmap, stage gates, RAID log, sprints). |
-| `docs/external_knowledge/` | Background research (GPU memory math, local inference engines, memory bandwidth). |
+| `docs/` | End-user documentation — start at [docs/README.md](docs/README.md). |
 
-Start with [docs/fornax/README.md](docs/fornax/README.md) and
-[docs/fornax/project-plan-v3.md](docs/fornax/project-plan-v3.md).
+**New here? Read [docs/getting-started.md](docs/getting-started.md)** — install,
+verify, and run your first plan → simulate in a few minutes (no GPU, no model).
+The full guide index is [docs/README.md](docs/README.md).
 
 ## Quickstart
 
