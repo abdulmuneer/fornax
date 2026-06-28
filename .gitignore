@@ -7,3 +7,6 @@ __pycache__/
 *.log
 build/
 dist/
+
+# Development-aid reference material; not part of the published repo
+docs/external_knowledge/
