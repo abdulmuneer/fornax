@@ -39,6 +39,7 @@ Collect or simulate the inventory the planner consumes, and probe accelerators.
 | `inventory collect` | Collect the local machine's inventory. |
 | `inventory simulate-cluster` | Generate a simulated multi-node cluster inventory. |
 | `accelerator {expert-mlp-probe,activation-transfer-probe,target-fixture-probe}` | Accelerator micro-probes (expert MLP, activation transfer, target fixture). |
+| `program local-4gpu-moe-serving-smoke --out-dir D [--devices cuda:0,cuda:1,cuda:2,cuda:3]` | Optional same-host CUDA smoke for a tiny MoE serving fixture: one gateway GPU plus three expert GPUs, with split-vs-reference parity and explicit non-claims for live HTTP/frontier/formal gate evidence. |
 | `apple {probe-template,simulate-probe,validate-probe,role-decision}` | Apple-Silicon worker probing and role (capacity-only vs expert-worker) decisions. |
 | `fabric probe` | Probe a network link (bandwidth/latency) for the inventory's `links`. |
 | `calibrate local` | Calibrate the cost model against the local machine. |
@@ -77,7 +78,7 @@ golden vector under `fornax/golden_vectors/**` and a `test` target (below).
 | Command | What it does |
 |---|---|
 | `spec {runtime-format,network-security,model-support,backend-coverage,substrate-adr}` | Emit/validate the named specification. |
-| `program {rebaseline,governance-simulate,phase3-proxy-gate,phase4-resilience-gate,phase5-ga-gate,g1-evidence-packet,…}` | Program-governance and phase-gate tooling (roadmap rebaseline, stage gates, G1 evidence). |
+| `program {rebaseline,governance-simulate,local-accelerator-smoke,local-serving-smoke,local-http-serving-smoke,local-4gpu-moe-serving-smoke,phase3-proxy-gate,phase4-resilience-gate,phase5-ga-gate,g1-evidence-packet,...}` | Program-governance, local hardware smoke, and phase-gate tooling. The 4-GPU MoE smoke is same-host proxy evidence only. |
 
 ## The gate runner: `test`
 
@@ -91,7 +92,7 @@ python3 -m fornax test --help              # the full list of suites
 ```
 
 Available suites include `golden-plans`, `runtime-format`, `network-contract`,
-`engine-seam`, `stage-host`, `serving-adapter`, `state-ownership`,
+`engine-seam`, `stage-host`, `serving-adapter`, `local-4gpu-moe-serving-smoke`, `state-ownership`,
 `engine-simulation`, `observability`, `metrics-ledger`, `trace-ledger`,
 `worker-contract`, `transport-contract`, `trust-boundary`, `moe-runtime`,
 `moe-parity-probe`, `model-support`, `continuous-batching`,
@@ -101,7 +102,9 @@ Available suites include `golden-plans`, `runtime-format`, `network-contract`,
 `phase5-ga-gate`, `benchmark-ledger`, `pipeline-correctness-probe`,
 `throughput-scaling`, and more (see `test --help`). `make golden` runs the
 deterministic no-hardware contract/golden suite; `make test` runs that suite plus
-the unit tests.
+the unit tests. `local-4gpu-moe-serving-smoke` validates an existing artifact
+when passed `--fixture` or `--out`; it is not part of the no-hardware golden
+run.
 
 ## Exit codes
 

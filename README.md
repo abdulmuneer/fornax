@@ -71,13 +71,21 @@ python3 -m fornax test golden-plans
 ```
 
 Everything above runs **without a GPU or a model** — the planner, contracts, and
-gate validators are pure logic, validated against golden vectors.
+gate validators are pure logic, validated against golden vectors. Machines with
+four visible CUDA GPUs can additionally validate the same-host tiny MoE serving
+fixture:
+
+```bash
+python3 -m fornax program local-4gpu-moe-serving-smoke \
+    --out-dir /tmp/fornax_local_4gpu_moe_serving_smoke
+```
 
 ## Status
 
 Active development. The planner, contract validators, local serving/proxy-gate
-fixtures, and Phase 3-5 two-H100 proxy packets are implemented and self-tested.
-Formal G1-G5 closure still requires the human sign-offs and real heterogeneous
+fixtures, same-host four-H100 tiny MoE serving smoke, and Phase 3-5 two-H100
+proxy packets are implemented and self-tested. Formal G1-G5 closure still
+requires the human sign-offs and real heterogeneous
 lab evidence tracked in
 [fornax_program_management_todo_status.md](fornax_program_management_todo_status.md).
 See the [program-management tree](docs/fornax/program_management/) for the

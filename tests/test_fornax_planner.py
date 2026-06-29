@@ -63,6 +63,10 @@ from fornax.local_http_serving_smoke import (
     validate_local_http_serving_smoke,
     validate_local_http_serving_smoke_fixture,
 )
+from fornax.local_4gpu_moe_serving_smoke import (
+    validate_4gpu_moe_serving_probe_fixture,
+    validate_local_4gpu_moe_serving_smoke_fixture,
+)
 from fornax.local_serving_smoke import (
     run_local_serving_smoke,
     validate_local_serving_smoke,
@@ -627,6 +631,247 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("correctness_passed", "; ".join(result["errors"]))
 
+
+
+    def _four_gpu_moe_probe_fixture(self):
+        token_count = 6
+        expert_count = 6
+        top_k = 2
+        routes = []
+        for token in range(token_count):
+            expert_ids = []
+            candidate = token % expert_count
+            while len(expert_ids) < top_k:
+                if candidate not in expert_ids:
+                    expert_ids.append(candidate)
+                candidate = (candidate + 1) % expert_count
+            raw = [float(top_k - rank) + 0.25 * ((token + rank) % 3) for rank in range(top_k)]
+            total = sum(raw)
+            routes.append(
+                {
+                    "token_index": token,
+                    "expert_ids": expert_ids,
+                    "topk_weights": [value / total for value in raw],
+                }
+            )
+        devices = ["cuda:0", "cuda:1", "cuda:2", "cuda:3"]
+        expert_devices = devices[1:]
+        expert_device_calls = {device: 0 for device in expert_devices}
+        for route in routes:
+            for expert_id in route["expert_ids"]:
+                expert_device_calls[expert_devices[expert_id % len(expert_devices)]] += 1
+        next_tokens = [3, 8, 12, 1, 4, 7]
+        return {
+            "version": 1,
+            "probe_kind": "four-gpu-moe-serving-probe",
+            "evidence_scope": "same-host-4gpu-moe-serving-proxy",
+            "tier": "T3-same-host-4gpu-moe-serving-proxy",
+            "measured": True,
+            "accelerator_measured": True,
+            "backend": "torch",
+            "available": True,
+            "source": "fornax.local_4gpu_moe_serving_smoke.torch_probe",
+            "config": {
+                "iterations": 5,
+                "warmup": 1,
+                "token_count": token_count,
+                "hidden_dim": 16,
+                "intermediate_dim": 32,
+                "vocab_size": 17,
+                "expert_count": expert_count,
+                "top_k": top_k,
+                "devices": devices,
+                "gateway_device": "cuda:0",
+                "expert_devices": expert_devices,
+                "logical_hosts": ["logical-host-0", "logical-host-1", "logical-host-2", "logical-host-3"],
+                "dtype": "float32",
+                "tolerance": 0.0001,
+                "model_id": "fornax-tiny-4gpu-moe-fixture",
+                "request_id": "fixture-request",
+                "prompt_text": "fixture prompt",
+                "expert_device_calls_per_iteration": expert_device_calls,
+                "expert_devices_used": list(expert_devices),
+                "all_expert_devices_used": True,
+                "all_devices_used": True,
+                "transfer_payload_bytes_per_iteration": 1536,
+            },
+            "routing": {
+                "routes": routes,
+                "expert_placement": [
+                    {
+                        "expert_id": expert_id,
+                        "device": expert_devices[expert_id % len(expert_devices)],
+                        "logical_host": f"logical-host-{1 + (expert_id % len(expert_devices))}",
+                        "local_to_gateway": False,
+                    }
+                    for expert_id in range(expert_count)
+                ],
+            },
+            "serving": {
+                "request": {
+                    "id": "fixture-request",
+                    "model": "fornax-tiny-4gpu-moe-fixture",
+                    "messages": [{"role": "user", "content": "fixture prompt"}],
+                    "max_tokens": token_count,
+                    "stream": False,
+                },
+                "response": {
+                    "id": "chatcmpl-fixture-request",
+                    "object": "chat.completion",
+                    "model": "fornax-tiny-4gpu-moe-fixture",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "tok3 tok8 tok12 tok1 tok4 tok7"},
+                            "finish_reason": "length",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 6, "completion_tokens": 6, "total_tokens": 12},
+                },
+                "generated_text": "tok3 tok8 tok12 tok1 tok4 tok7",
+                "openai_compatible_shape": True,
+                "live_http_endpoint": False,
+            },
+            "result": {
+                "elapsed_s": 0.1,
+                "elapsed_ns": 100000000,
+                "tokens_processed": 30,
+                "expert_calls": 60,
+                "remote_expert_calls": 60,
+                "remote_batches": 30,
+                "transfer_payload_bytes": 7680,
+                "tokens_s": 300.0,
+                "expert_calls_s": 600.0,
+                "layer_checksum": 1.25,
+                "reference_layer_checksum": 1.25,
+                "logit_checksum": 2.5,
+                "reference_logit_checksum": 2.5,
+                "max_layer_abs_error": 0.0,
+                "max_logit_abs_error": 0.0,
+                "routing_match": True,
+                "next_tokens": next_tokens,
+                "reference_next_tokens": list(next_tokens),
+                "next_tokens_match": True,
+                "correctness_passed": True,
+                "all_expert_devices_used": True,
+                "all_devices_used": True,
+                "timing_method": "perf_counter_cuda_synchronize_4gpu_moe_serving",
+            },
+            "environment": {
+                "python_executable": "/tmp/torch-python",
+                "python_version": "3.12",
+                "platform": "Linux-test",
+                "machine": "x86_64",
+                "cpu_count": 64,
+                "torch_version": "2.test",
+                "cuda_available": True,
+                "cuda_device_count": 4,
+                "cuda_version": "12.test",
+            },
+            "hardware": {
+                "device_type": "cuda-4gpu-moe-serving",
+                "same_physical_host": True,
+                "devices": [
+                    {"device": "cuda:0", "index": 0, "role": "gateway", "name": "fixture H100", "total_memory_bytes": 80_000_000_000},
+                    {"device": "cuda:1", "index": 1, "role": "expert", "name": "fixture H100", "total_memory_bytes": 80_000_000_000},
+                    {"device": "cuda:2", "index": 2, "role": "expert", "name": "fixture H100", "total_memory_bytes": 80_000_000_000},
+                    {"device": "cuda:3", "index": 3, "role": "expert", "name": "fixture H100", "total_memory_bytes": 80_000_000_000},
+                ],
+                "peer_access": [],
+                "logical_hosts": ["logical-host-0", "logical-host-1", "logical-host-2", "logical-host-3"],
+            },
+            "claims": {
+                "real_frontier_model": False,
+                "target_model_parity": False,
+                "live_http_endpoint": False,
+                "formal_g2_passed": False,
+                "formal_g3_passed": False,
+                "g2_g3_gate_evidence": False,
+                "production_distributed_serving": False,
+            },
+            "note": "fixture",
+        }
+
+    def _four_gpu_moe_bundle_fixture(self):
+        probe = self._four_gpu_moe_probe_fixture()
+        probe_result = validate_4gpu_moe_serving_probe_fixture(probe)
+        summary = {
+            "accelerator_required": True,
+            "check_count": 3,
+            "passed_count": 3,
+            "serving_adapter_valid": True,
+            "moe_serving_probe_valid": True,
+            "accelerator_measured": True,
+            "gpu_count": probe_result["summary"]["gpu_count"],
+            "gateway_device": probe_result["summary"]["gateway_device"],
+            "expert_devices": probe_result["summary"]["expert_devices"],
+            "expert_devices_used": probe_result["summary"]["expert_devices_used"],
+            "all_expert_devices_used": True,
+            "all_devices_used": True,
+            "tokens_s": 300.0,
+            "expert_calls_s": 600.0,
+            "max_layer_abs_error": 0.0,
+            "max_logit_abs_error": 0.0,
+            "generated_text": probe_result["summary"]["generated_text"],
+            "correctness_passed": True,
+            "local_4gpu_moe_serving_smoke_passed": True,
+            "live_http_endpoint": False,
+            "real_frontier_model": False,
+            "target_model_parity": False,
+            "formal_g2_passed": False,
+            "formal_g3_passed": False,
+            "g2_g3_gate_evidence": False,
+            "production_distributed_serving": False,
+        }
+        checks = [
+            {"name": "serving-adapter", "ok": True, "artifact": "serving-adapter.json", "errors": [], "warnings": [], "summary": {}},
+            {"name": "four-gpu-moe-serving-probe", "ok": True, "artifact": "four-gpu-moe-serving-probe.json", "errors": [], "warnings": [], "summary": probe_result["summary"]},
+            {"name": "bundle-policy", "ok": True, "artifact": "local-4gpu-moe-serving-smoke.json", "errors": [], "warnings": [], "summary": {}},
+        ]
+        return {
+            "version": 1,
+            "record_kind": "local-4gpu-moe-serving-smoke-bundle",
+            "evidence_scope": "same-host-4gpu-moe-serving-proxy",
+            "bundle": "/tmp/fixture",
+            "artifacts": {
+                "serving_adapter": "serving-adapter.json",
+                "four_gpu_moe_serving_probe": "four-gpu-moe-serving-probe.json",
+                "validation": "local-4gpu-moe-serving-smoke.json",
+            },
+            "summary": summary,
+            "checks": checks,
+            "ok": True,
+            "note": "fixture",
+        }
+
+    def test_local_4gpu_moe_serving_probe_validates_four_gpu_coverage(self) -> None:
+        result = validate_4gpu_moe_serving_probe_fixture(self._four_gpu_moe_probe_fixture())
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(4, result["summary"]["gpu_count"])
+        self.assertEqual("cuda:0", result["summary"]["gateway_device"])
+        self.assertEqual(["cuda:1", "cuda:2", "cuda:3"], result["summary"]["expert_devices_used"])
+        self.assertTrue(result["summary"]["all_expert_devices_used"])
+        self.assertFalse(result["summary"]["g2_g3_gate_evidence"])
+
+    def test_local_4gpu_moe_serving_probe_rejects_missing_expert_gpu_work(self) -> None:
+        fixture = self._four_gpu_moe_probe_fixture()
+        fixture["config"]["expert_device_calls_per_iteration"]["cuda:3"] = 0
+        fixture["config"]["expert_devices_used"] = ["cuda:1", "cuda:2"]
+        fixture["config"]["all_expert_devices_used"] = False
+        fixture["result"]["all_expert_devices_used"] = False
+        result = validate_4gpu_moe_serving_probe_fixture(fixture)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("expert_devices_used", text)
+        self.assertIn("cuda:3", text)
+        self.assertIn("all_expert_devices_used", text)
+
+    def test_local_4gpu_moe_serving_bundle_rejects_gate_overclaim(self) -> None:
+        bundle = self._four_gpu_moe_bundle_fixture()
+        bundle["summary"]["formal_g3_passed"] = True
+        result = validate_local_4gpu_moe_serving_smoke_fixture(bundle)
+        self.assertFalse(result["ok"])
+        self.assertIn("formal_g3_passed", "; ".join(result["errors"]))
 
     def test_local_accelerator_smoke_allows_reference_for_ci(self) -> None:
         with tempfile.TemporaryDirectory() as d:

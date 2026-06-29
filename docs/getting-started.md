@@ -1,9 +1,11 @@
 # Getting started
 
 This walks you from a fresh clone to your first placement plan and throughput
-prediction in a few minutes. Everything here runs on a laptop — **no GPU, no
-model download, no network.** That is deliberate: the part of Fornax you can run
-today is the *planner and simulation/contract layer*, which is pure logic.
+prediction in a few minutes. The main path here runs on a laptop: **no GPU, no
+model download, no network.** That is deliberate: the part of Fornax every
+developer can run today is the *planner and simulation/contract layer*, which is
+pure logic. An optional four-GPU smoke test is included at the end for machines
+with a CUDA-enabled PyTorch environment.
 
 If you want the mental model first, read [Concepts](concepts.md). If you just
 want it running, keep going.
@@ -11,9 +13,11 @@ want it running, keep going.
 ## 1. Prerequisites
 
 - **Python 3.10 or newer** (developed and tested on CPython 3.12).
-- Nothing else. Fornax's runnable layer has **zero third-party dependencies** —
-  it is pure standard-library Python. There is no `pip install` step and no
-  packaging to build.
+- Nothing else for the default planner/contract workflow. Fornax's runnable
+  layer has **zero third-party dependencies** — it is pure standard-library
+  Python. There is no `pip install` step and no packaging to build.
+- Optional hardware smoke tests need a separate Python environment with PyTorch
+  and visible CUDA devices.
 
 ```bash
 python3 --version    # expect 3.10+
@@ -148,7 +152,38 @@ python3 -m fornax plan \
 `infeasible_reason`. (The bundled golden plan `model_too_big.json` is a
 permanent example of this case.)
 
-## 7. Where to go next
+## 7. Optional: 4-GPU MoE serving smoke
+
+On a machine with four visible CUDA GPUs and a PyTorch environment, run the
+same-host MoE serving smoke:
+
+```bash
+python3 -m fornax program local-4gpu-moe-serving-smoke \
+    --out-dir /tmp/fornax_local_4gpu_moe_serving_smoke \
+    --torch-python /path/to/torch/python \
+    --devices cuda:0,cuda:1,cuda:2,cuda:3
+```
+
+The device order is meaningful: the first device is the gateway/router/gather
+GPU, and the remaining three devices run the tiny fixture MoE experts. A passing
+run writes `local-4gpu-moe-serving-smoke.json` plus child artifacts under the
+output directory and prints `checks=3/3 passed`, `gpu_count=4`, the gateway
+GPU, the expert GPUs, and generated fixture text.
+
+Validate a saved artifact without rerunning CUDA work:
+
+```bash
+python3 -m fornax test local-4gpu-moe-serving-smoke \
+    --fixture /tmp/fornax_local_4gpu_moe_serving_smoke
+```
+
+This smoke proves a deterministic tiny MoE serving fixture on one physical host:
+all four GPUs are visible, routed expert work reaches all three expert GPUs, and
+the split GPU path matches the reference path. It is **not** a live HTTP
+endpoint, real frontier-model parity, production distributed transport, or
+formal G2/G3 gate evidence.
+
+## 8. Where to go next
 
 - **[Planning and simulation](planning-and-simulation.md)** — the workflow in
   depth: writing your own model/fleet, the request-trace option for `simulate`,

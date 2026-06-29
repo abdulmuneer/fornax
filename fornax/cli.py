@@ -61,6 +61,10 @@ from .local_http_serving_smoke import (
     run_local_http_serving_smoke,
     validate_local_http_serving_smoke,
 )
+from .local_4gpu_moe_serving_smoke import (
+    run_local_4gpu_moe_serving_smoke,
+    validate_local_4gpu_moe_serving_smoke,
+)
 from .local_serving_smoke import (
     run_local_serving_smoke,
     validate_local_serving_smoke,
@@ -1825,6 +1829,53 @@ def _cmd_program_local_serving_smoke(args: argparse.Namespace) -> int:
     return 0 if validation["ok"] else 2
 
 
+
+def _cmd_program_local_4gpu_moe_serving_smoke(args: argparse.Namespace) -> int:
+    try:
+        result = run_local_4gpu_moe_serving_smoke(
+            out_dir=args.out_dir,
+            torch_python=args.torch_python,
+            devices=args.devices,
+            plan_id=args.plan_id,
+            request_id=args.request_id,
+            model=args.model,
+            prompt_text=args.prompt_text,
+            dtype=args.dtype,
+            iterations=args.iterations,
+            warmup=args.warmup,
+            token_count=args.token_count,
+            hidden_dim=args.hidden_dim,
+            intermediate_dim=args.intermediate_dim,
+            vocab_size=args.vocab_size,
+            expert_count=args.expert_count,
+            top_k=args.top_k,
+            tolerance=args.tolerance,
+            timeout_s=args.timeout_s,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program local-4gpu-moe-serving-smoke: {exc}")
+        return 2
+    validation = validate_local_4gpu_moe_serving_smoke(result["artifacts"]["validation"])
+    summary = result["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "local 4-GPU MoE serving smoke: "
+        f"bundle={result['bundle']}; "
+        f"checks={summary['passed_count']}/{summary['check_count']} passed; "
+        f"gpu_count={summary['gpu_count']}; "
+        f"gateway={summary['gateway_device']}; "
+        f"experts={summary['expert_devices_used']}; "
+        f"tokens_s={summary['tokens_s']}; "
+        f"generated={summary['generated_text']}; "
+        f"live_http={summary['live_http_endpoint']}; "
+        f"target_model_parity={summary['target_model_parity']}; "
+        f"gate_evidence={summary['g2_g3_gate_evidence']}"
+        f"{suffix}"
+    )
+    return 0 if validation["ok"] else 2
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     if args.requests and args.trace and args.requests != args.trace:
         print("preflight: pass only one of --requests or --trace")
@@ -2121,6 +2172,32 @@ def _cmd_test_local_serving_smoke(args: argparse.Namespace) -> int:
     print("FAIL local-serving-smoke: " + "; ".join(result["errors"]))
     return 1
 
+
+
+def _cmd_test_local_4gpu_moe_serving_smoke(args: argparse.Namespace) -> int:
+    fixture = args.fixture or args.out
+    if not fixture:
+        print("FAIL local-4gpu-moe-serving-smoke: pass --fixture or --out with an existing artifact")
+        return 1
+    result = validate_local_4gpu_moe_serving_smoke(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS local-4gpu-moe-serving-smoke: {result['fixture']} "
+            f"checks={summary['passed_count']}/{summary['check_count']} "
+            f"gpu_count={summary['gpu_count']} "
+            f"gateway={summary['gateway_device']} "
+            f"expert_devices={summary['expert_devices_used']} "
+            f"generated={summary['generated_text']} "
+            f"gate_evidence={summary['g2_g3_gate_evidence']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL local-4gpu-moe-serving-smoke: " + "; ".join(result["errors"]))
+    return 1
 
 def _cmd_test_state_ownership(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/state_ownership"
@@ -2723,6 +2800,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_local_serving_smoke(args)
     if args.test_name == "local-http-serving-smoke":
         return _cmd_test_local_http_serving_smoke(args)
+    if args.test_name == "local-4gpu-moe-serving-smoke":
+        return _cmd_test_local_4gpu_moe_serving_smoke(args)
     if args.test_name == "state-ownership":
         return _cmd_test_state_ownership(args)
     if args.test_name == "engine-simulation":
@@ -3229,6 +3308,27 @@ def build_parser() -> argparse.ArgumentParser:
     local_serving.add_argument("--timeout-s", type=float, default=180.0)
     local_serving.set_defaults(func=_cmd_program_local_serving_smoke)
 
+    local_4gpu_moe = program_sub.add_parser("local-4gpu-moe-serving-smoke")
+    local_4gpu_moe.add_argument("--out-dir", required=True)
+    local_4gpu_moe.add_argument("--torch-python")
+    local_4gpu_moe.add_argument("--devices", default="cuda:0,cuda:1,cuda:2,cuda:3")
+    local_4gpu_moe.add_argument("--plan-id", default="local-4gpu-moe-serving-plan")
+    local_4gpu_moe.add_argument("--request-id", default="local-4gpu-moe-serving-request")
+    local_4gpu_moe.add_argument("--model", default="fornax-tiny-4gpu-moe-fixture")
+    local_4gpu_moe.add_argument("--prompt-text", default="route a tiny MoE request across four GPUs")
+    local_4gpu_moe.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float32")
+    local_4gpu_moe.add_argument("--iterations", type=int, default=5)
+    local_4gpu_moe.add_argument("--warmup", type=int, default=1)
+    local_4gpu_moe.add_argument("--token-count", type=int, default=6)
+    local_4gpu_moe.add_argument("--hidden-dim", type=int, default=16)
+    local_4gpu_moe.add_argument("--intermediate-dim", type=int, default=32)
+    local_4gpu_moe.add_argument("--vocab-size", type=int, default=17)
+    local_4gpu_moe.add_argument("--expert-count", type=int, default=6)
+    local_4gpu_moe.add_argument("--top-k", type=int, default=2)
+    local_4gpu_moe.add_argument("--tolerance", type=float, default=1e-4)
+    local_4gpu_moe.add_argument("--timeout-s", type=float, default=180.0)
+    local_4gpu_moe.set_defaults(func=_cmd_program_local_4gpu_moe_serving_smoke)
+
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)
     plan.add_argument("--inventory", required=True)
@@ -3658,6 +3758,7 @@ def build_parser() -> argparse.ArgumentParser:
             "serving-adapter",
             "local-serving-smoke",
             "local-http-serving-smoke",
+            "local-4gpu-moe-serving-smoke",
             "state-ownership",
             "engine-simulation",
             "observability",
