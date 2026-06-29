@@ -91,11 +91,17 @@ python3 -m fornax test --help              # the full list of suites
 ```
 
 Available suites include `golden-plans`, `runtime-format`, `network-contract`,
-`engine-seam`, `stage-host`, `serving-adapter`, `moe-runtime`, `moe-parity-probe`,
-`continuous-batching`, `scheduler-contract`, `stage-replication`,
-`resilience-replay`, `throughput-scaling`, `phase4-resilience-gate`,
-`phase5-ga-gate`, and more (see `test --help`). `make golden` runs the core set;
-`make test` runs the golden set plus the unit tests.
+`engine-seam`, `stage-host`, `serving-adapter`, `state-ownership`,
+`engine-simulation`, `observability`, `metrics-ledger`, `trace-ledger`,
+`worker-contract`, `transport-contract`, `trust-boundary`, `moe-runtime`,
+`moe-parity-probe`, `model-support`, `continuous-batching`,
+`scheduler-contract`, `stage-replication`, `resilience-replay`,
+`ops-lifecycle`, `onboarding-methodology`, `program-governance`,
+`backend-coverage`, `phase3-proxy-gate`, `phase4-resilience-gate`,
+`phase5-ga-gate`, `benchmark-ledger`, `pipeline-correctness-probe`,
+`throughput-scaling`, and more (see `test --help`). `make golden` runs the
+deterministic no-hardware contract/golden suite; `make test` runs that suite plus
+the unit tests.
 
 ## Exit codes
 

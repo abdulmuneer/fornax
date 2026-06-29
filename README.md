@@ -64,7 +64,7 @@ The full guide index is [docs/README.md](docs/README.md).
 
 ```bash
 make test          # golden self-tests + unittest suite (no hardware required)
-make golden        # contract/golden-vector self-tests only
+make golden        # deterministic CLI contract/golden self-tests
 python3 -m fornax --help          # the CLI surface
 python3 -m fornax doctor          # inspect a phase-0 evidence bundle
 python3 -m fornax test golden-plans
@@ -75,8 +75,10 @@ gate validators are pure logic, validated against golden vectors.
 
 ## Status
 
-Active development. The planner and the phase-gate simulation/contract layer are
-implemented and self-tested; the heterogeneous MoE expert runtime (the critical
-path) is the next frontier. See the
-[program-management tree](docs/fornax/program_management/) for the roadmap,
-stage gates, and sprint backlog.
+Active development. The planner, contract validators, local serving/proxy-gate
+fixtures, and Phase 3-5 two-H100 proxy packets are implemented and self-tested.
+Formal G1-G5 closure still requires the human sign-offs and real heterogeneous
+lab evidence tracked in
+[fornax_program_management_todo_status.md](fornax_program_management_todo_status.md).
+See the [program-management tree](docs/fornax/program_management/) for the
+roadmap, stage gates, and sprint backlog.

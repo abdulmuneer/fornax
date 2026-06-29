@@ -135,7 +135,10 @@ from fornax.planner import Inventory, ModelSpec, Target, plan_placement
 from fornax.planner.cost import stage_memory_bytes
 from fornax.phase0_status import render_phase0_status_report
 from fornax.phase0_simulated_validation import run_phase0_simulated_validation
-from fornax.phase3_proxy_gate import validate_phase3_proxy_gate_packet
+from fornax.phase3_proxy_gate import (
+    validate_phase3_proxy_gate,
+    validate_phase3_proxy_gate_packet,
+)
 from fornax.phase4_resilience_gate import (
     build_phase4_resilience_gate_packet,
     render_phase4_t4_runbook_markdown,
@@ -2741,6 +2744,38 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("formal_g3_passed", "; ".join(result["errors"]))
 
+    def test_phase3_proxy_gate_rejects_missing_gate_signer(self) -> None:
+        packet = self._valid_phase3_proxy_gate_packet()
+        packet["accepted_by"] = ""
+        result = validate_phase3_proxy_gate_packet(packet)
+        errors = "; ".join(result["errors"])
+        self.assertFalse(result["ok"])
+        self.assertIn("accepted_by", errors)
+        self.assertIn("phase3_proxy_passed", errors)
+
+    def test_phase3_proxy_gate_rejects_non_deferred_requirement_status(self) -> None:
+        packet = self._valid_phase3_proxy_gate_packet()
+        packet["deferred_requirements"][0]["status"] = "completed"
+        result = validate_phase3_proxy_gate_packet(packet)
+        errors = "; ".join(result["errors"])
+        self.assertFalse(result["ok"])
+        self.assertIn("deferred_requirements.real-frontier-target-model.status", errors)
+        self.assertIn("phase3_proxy_passed", errors)
+
+    def test_phase3_proxy_gate_rejects_bad_endpoint_validation(self) -> None:
+        packet = self._valid_phase3_proxy_gate_packet()
+        packet["endpoint_validation"]["ok"] = False
+        result = validate_phase3_proxy_gate_packet(packet)
+        errors = "; ".join(result["errors"])
+        self.assertFalse(result["ok"])
+        self.assertIn("endpoint_validation.ok", errors)
+        self.assertIn("phase3_proxy_passed", errors)
+
+    def test_phase3_proxy_gate_fixture_passes(self) -> None:
+        result = validate_phase3_proxy_gate("fornax/golden_vectors/phase3_proxy_gate")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(result["summary"]["phase3_proxy_passed"])
+        self.assertFalse(result["summary"]["formal_g3_passed"])
 
     def _valid_phase4_resilience_gate_packet(self) -> dict[str, object]:
         return build_phase4_resilience_gate_packet(

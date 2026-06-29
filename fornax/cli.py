@@ -119,6 +119,7 @@ from .phase0_status import render_phase0_status_report
 from .phase0_simulated_validation import run_phase0_simulated_validation
 from .phase3_proxy_gate import (
     build_phase3_proxy_gate_packet,
+    validate_phase3_proxy_gate,
     validate_phase3_proxy_gate_packet,
 )
 from .phase4_resilience_gate import (
@@ -2630,6 +2631,26 @@ def _cmd_test_benchmark_ledger(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_phase3_proxy_gate(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/phase3_proxy_gate"
+    result = validate_phase3_proxy_gate(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS phase3-proxy-gate: {fixture} "
+            f"proxy_passed={summary['phase3_proxy_passed']} "
+            f"formal_g3_passed={summary['formal_g3_passed']} "
+            f"checks={summary['passed_count']}/{summary['check_count']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL phase3-proxy-gate: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test_phase4_resilience_gate(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/phase4_resilience_gate"
     result = validate_phase4_resilience_gate(fixture)
@@ -2744,6 +2765,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_program_governance(args)
     if args.test_name == "backend-coverage":
         return _cmd_test_backend_coverage(args)
+    if args.test_name == "phase3-proxy-gate":
+        return _cmd_test_phase3_proxy_gate(args)
     if args.test_name == "phase4-resilience-gate":
         return _cmd_test_phase4_resilience_gate(args)
     if args.test_name == "phase5-ga-gate":
@@ -3656,6 +3679,7 @@ def build_parser() -> argparse.ArgumentParser:
             "onboarding-methodology",
             "program-governance",
             "backend-coverage",
+            "phase3-proxy-gate",
             "benchmark-ledger",
             "expert-mlp-probe",
             "activation-transfer-probe",
