@@ -1,117 +1,107 @@
 # Concepts
 
-The vocabulary and the mental model the rest of the docs assume. Read this once
-and the CLI and file formats will make sense.
+This page defines the vocabulary used by the CLI and file-format docs.
 
 ## What Fornax is
 
-Fornax is a **distributed inference engine for frontier-scale sparse-MoE models**
-that runs across a fleet of **heterogeneous, commodity machines** — consumer
-NVIDIA GPUs, Apple-Silicon Macs, whatever else is on the LAN — so that a fleet
-can serve **one model that no single node could hold**, on-prem, at high
-*aggregate* throughput.
+Fornax is a distributed inference engine for frontier-scale sparse-MoE models. It
+places one model across a heterogeneous commodity fleet so the fleet can serve a
+model larger than any single node can hold.
 
-It is an **engine**, not a load balancer. It does not fan requests out across
-copies of `max serve`; it cuts into the model-execution path itself and spreads
-*one* model's layers and experts across machines.
+The fleet can include consumer NVIDIA GPUs, Apple Silicon Macs, AMD devices, and
+CPU workers. The engine runs inside the model execution path and places layers,
+stages, and routed experts across machines.
 
-## The thesis (why this can work)
+## Why sparse MoE matters
 
-> Frontier open models are large **sparse Mixture-of-Experts**: expensive to
-> *store* (you must hold all the expert weights) but cheap to *compute* per token
-> (only a few experts fire). Heterogeneous commodity hardware is exactly that
-> mismatch in reverse — Macs bring **cheap capacity** (large unified memory),
-> consumer GPUs bring **cheap compute**. The shapes match. The bottleneck is the
-> **interconnect**, and Fornax's whole job is to hide it.
+Sparse Mixture-of-Experts models require memory for all expert weights, while
+each token activates only a small subset of experts. This makes capacity the
+first constraint and per-token compute the second constraint. A heterogeneous
+fleet can match that shape when the planner keeps dense work close to the fast
+accelerators and sends bounded expert work to capacity-rich machines.
 
-## The honest constraint
+The network remains the main constraint. Every plan should be read with that in
+mind.
 
-**Read this before you trust any number Fornax prints.**
+## Prediction and measurement scope
 
-When a model is bigger than your biggest node, **every token crosses the
-network.** A spanned model has a pipeline-and-synchronization floor a single-node
-model does not. Fornax optimizes **aggregate throughput and utilization** — high
-total tok/s, high \$/token efficiency, via continuous batching, overlap, and
-expert locality. It does **not** promise single-stream latency parity with a
-model that fits on one box. That latency cost is the irreducible price of
-spanning, and the docs and the tool both say so rather than hiding it.
+When a model is larger than the biggest node, every token crosses the network.
+That adds pipeline latency and synchronization cost. Fornax optimizes aggregate
+throughput and utilization through continuous batching, overlap, expert locality,
+and balanced stages. Single-stream latency includes the cost of spanning the
+model.
 
-A second honesty rule runs through the codebase: **every number is either a
-measurement or a prediction, and is always labelled as which.** Today's
-`simulate` output is a **cost-model prediction** for a placement — not a
-benchmark of your hardware. The *gate validators* (see below) exist to keep those
-predictions traceable to an explicit model or fixture and to stop fabricated
-metrics from leaking in.
+Fornax labels simulator output as predictions. `simulate` reports cost-model
+estimates for a placement. Benchmarks and serving smokes produce measurements for
+the named hardware, model, command, and artifact.
 
-## The core objects
+## Core objects
 
-You describe three things; Fornax produces a fourth.
+You provide three inputs. Fornax produces a plan.
 
-| Object | What it is | You provide it as |
+| Object | Meaning | Provided as |
 |---|---|---|
-| **Model** | The network to serve: hidden dim, layer list (attention / dense / MoE), per-layer weight bytes, FLOPs, and KV bytes. | the `model` block of a *target contract* |
-| **Target** | The serving goal: concurrency, prompt/generation length, and the objective (`max_throughput`, `min_latency`, `balanced`). | the `target` block of a *target contract* |
-| **Inventory** | The fleet: a list of *nodes* (machines) and *links* (the network between them). | an *inventory* JSON file |
-| **Plan** | Fornax's output: how the model is placed across the fleet, plus a feasibility verdict and a predicted performance profile. | produced by `plan` |
+| Model | Network description: hidden dimension, layers, weight bytes, FLOPs, KV bytes, and MoE fields. | `model` block in a target contract |
+| Target | Serving goal: concurrency, prompt length, generation length, and objective. | `target` block in a target contract |
+| Inventory | Fleet description: nodes and network links. | inventory JSON file |
+| Plan | Placement, feasibility verdict, expert placement, and predicted profile. | output from `plan` |
 
-See [Input file reference](input-formats.md) for every field.
+See [Input file reference](input-formats.md) for the full schema.
 
 ## Stages, replicas, and experts
 
-A **plan** divides the model into **stages** — contiguous groups of layers — laid
-out as a pipeline. Each stage is hosted on one or more **replicas** (nodes), in a
-**mode**:
+A plan divides the model into stages. A stage is a contiguous group of layers
+placed as part of a pipeline. A stage can have one or more replicas. Each replica
+has a placement mode.
 
-- **`resident`** — the stage's weights live in the node's memory for the whole
-  session (the fast path; used whenever the layers fit).
-- other modes cover cases where weights must be streamed or shared rather than
-  held resident.
+- `resident`: the stage weights live in node memory for the session. This is the
+  preferred mode when the layers fit.
+- Other modes cover future cases where weights are streamed or shared.
 
-For **MoE layers**, the dense path (attention, routers, hot/shared experts,
-sampler) stays on the fastest local accelerator group, while **routed experts**
-can be placed on other workers — the `expert_placement` part of a plan. This is
-the surgical seam the engine is built around: the router splits a token's experts
-into local batches and remote batches, the remote ones execute on capacity-rich
-workers (e.g. Macs), and the results are gathered back.
+For MoE layers, the dense path includes attention, routers, shared or hot
+experts, and the sampler. Routed experts can be placed on other workers through
+the plan's `expert_placement` block. The router builds local and remote expert
+batches, remote workers execute their assigned experts, and the results are
+gathered before the next layer.
 
-## Feasibility is an outcome, not an error
+## Feasibility
 
-`plan` answers "does this model fit this fleet?" as a first-class result.
-A **feasible** plan has stages, an `expert_placement`, and a `predicted` profile.
-An **infeasible** plan has `"feasible": false` and an `infeasible_reason` (e.g.
-the model exceeds total memory). The CLI mirrors this in its exit code — `0` for
-feasible, `2` for infeasible — so you can gate on it in scripts.
+`plan` answers whether the model fits the fleet.
 
-## The prediction: throughput, latency, bubble
+A feasible plan has stages, expert placement, and a `predicted` profile. An
+infeasible plan has `"feasible": false` and an `infeasible_reason`, such as total
+model memory exceeding total available fleet memory.
 
-`simulate` reads a feasible plan's `predicted` block and reports three numbers:
+The CLI uses exit `0` for feasible and exit `2` for infeasible so scripts can
+gate on the result.
 
-- **throughput (tok/s)** — predicted aggregate generation rate for the placement.
-- **per-request latency (s)** — predicted time for one request, including the
-  network-crossing floor described above.
-- **bubble fraction** — the share of time pipeline stages sit idle waiting on
-  others (pipeline imbalance / sync overhead); lower is better. A perfectly
-  balanced single-stage plan has bubble `0`.
+## Predicted throughput, latency, and bubble
 
-All three come from the planner's cost model. They tell you whether a placement
-is *worth building and benchmarking*, not what a benchmark will say.
+`simulate` reads a feasible plan and reports three values:
 
-## Golden vectors and gates (why you can trust the logic)
+- Throughput in tokens per second: predicted aggregate generation rate for the
+  placement.
+- Per-request latency in seconds: predicted time for one request, including the
+  network-crossing cost.
+- Bubble fraction: predicted share of time that pipeline stages wait on other
+  stages. Lower is better. A balanced single-stage plan has bubble `0`.
 
-Fornax's behavior is pinned by **golden vectors** — recorded expected outputs for
-the planner, the runtime-format contracts, the engine seam, and the phase gates
-— under `fornax/golden_vectors/**` and `fornax/golden_plans/**`. The `test`
-command replays them; `make test` runs the lot. Changing planner or contract
-behavior means regenerating the affected vector *and* recording why. This is the
-mechanism that keeps the simulation honest as the code evolves, and it is why you
-can run `make test` and trust a green result.
+Use these predictions to compare placements and choose what to benchmark.
 
-## Where the runtime is
+## Golden vectors and gates
 
-The planner and the simulation/contract layer ship today and are self-tested. The
-**heterogeneous Mojo/MAX expert runtime** — the part that takes a plan and serves
-real tokens across real GPUs and Macs — is the active build, and it is being
-built *against these contracts*. The engine exposes a stable, harness-agnostic
-**string-in / string-out** generation seam so any control plane can drive it once
-it lands. Until then, treat Fornax as the tool that tells you *what to build and
-whether it will fit*.
+Fornax records expected outputs under `fornax/golden_vectors/**` and
+`fornax/golden_plans/**`. The golden files cover planner behavior, runtime-format
+contracts, engine-interface contracts, and phase gates.
+
+`python3 -m fornax test ...`, `make golden`, and `make test` replay those
+expectations. A planner or contract change that affects behavior should update
+the relevant golden vector and document why the expected output changed.
+
+## Runtime status
+
+The planner and the simulation/contract layer ship today. The heterogeneous
+Mojo/MAX expert runtime is the active build. That runtime will consume these
+contracts to serve real tokens across real GPUs and Macs. Until that runtime is
+available, use Fornax to decide whether a model fits a fleet, compare placements,
+and prepare evidence for the build that follows.
