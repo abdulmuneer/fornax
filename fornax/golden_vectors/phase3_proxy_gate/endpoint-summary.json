@@ -1,0 +1,25 @@
+{
+  "formal_g3_passed": false,
+  "formal_g3_validation_deferred": true,
+  "record_kind": "phase3-proxy-endpoint-summary",
+  "scope": "two-H100 local proxy endpoint summary; not formal heterogeneous G3 evidence",
+  "source": "summarized from the 2026-06-23 local HTTP serving smoke artifact recorded in fornax_program_management_todo_status.md",
+  "summary": {
+    "activation_transfer_bandwidth_gib_s": 296.44,
+    "check_count": 8,
+    "component_count": 6,
+    "deferred_hardware_count": 2,
+    "endpoint": "/v1/chat/completions",
+    "endpoint_check_count": 23,
+    "endpoint_passed_count": 23,
+    "logical_hosts": [
+      "localhost",
+      "logical-host-0",
+      "logical-host-1"
+    ],
+    "moe_tokens_s": 1207.39,
+    "passed_count": 8,
+    "pipeline_tokens_s": 4102.43,
+    "target_fixture_execution_tokens_s": 2943.24
+  }
+}

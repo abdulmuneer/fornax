@@ -1,0 +1,108 @@
+{
+  "accepted_by": "operator",
+  "date": "2026-06-23",
+  "decision": "Use two local H100 GPUs as logical hosts for the current Phase 3 proxy gate; defer real NVIDIA/AMD/Mac validation.",
+  "deferred_requirements": [
+    {
+      "id": "real-frontier-target-model",
+      "reason": "current proxy uses deterministic target fixture; real frontier target-model loading/parity remains future validation",
+      "status": "deferred"
+    },
+    {
+      "id": "real-amd-gpu-node",
+      "reason": "AMD GPU node is not present on this development machine",
+      "status": "deferred"
+    },
+    {
+      "id": "real-apple-silicon-mac",
+      "reason": "Apple Silicon Mac is not present on this development machine",
+      "status": "deferred"
+    },
+    {
+      "id": "product-auth-mtls-keying",
+      "reason": "local mTLS/auth is sufficient for the proxy gate but not product keying evidence",
+      "status": "deferred"
+    },
+    {
+      "id": "distributed-partition-proof",
+      "reason": "local partition fencing/recovery is sufficient for the proxy gate but not real distributed partition evidence",
+      "status": "deferred"
+    }
+  ],
+  "endpoint_artifact": "fornax/golden_vectors/phase3_proxy_gate/endpoint-summary.json",
+  "endpoint_validation": {
+    "errors": [],
+    "ok": true,
+    "warnings": [
+      "Phase 3 endpoint artifact is represented by a packaged proxy summary; formal G3 validation remains deferred."
+    ]
+  },
+  "evidence_checks": [
+    {
+      "evidence": "validate_local_http_serving_smoke_fixture(proxy endpoint artifact summary)",
+      "name": "endpoint-artifact-valid",
+      "ok": true
+    },
+    {
+      "evidence": "activation-transfer, split-pipeline, and MoE probes span cuda:0->cuda:1 logical hosts",
+      "name": "h100-two-logical-hosts",
+      "ok": true
+    },
+    {
+      "evidence": "local mTLS, missing-client-cert rejection, bearer auth rejection, and plan-hash rejection",
+      "name": "endpoint-security",
+      "ok": true
+    },
+    {
+      "evidence": "local retry-after, cancellation, timeout, partition fence, and partition recovery",
+      "name": "failure-semantics",
+      "ok": true
+    },
+    {
+      "evidence": "lifecycle cleanup releases all local resources with single-owner accounting",
+      "name": "lifecycle-state-ownership",
+      "ok": true
+    },
+    {
+      "evidence": "activation-transfer, split-pipeline, MoE parity, and target-fixture execution probes pass",
+      "name": "runtime-probes",
+      "ok": true
+    },
+    {
+      "evidence": "local topology route includes measured components and deferred AMD/Apple hardware explanations",
+      "name": "topology-route",
+      "ok": true
+    },
+    {
+      "evidence": "source endpoint artifact remains scoped as local proxy evidence",
+      "name": "no-formal-g3-overclaim",
+      "ok": true
+    }
+  ],
+  "formal_g3_passed": false,
+  "formal_g3_validation_deferred": true,
+  "gate": "G3",
+  "mode": "two-h100-local-proxy",
+  "outcome": "PROCEED",
+  "phase3_proxy_passed": true,
+  "record_kind": "phase3-g3-proxy-gate",
+  "summary": {
+    "activation_transfer_bandwidth_gib_s": 296.44,
+    "check_count": 8,
+    "component_count": 6,
+    "deferred_hardware_count": 2,
+    "endpoint": "/v1/chat/completions",
+    "endpoint_check_count": 23,
+    "endpoint_passed_count": 23,
+    "logical_hosts": [
+      "localhost",
+      "logical-host-0",
+      "logical-host-1"
+    ],
+    "moe_tokens_s": 1207.39,
+    "passed_count": 8,
+    "pipeline_tokens_s": 4102.43,
+    "target_fixture_execution_tokens_s": 2943.24
+  },
+  "version": 1
+}

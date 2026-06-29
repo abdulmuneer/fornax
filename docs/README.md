@@ -1,46 +1,42 @@
 # Fornax documentation
 
-End-user documentation for Fornax — the heterogeneous frontier-model serving
-engine. Start here.
+Start here for the runnable Fornax workflow.
 
-> **What you can do today.** The shipping codebase is the **planner and the
-> simulation/contract layer** (pure Python, no GPU or model required). You can
-> describe a model and a fleet of machines, ask Fornax to place the model across
-> them, and get a *predicted* throughput/latency profile plus a feasibility
-> verdict. The heterogeneous Mojo/MAX expert runtime that turns a plan into real
-> served tokens is under construction. The docs below are explicit about which
-> numbers are **predictions from a cost model** and which would be **measured**.
+## Current scope
+
+The repository currently ships the planner and the simulation/contract layer.
+This code is pure Python and needs no GPU, model download, or network access.
+You can describe a model and a fleet, ask Fornax to place the model across the
+fleet, and inspect the predicted throughput, latency, and feasibility result.
+
+The heterogeneous Mojo/MAX runtime that turns a plan into served tokens across
+real machines is still under development. Guide pages label simulator output as
+predictions and hardware runs as measurements.
 
 ## Guides
 
-| Guide | Read it when you want to… |
+| Guide | Use it for |
 |---|---|
-| [Getting started](getting-started.md) | Install Fornax, verify the install, and run your first plan → simulate in a few minutes. |
-| [Concepts](concepts.md) | Understand what Fornax is, the MoE/heterogeneous thesis, and the vocabulary (stages, experts, the honest constraint) the other docs assume. |
-| [Planning and simulation](planning-and-simulation.md) | Walk the core workflow end to end: describe a model + fleet, place it, predict throughput, validate against a target. |
-| [Input file reference](input-formats.md) | Look up the exact JSON schema for a target contract, an inventory, and a links file. |
-| [CLI reference](cli-reference.md) | Find a command. The full `python -m fornax` surface, grouped by what it's for. |
+| [Getting started](getting-started.md) | Install from a clone, verify the repo, and run the first plan and simulation. |
+| [Concepts](concepts.md) | Learn the model, fleet, stage, expert, prediction, and runtime vocabulary used by the other docs. |
+| [Planning and simulation](planning-and-simulation.md) | Work through the full planning flow: target contract, inventory, plan, simulation, validation, and preflight bundle. |
+| [Input file reference](input-formats.md) | Look up the JSON fields for target contracts, inventories, and links files. |
+| [CLI reference](cli-reference.md) | Find the `python3 -m fornax` command surface grouped by task. |
 
-## The 60-second version
+## Quick check
 
 ```bash
-make test                              # everything below runs with no GPU and no model
+make test
 python3 -m fornax plan \
     --target my_target.md \
     --inventory my_fleet.json \
-    --out plan.json                    # place the model across the fleet
-python3 -m fornax simulate --plan plan.json   # predict throughput / latency / bubble
+    --out plan.json
+python3 -m fornax simulate --plan plan.json
 ```
 
-If `plan` prints `wrote placement plan` and exits 0, your model fits the fleet
-and `plan.json` holds the placement. If it exits 2, the plan is infeasible and
-`plan.json` records the reason.
+`plan` exits `0` when the placement is feasible and writes `plan.json`. It exits
+`2` when the model cannot be placed; the output file records the reason.
 
-## A note on honesty
-
-Fornax is built around a hard rule: **a number is either traced to a measurement
-or labelled as a prediction — never dressed up as the other.** The simulator
-reports cost-model predictions; the gate validators exist to keep those
-predictions honest; and the docs follow suit. When you read "throughput" from
-`simulate`, that is the cost model's estimate for the placement, not a benchmark
-of your hardware. See [Concepts → The honest constraint](concepts.md#the-honest-constraint).
+`simulate` reports cost-model predictions for the placement. Treat those numbers
+as planning inputs until a benchmark or serving smoke produces measured runtime
+data.
