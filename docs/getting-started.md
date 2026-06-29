@@ -152,10 +152,10 @@ python3 -m fornax plan \
 `infeasible_reason`. (The bundled golden plan `model_too_big.json` is a
 permanent example of this case.)
 
-## 7. Optional: 4-GPU MoE serving smoke
+## 7. Optional: 4-GPU MoE serving smokes
 
-On a machine with four visible CUDA GPUs and a PyTorch environment, run the
-same-host MoE serving smoke:
+On a machine with four visible CUDA GPUs and a PyTorch environment, run the quick
+same-host tiny MoE serving fixture:
 
 ```bash
 python3 -m fornax program local-4gpu-moe-serving-smoke \
@@ -182,6 +182,34 @@ all four GPUs are visible, routed expert work reaches all three expert GPUs, and
 the split GPU path matches the reference path. It is **not** a live HTTP
 endpoint, real frontier-model parity, production distributed transport, or
 formal G2/G3 gate evidence.
+
+To exercise a real cached frontier-family MoE checkpoint, run the Qwen3-Omni
+text-generation smoke:
+
+```bash
+python3 -m fornax program local-real-moe-serving-smoke \
+    --out /tmp/fornax_qwen3_omni_real_moe_smoke.json \
+    --torch-python /mnt/dataprocessing/venvs/aiccu_falcon_tdt/bin/python \
+    --model-id Qwen/Qwen3-Omni-30B-A3B-Instruct \
+    --model-path /mnt/dataprocessing/cache/huggingface/hub/models--Qwen--Qwen3-Omni-30B-A3B-Instruct/snapshots/26291f793822fb6be9555850f06dfe95f2d7e695 \
+    --devices cuda:0,cuda:1,cuda:2,cuda:3
+```
+
+Validate the saved real-model artifact without reloading the checkpoint:
+
+```bash
+python3 -m fornax test local-real-moe-serving-smoke \
+    --fixture /tmp/fornax_qwen3_omni_real_moe_smoke.json
+```
+
+This smoke loads `Qwen/Qwen3-Omni-30B-A3B-Instruct` with Transformers, BF16, and
+`device_map=auto`; renders a chat prompt with the cached tokenizer/template; and
+generates text with `return_audio=False`. It records model architecture, MoE
+expert counts, device-map placement, per-device parameter counts, H100 device
+names, generated text, token counts, and throughput. It is real-model same-host
+evidence, but still not a live HTTP endpoint, full multimodal serve, production
+distributed transport, target-model parity reference, or formal G2/G3 gate
+evidence.
 
 ## 8. Where to go next
 

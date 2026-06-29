@@ -67,6 +67,9 @@ from fornax.local_4gpu_moe_serving_smoke import (
     validate_4gpu_moe_serving_probe_fixture,
     validate_local_4gpu_moe_serving_smoke_fixture,
 )
+from fornax.local_real_moe_serving_smoke import (
+    validate_local_real_moe_serving_smoke_fixture,
+)
 from fornax.local_serving_smoke import (
     run_local_serving_smoke,
     validate_local_serving_smoke,
@@ -872,6 +875,140 @@ class FornaxPlannerTest(unittest.TestCase):
         result = validate_local_4gpu_moe_serving_smoke_fixture(bundle)
         self.assertFalse(result["ok"])
         self.assertIn("formal_g3_passed", "; ".join(result["errors"]))
+
+
+    def _real_moe_smoke_fixture(self):
+        return {
+            "version": 1,
+            "record_kind": "local-real-moe-serving-smoke",
+            "evidence_scope": "same-host-4gpu-real-moe-serving-proxy",
+            "ok": True,
+            "model": {
+                "model_id": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+                "model_path": "/mnt/dataprocessing/cache/huggingface/hub/models--Qwen--Qwen3-Omni-30B-A3B-Instruct/snapshots/fixture",
+                "model_family": "Qwen",
+                "architecture": "Qwen3OmniMoeForConditionalGeneration",
+                "architectures": ["Qwen3OmniMoeForConditionalGeneration"],
+                "model_type": "qwen3_omni_moe",
+                "dtype": "bfloat16",
+                "real_frontier_moe_model": True,
+                "synthetic_fixture": False,
+                "moe_text_configs": {
+                    "thinker": {"num_hidden_layers": 48, "hidden_size": 2048, "num_experts": 128, "num_experts_per_tok": 8},
+                    "talker": {"num_hidden_layers": 20, "hidden_size": 1024, "num_experts": 128, "num_experts_per_tok": 6},
+                },
+            },
+            "runtime": {
+                "backend": "transformers",
+                "transformers_class": "Qwen3OmniMoeForConditionalGeneration",
+                "device_map_strategy": "auto",
+                "max_memory": {"0": "24GiB", "1": "70GiB", "2": "70GiB", "3": "70GiB", "cpu": "160GiB"},
+                "local_files_only": True,
+                "allow_download": False,
+                "fornax_orchestrated": True,
+            },
+            "serving": {
+                "request": {
+                    "model": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+                    "messages": [{"role": "user", "content": "Define MoE."}],
+                    "max_new_tokens": 24,
+                    "stream": False,
+                },
+                "response": {
+                    "id": "fornax-real-moe-smoke-qwen3-omni",
+                    "object": "chat.completion",
+                    "model": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "MoE stands for Mixture of Experts."},
+                            "finish_reason": "length",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 33, "completion_tokens": 24, "total_tokens": 57},
+                },
+                "generated_text": "MoE stands for Mixture of Experts.",
+                "openai_compatible_shape": True,
+                "live_http_endpoint": False,
+            },
+            "result": {
+                "load_s": 205.7,
+                "generate_s": 11.45,
+                "prompt_tokens": 33,
+                "new_tokens": 24,
+                "tokens_s": 2.09,
+                "used_devices": ["cuda:0", "cuda:1", "cuda:2", "cuda:3"],
+                "all_devices_used": True,
+                "device_map_counts": {"cuda:0": 15, "cuda:1": 15, "cuda:2": 15, "cuda:3": 11},
+                "parameter_device_counts": {"cuda:0": 100, "cuda:1": 100, "cuda:2": 100, "cuda:3": 80},
+                "parameter_device_numel": {"cuda:0": 1, "cuda:1": 1, "cuda:2": 1, "cuda:3": 1},
+            },
+            "hardware": {
+                "cuda_device_count": 4,
+                "devices_requested": ["cuda:0", "cuda:1", "cuda:2", "cuda:3"],
+                "gpu_names": ["NVIDIA H100 80GB HBM3"] * 4,
+                "memory_before": [],
+                "memory_after": [],
+                "same_physical_host": True,
+            },
+            "environment": {
+                "python_executable": "/tmp/python",
+                "python_version": "3.12",
+                "torch_version": "2.12.0+cu130",
+                "transformers_version": "5.8.0.dev0",
+                "cuda_available": True,
+                "cuda_visible_devices": "0,1,2,3",
+            },
+            "claims": {
+                "real_frontier_moe_model": True,
+                "synthetic_fixture": False,
+                "live_http_endpoint": False,
+                "target_model_parity_reference": False,
+                "formal_g2_passed": False,
+                "formal_g3_passed": False,
+                "g2_g3_gate_evidence": False,
+                "production_distributed_serving": False,
+            },
+            "note": "fixture",
+        }
+
+    def test_local_real_moe_serving_smoke_validates_qwen_real_model_artifact(self) -> None:
+        result = validate_local_real_moe_serving_smoke_fixture(self._real_moe_smoke_fixture())
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual("Qwen/Qwen3-Omni-30B-A3B-Instruct", result["summary"]["model_id"])
+        self.assertTrue(result["summary"]["real_frontier_moe_model"])
+        self.assertEqual(["cuda:0", "cuda:1", "cuda:2", "cuda:3"], result["summary"]["used_devices"])
+        self.assertFalse(result["summary"]["g2_g3_gate_evidence"])
+
+    def test_local_real_moe_serving_smoke_rejects_synthetic_or_gate_overclaim(self) -> None:
+        artifact = self._real_moe_smoke_fixture()
+        artifact["model"]["synthetic_fixture"] = True
+        artifact["claims"]["formal_g3_passed"] = True
+        result = validate_local_real_moe_serving_smoke_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("synthetic_fixture", text)
+        self.assertIn("formal_g3_passed", text)
+
+    def test_local_real_moe_serving_smoke_rejects_missing_fourth_gpu(self) -> None:
+        artifact = self._real_moe_smoke_fixture()
+        artifact["result"]["used_devices"] = ["cuda:0", "cuda:1", "cuda:2"]
+        artifact["result"]["all_devices_used"] = False
+        artifact["result"]["device_map_counts"].pop("cuda:3")
+        result = validate_local_real_moe_serving_smoke_fixture(artifact)
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("used_devices", text)
+        self.assertIn("all_devices_used", text)
+        self.assertIn("cuda:3", text)
+
+    def test_local_real_moe_serving_smoke_allows_remapped_requested_devices(self) -> None:
+        artifact = self._real_moe_smoke_fixture()
+        artifact["hardware"]["devices_requested"] = ["cuda:4", "cuda:5", "cuda:6", "cuda:7"]
+        artifact["environment"]["cuda_visible_devices"] = "4,5,6,7"
+        result = validate_local_real_moe_serving_smoke_fixture(artifact)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(["cuda:0", "cuda:1", "cuda:2", "cuda:3"], result["summary"]["used_devices"])
 
     def test_local_accelerator_smoke_allows_reference_for_ci(self) -> None:
         with tempfile.TemporaryDirectory() as d:
