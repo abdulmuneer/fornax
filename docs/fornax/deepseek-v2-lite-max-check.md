@@ -125,19 +125,21 @@ These dimensions are exactly why `flare_mla_prefill` matters: the attention
 score is built from the non-RoPE 128-dim part plus the RoPE 64-dim part, then
 accumulates into the 128-dim value head.
 
-## Why the Apple kernel is separate from the MAX model check
+## Validation tracks and what changed
 
-There are two different validation tracks:
+There are still two validation tracks, but the Apple track is no longer only a
+design task in the local source tree:
 
 | Track | Purpose | Status |
 |---|---|---|
-| Existing MAX DeepSeekV2 | Verify `DeepSeek-V2-Lite-Chat` runs on supported NVIDIA/AMD MAX targets. | Feasible on a MAX host with at least one suitable GPU. |
-| New Apple `flare_mla_prefill` | Add a missing Apple MLA prefill kernel path. | Design prepared; build requires upstream MAX source and Apple kernel work. |
+| Packaged MAX DeepSeekV2 | Verify `DeepSeek-V2-Lite-Chat` runs on officially supported packaged MAX targets. | NVIDIA/AMD remains the expected supported route; packaged Apple nightly previously failed on MLA/MoE backend gates. |
+| Local source-built Apple path | Add the missing Apple MLA/MoE/gather backend pieces in `external/modular` and run the model on M3 Max. | Short `max generate` smoke passed for 1 and 8 output tokens with BF16 weights on `gpu[0]`. |
 
-Current MAX can already support the DeepSeekV2 architecture on supported GPU
-targets without the Apple kernel. The Apple kernel is needed for a future Apple
-Silicon route, but current public docs do not expose large GenAI serving on
-Apple Silicon.
+Current packaged MAX can support the DeepSeekV2 architecture on supported GPU
+targets without the local Apple patch. The M3 Max result here depends on the
+source-built MAX checkout in `external/modular`; it should not be cited as
+official packaged MAX support, production serving support, or distributed
+Fornax support.
 
 ## Supported MAX check on NVIDIA/AMD
 
@@ -201,25 +203,24 @@ Expected pass criteria:
 ## Apple Silicon path
 
 The local Apple path now has enough upstream MAX patching to run a short
-model-level smoke. Production-grade serving still needs the follow-up work
-below:
+model-level smoke. The status of the backend work is:
 
-| Step | Requirement |
+| Step | Status |
 |---|---|
-| 1. Kernel source | Add `max/kernels/src/nn/attention/gpu/apple/mla_prefill.mojo`. |
-| 2. Dispatch | Extend `flare_mla_prefill_dispatch` to include `has_apple_gpu_accelerator()`. |
-| 3. Shape gate | Start with BF16/FP16 and DeepSeek-Lite dimensions: `128 + 64 -> 128`. |
-| 4. Apple kernel style | Use Apple FA prefill primitives, `MmaOpApple`, and register-resident online softmax. |
-| 5. Unit tests | Compare small deterministic MLA tensors against CPU/PyTorch reference. |
-| 6. Graph integration | Ensure DeepSeekV2 graph lowering can select the Apple MLA prefill branch. |
-| 7. MoE graph support | Keep the Apple MoE bucketing fallback and direct rank-2 gather smoke, then replace correctness-first pieces with parallel Apple implementations. |
-| 8. Decode support | Keep the current Apple fallback as a smoke hook, then replace it with a numerically checked and performant implementation. |
-| 9. Model run | Done for 1-token and 8-token local smoke runs; expand to longer prompts, batches, and serving. |
+| Apple MLA prefill source | Implemented locally in `max/kernels/src/nn/attention/gpu/apple/mla_prefill.mojo`; includes an M3-compatible path and an M5-style path selection. |
+| MLA dispatch | `flare_mla_prefill_dispatch` accepts Apple GPU targets and routes through the Apple prefill launcher for the supported BF16/FP16 shape family. |
+| DeepSeek-Lite shape gate | Local smoke targets the DeepSeek-V2-Lite MLA dimensions: 128 non-RoPE + 64 RoPE -> 128 value output. |
+| Apple MLA decode | Implemented as a correctness-first fallback using Apple `mha_gpu_naive` over the DeepSeek MLA cache row, then copying the latent/value prefix. |
+| MoE graph support | Apple MoE bucketing has a serial correctness-first fallback to avoid unsupported Metal `vote`; rank-2 axis-0 gather has a direct Apple GPU path. |
+| Dispatch scalar helper | `mla_decode_dispatch_scalars` returns one partition for Metal, matching the Apple decode fallback. |
+| Standalone smoke tests | Existing Bazel logs show prefill, decode, MoE indices, and rank-2 gather smokes passed on M3 Max. |
+| Model run | Fresh local `generate` runs passed for 1-token and 8-token outputs; serving, batching, longer contexts, and numerical parity remain open. |
 
-This local M3 Max is not the right first validation target for the upstream Apple
-FA prefill-derived design, because the current public Apple FA prefill source is
-M5/Metal-specific. A future Apple MLA kernel should gate by Apple GPU compute
-capability and fall back cleanly when unsupported.
+This local M3 Max result is useful because it proves the full model can compile
+and emit tokens through the patched Apple backend. It remains intentionally
+narrow: a future production path still needs chip-aware dispatch, hard numerical
+tests, optimized decode/MoE implementations, and graceful fallback when shape,
+dtype, or hardware gates fail.
 
 ## Local blockers to clear
 
@@ -230,6 +231,7 @@ capability and fall back cleanly when unsupported.
 | Apple MoE bucketing fallback is correctness-first | Replace the one-thread serial fallback with a parallel Apple implementation. |
 | Apple MLA prefill is smoke-tested only | Add a numerical correctness test against a reference path. |
 | No packaged `max` CLI in PATH | Optional: install a current Modular/MAX package; source-built Bazel CLI works for kernel development. |
+| Packaged MAX still lacks this local patch | Rebuild/package from the patched MAX checkout or wait for equivalent upstream support; do not expect `/tmp/fornax-max-smoke` packaged MAX to include these changes. |
 | Full Apple serving path incomplete | Test `max serve`, longer contexts, larger generation counts, batching, memory pressure, and failure recovery before claiming serving support. |
 
 ## Source links
