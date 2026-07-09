@@ -36,6 +36,7 @@ Use these commands to turn a model and fleet into a placement and prediction. Se
 | `accelerator {expert-mlp-probe,activation-transfer-probe,target-fixture-probe}` | Run accelerator micro-probes for expert MLP, activation transfer, and target fixture behavior. |
 | `program local-4gpu-moe-serving-smoke --out-dir D [--devices cuda:0,cuda:1,cuda:2,cuda:3]` | Same-host CUDA smoke for a tiny MoE serving fixture: one gateway GPU plus three expert GPUs, with split-vs-reference parity. Scope excludes live HTTP, frontier parity, production distributed transport, and formal gate closure. |
 | `program local-real-moe-serving-smoke --out O [--model-path P] [--devices cuda:0,cuda:1,cuda:2,cuda:3]` | Same-host real Qwen3-Omni MoE text-generation smoke. The default model is `Qwen/Qwen3-Omni-30B-A3B-Instruct`. The artifact records model and device placement evidence. Scope excludes live HTTP, production distributed serving, target-model parity, and formal gate closure. |
+| `program apple-silicon-moe-serving-smoke --out O [--runtime-mode generate\|serve] [--max-command C] [--max-cwd D] [--max-extra-arg A] [--model-id M]` | Single-Mac Apple Silicon MAX-only smoke for a real Qwen, DeepSeek, Kimi, or GLM MoE. The default model is `Qwen/Qwen3-30B-A3B`, run through `max generate --devices gpu`; `--runtime-mode serve` starts `max serve` and requires one successful local `/v1/chat/completions` response. Pixi installs should use `--max-command "pixi run max" --max-cwd D`. Repeat `--max-extra-arg` for MAX bring-up flags. The artifact records MAX/Mojo version, Apple hardware, model MoE metadata, generated text or serve-start failure, HTTP status for serve mode, and explicit non-closure claims. |
 | `apple {probe-template,simulate-probe,validate-probe,role-decision}` | Apple Silicon worker probing and role decisions. |
 | `fabric probe` | Probe a network link for inventory `links` bandwidth and latency. |
 | `calibrate local` | Calibrate the cost model against the local machine. |
@@ -89,7 +90,8 @@ python3 -m fornax test --help              # full suite list
 
 Available suites include `golden-plans`, `runtime-format`, `network-contract`,
 `engine-seam`, `stage-host`, `serving-adapter`, `local-4gpu-moe-serving-smoke`,
-`local-real-moe-serving-smoke`, `state-ownership`, `engine-simulation`,
+`local-real-moe-serving-smoke`, `apple-silicon-moe-serving-smoke`,
+`state-ownership`, `engine-simulation`,
 `observability`, `metrics-ledger`, `trace-ledger`, `worker-contract`,
 `transport-contract`, `trust-boundary`, `moe-runtime`, `moe-parity-probe`,
 `model-support`, `continuous-batching`, `scheduler-contract`,
@@ -100,9 +102,10 @@ Available suites include `golden-plans`, `runtime-format`, `network-contract`,
 Run `python3 -m fornax test --help` for the current list.
 
 `make golden` runs the deterministic no-hardware contract and golden suites.
-`make test` runs those suites plus the unit tests. `local-4gpu-moe-serving-smoke`
-and `local-real-moe-serving-smoke` validate saved artifacts when passed
-`--fixture` or `--out`; they are outside the no-hardware golden run.
+`make test` runs those suites plus the unit tests. `local-4gpu-moe-serving-smoke`,
+`local-real-moe-serving-smoke`, and `apple-silicon-moe-serving-smoke` validate
+saved artifacts when passed `--fixture` or `--out`; they are outside the
+no-hardware golden run.
 
 ## Exit codes
 

@@ -17,7 +17,7 @@ predictions and hardware runs as measurements.
 
 | Guide | Use it for |
 |---|---|
-| [Getting started](getting-started.md) | Install from a clone, verify the repo, and run the first plan and simulation. |
+| [Getting started](getting-started.md) | Install from a clone, verify the repo, run the first plan and simulation, and optionally smoke DeepSeek-V2-Lite with source-built MAX on Apple Silicon. |
 | [Concepts](concepts.md) | Learn the model, fleet, stage, expert, prediction, and runtime vocabulary used by the other docs. |
 | [Planning and simulation](planning-and-simulation.md) | Work through the full planning flow: target contract, inventory, plan, simulation, validation, and preflight bundle. |
 | [Input file reference](input-formats.md) | Look up the JSON fields for target contracts, inventories, and links files. |
