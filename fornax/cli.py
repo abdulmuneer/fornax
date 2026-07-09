@@ -18,6 +18,12 @@ from .apple_probe import (
     simulated_apple_probe_artifact,
     validate_apple_probe_file,
 )
+from .apple_silicon_moe_serving_smoke import (
+    DEFAULT_MODEL_ID as APPLE_MOE_DEFAULT_MODEL_ID,
+    DEFAULT_PROMPT as APPLE_MOE_DEFAULT_PROMPT,
+    run_apple_silicon_moe_serving_smoke,
+    validate_apple_silicon_moe_serving_smoke,
+)
 from .backend_coverage import (
     render_backend_coverage_report,
     validate_backend_coverage_contract,
@@ -1929,6 +1935,62 @@ def _cmd_program_local_real_moe_serving_smoke(args: argparse.Namespace) -> int:
         print("local real MoE serving smoke error: " + str(result.get("error")))
     return 0 if validation["ok"] else 2
 
+
+def _cmd_program_apple_silicon_moe_serving_smoke(args: argparse.Namespace) -> int:
+    try:
+        result = run_apple_silicon_moe_serving_smoke(
+            out=args.out,
+            max_command=args.max_command,
+            max_cwd=args.max_cwd,
+            max_extra_args=args.max_extra_arg,
+            model_id=args.model_id,
+            model_path=args.model_path,
+            hf_home=args.hf_home,
+            devices=args.devices,
+            quantization_encoding=args.quantization_encoding,
+            prompt=args.prompt,
+            max_new_tokens=args.max_new_tokens,
+            top_k=args.top_k,
+            max_length=args.max_length,
+            runtime_mode=args.runtime_mode,
+            serve_port=args.serve_port,
+            allow_download=not args.local_files_only,
+            timeout_s=args.timeout_s,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"program apple-silicon-moe-serving-smoke: {exc}")
+        return 2
+    validation = validate_apple_silicon_moe_serving_smoke(args.out)
+    summary = validation.get("summary", {})
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    print(
+        "Apple Silicon MoE serving smoke: "
+        f"artifact={args.out}; "
+        f"ok={validation['ok']}; "
+        f"model={summary.get('model_id')}; "
+        f"family={summary.get('model_family')}; "
+        f"experts={summary.get('num_experts')}; "
+        f"top_k={summary.get('num_experts_per_tok')}; "
+        f"max={summary.get('max_version')}; "
+        f"mode={summary.get('runtime_mode')}; "
+        f"device={summary.get('devices_requested')}; "
+        f"chip={summary.get('chip')}; "
+        f"generated={summary.get('generated_text')}; "
+        f"live_http={summary.get('live_http_endpoint')}; "
+        f"http_status={summary.get('http_status')}; "
+        f"gate_evidence={summary.get('g2_g3_gate_evidence')}"
+        f"{suffix}"
+    )
+    if not validation["ok"] and result.get("error"):
+        print("Apple Silicon MoE serving smoke error: " + str(result.get("error")))
+        signature = result.get("result", {}).get("failure_signature")
+        if signature:
+            print("Apple Silicon MoE serving smoke failure signature: " + "; ".join(signature[:4]))
+    return 0 if validation["ok"] else 2
+
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     if args.requests and args.trace and args.requests != args.trace:
         print("preflight: pass only one of --requests or --trace")
@@ -2276,6 +2338,36 @@ def _cmd_test_local_real_moe_serving_smoke(args: argparse.Namespace) -> int:
         return 0
     print("FAIL local-real-moe-serving-smoke: " + "; ".join(result["errors"]))
     return 1
+
+
+def _cmd_test_apple_silicon_moe_serving_smoke(args: argparse.Namespace) -> int:
+    fixture = args.fixture or args.out
+    if not fixture:
+        print("FAIL apple-silicon-moe-serving-smoke: pass --fixture or --out with an existing artifact")
+        return 1
+    result = validate_apple_silicon_moe_serving_smoke(fixture)
+    if result["ok"]:
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        summary = result["summary"]
+        print(
+            f"PASS apple-silicon-moe-serving-smoke: {result['fixture']} "
+            f"model={summary['model_id']} "
+            f"family={summary['model_family']} "
+            f"experts={summary['num_experts']} "
+            f"top_k={summary['num_experts_per_tok']} "
+            f"max={summary['max_version']} "
+            f"mode={summary['runtime_mode']} "
+            f"chip={summary['chip']} "
+            f"live_http={summary['live_http_endpoint']} "
+            f"gate_evidence={summary['g2_g3_gate_evidence']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL apple-silicon-moe-serving-smoke: " + "; ".join(result["errors"]))
+    return 1
+
 
 def _cmd_test_state_ownership(args: argparse.Namespace) -> int:
     fixture = args.fixture or "fornax/golden_vectors/state_ownership"
@@ -2882,6 +2974,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_local_4gpu_moe_serving_smoke(args)
     if args.test_name == "local-real-moe-serving-smoke":
         return _cmd_test_local_real_moe_serving_smoke(args)
+    if args.test_name == "apple-silicon-moe-serving-smoke":
+        return _cmd_test_apple_silicon_moe_serving_smoke(args)
     if args.test_name == "state-ownership":
         return _cmd_test_state_ownership(args)
     if args.test_name == "engine-simulation":
@@ -3427,6 +3521,41 @@ def build_parser() -> argparse.ArgumentParser:
     local_real_moe.add_argument("--timeout-s", type=float, default=900.0)
     local_real_moe.set_defaults(func=_cmd_program_local_real_moe_serving_smoke)
 
+    apple_moe = program_sub.add_parser("apple-silicon-moe-serving-smoke")
+    apple_moe.add_argument("--out", required=True)
+    apple_moe.add_argument(
+        "--max-command",
+        default="max",
+        help="MAX command to run, for example '/path/to/max' or 'pixi run max'.",
+    )
+    apple_moe.add_argument(
+        "--max-cwd",
+        help="Optional working directory for MAX, useful for Pixi projects when --max-command is 'pixi run max'.",
+    )
+    apple_moe.add_argument(
+        "--max-extra-arg",
+        action="append",
+        default=[],
+        help="Repeatable raw argument appended to max generate or max serve, for bring-up flags such as --max-extra-arg=--no-enable-overlap-scheduler.",
+    )
+    apple_moe.add_argument("--model-id", default=APPLE_MOE_DEFAULT_MODEL_ID)
+    apple_moe.add_argument("--model-path")
+    apple_moe.add_argument("--hf-home")
+    apple_moe.add_argument("--devices", default="gpu")
+    apple_moe.add_argument(
+        "--quantization-encoding",
+        choices=["float32", "float16", "bfloat16", "q4_k", "q4_0", "q6_k", "float8_e4m3fn", "float4_e2m1fnx2", "gptq"],
+    )
+    apple_moe.add_argument("--prompt", default=APPLE_MOE_DEFAULT_PROMPT)
+    apple_moe.add_argument("--max-new-tokens", type=int, default=16)
+    apple_moe.add_argument("--top-k", type=int, default=1)
+    apple_moe.add_argument("--max-length", type=int)
+    apple_moe.add_argument("--runtime-mode", choices=["generate", "serve"], default="generate")
+    apple_moe.add_argument("--serve-port", type=int, default=18080)
+    apple_moe.add_argument("--local-files-only", action="store_true")
+    apple_moe.add_argument("--timeout-s", type=float, default=1800.0)
+    apple_moe.set_defaults(func=_cmd_program_apple_silicon_moe_serving_smoke)
+
     plan = sub.add_parser("plan")
     plan.add_argument("--target", required=True)
     plan.add_argument("--inventory", required=True)
@@ -3858,6 +3987,7 @@ def build_parser() -> argparse.ArgumentParser:
             "local-http-serving-smoke",
             "local-4gpu-moe-serving-smoke",
             "local-real-moe-serving-smoke",
+            "apple-silicon-moe-serving-smoke",
             "state-ownership",
             "engine-simulation",
             "observability",

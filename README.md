@@ -86,12 +86,43 @@ python3 -m fornax program local-real-moe-serving-smoke \
     --devices cuda:0,cuda:1,cuda:2,cuda:3
 ```
 
+Apple Silicon Macs with a current MAX runtime can run the MAX-only single-Mac
+real-MoE smoke against a Qwen/DeepSeek/Kimi/GLM MoE:
+
+```bash
+python3 -m fornax program apple-silicon-moe-serving-smoke \
+    --out /tmp/fornax_apple_qwen3_moe_smoke.json \
+    --max-command "pixi run max" \
+    --max-cwd /path/to/pixi-max-project \
+    --model-id Qwen/Qwen3-30B-A3B \
+    --devices gpu \
+    --max-new-tokens 8
+```
+
+To exercise MAX's OpenAI-compatible server startup path instead of the default
+single-shot `max generate` path, add `--runtime-mode serve`:
+
+```bash
+python3 -m fornax program apple-silicon-moe-serving-smoke \
+    --out /tmp/fornax_apple_qwen3_moe_serve_smoke.json \
+    --runtime-mode serve \
+    --max-command "pixi run max" \
+    --max-cwd /path/to/pixi-max-project \
+    --model-id Qwen/Qwen3-30B-A3B \
+    --devices gpu \
+    --max-new-tokens 8
+```
+
+This is MAX/model bring-up evidence only; non-MAX Apple runtimes do not satisfy
+this smoke. It is not distributed serving or formal G2/G3 gate closure.
+
 ## Status
 
 Active development. The planner, contract validators, local serving and proxy
 fixtures, same-host four-H100 tiny MoE serving smoke, same-host four-H100
-Qwen3-Omni real MoE text-generation smoke, and Phase 3-5 two-H100 proxy packets
-are implemented and self-tested at their stated scope.
+Qwen3-Omni real MoE text-generation smoke, Apple Silicon MAX real-MoE smoke, and
+Phase 3-5 two-H100 proxy packets are implemented and self-tested at their stated
+scope.
 
 Formal G1-G5 closure still requires human sign-off and real heterogeneous lab
 evidence tracked in [fornax_program_management_todo_status.md](fornax_program_management_todo_status.md).
