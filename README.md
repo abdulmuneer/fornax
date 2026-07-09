@@ -1,4 +1,4 @@
-# Fornax - heterogeneous frontier-model serving
+# [WiP] Fornax - heterogeneous frontier-model serving
 
 Fornax is a Mojo/MAX-native distributed inference engine for serving a single
 frontier-scale sparse-MoE model across a fleet of heterogeneous commodity
