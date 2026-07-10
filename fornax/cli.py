@@ -134,6 +134,11 @@ from .ops_lifecycle import (
 )
 from .phase0_status import render_phase0_status_report
 from .phase0_simulated_validation import run_phase0_simulated_validation
+from .phase05 import (
+    run_phase05_engine_v0,
+    validate_phase05_engine_v0,
+    validate_stage_abi_golden,
+)
 from .phase3_proxy_gate import (
     build_phase3_proxy_gate_packet,
     validate_phase3_proxy_gate,
@@ -1309,6 +1314,38 @@ def _cmd_program_governance_simulate(args: argparse.Namespace) -> int:
         f"status_drift={summary['status_drift_controlled']}"
     )
     return 0
+
+
+def _cmd_program_phase05_engine_v0(args: argparse.Namespace) -> int:
+    try:
+        result = run_phase05_engine_v0(
+            args.out,
+            sustained_wall_seconds=args.sustained_wall_seconds,
+            sustained_min_iterations=args.sustained_min_iterations,
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"program phase05-engine-v0: {exc}")
+        return 2
+    validation = validate_phase05_engine_v0(args.out)
+    summary = validation["summary"]
+    suffix = ""
+    if validation["warnings"]:
+        suffix = "; warnings: " + "; ".join(validation["warnings"])
+    if validation["ok"]:
+        print(
+            "wrote Phase 0.5 Engine v0 evidence: "
+            f"{args.out} exit_passed={summary['phase05_exit_passed']} "
+            f"workers={summary['worker_count']} scenarios={summary['scenario_row_count']} "
+            f"faults={summary['fault_count']} max_abs_error={summary['max_abs_error']} "
+            f"formal_g2_passed={summary['formal_g2_passed']}"
+            f"{suffix}"
+        )
+        return 0
+    print(
+        "wrote invalid Phase 0.5 Engine v0 evidence: "
+        f"{args.out} errors=" + "; ".join(validation["errors"])
+    )
+    return 1
 
 
 def _cmd_program_phase3_proxy_gate(args: argparse.Namespace) -> int:
@@ -2953,6 +2990,49 @@ def _cmd_test_backend_coverage(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_test_phase05_engine_v0(args: argparse.Namespace) -> int:
+    if not args.fixture:
+        print("FAIL phase05-engine-v0: --fixture is required")
+        return 1
+    result = validate_phase05_engine_v0(args.fixture)
+    if result["ok"]:
+        summary = result["summary"]
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        print(
+            f"PASS phase05-engine-v0: {args.fixture} "
+            f"exit_passed={summary['phase05_exit_passed']} "
+            f"workers={summary['worker_count']} scenarios={summary['scenario_row_count']} "
+            f"faults={summary['fault_count']} max_abs_error={summary['max_abs_error']} "
+            f"formal_g2_passed={summary['formal_g2_passed']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL phase05-engine-v0: " + "; ".join(result["errors"]))
+    return 1
+
+
+def _cmd_test_stage_abi_v1(args: argparse.Namespace) -> int:
+    fixture = args.fixture or "fornax/golden_vectors/stage_abi_v1"
+    result = validate_stage_abi_golden(fixture)
+    if result["ok"]:
+        summary = result["summary"]
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        print(
+            f"PASS stage-abi-v1: {result['fixture']} "
+            f"manifests={summary['manifest_count']} rows={summary['tensor_rows']} "
+            f"checks={summary['conformance_check_count']} "
+            f"first16_max_abs_error={summary['first16_max_abs_error']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL stage-abi-v1: " + "; ".join(result["errors"]))
+    return 1
+
+
 def _cmd_test(args: argparse.Namespace) -> int:
     if args.test_name == "golden-plans":
         return _cmd_test_golden(args)
@@ -3034,6 +3114,10 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_pipeline_correctness_probe(args)
     if args.test_name == "throughput-scaling":
         return _cmd_test_throughput_scaling(args)
+    if args.test_name == "phase05-engine-v0":
+        return _cmd_test_phase05_engine_v0(args)
+    if args.test_name == "stage-abi-v1":
+        return _cmd_test_stage_abi_v1(args)
     raise ValueError(args.test_name)
 
 
@@ -3201,6 +3285,12 @@ def build_parser() -> argparse.ArgumentParser:
     governance.add_argument("--plan-version", default="v3")
     governance.add_argument("--current-gate", default="G1")
     governance.set_defaults(func=_cmd_program_governance_simulate)
+
+    phase05_engine = program_sub.add_parser("phase05-engine-v0")
+    phase05_engine.add_argument("--out", required=True)
+    phase05_engine.add_argument("--sustained-wall-seconds", type=int, default=1800)
+    phase05_engine.add_argument("--sustained-min-iterations", type=int, default=1800)
+    phase05_engine.set_defaults(func=_cmd_program_phase05_engine_v0)
 
     phase3_proxy = program_sub.add_parser("phase3-proxy-gate")
     phase3_proxy.add_argument("--endpoint-artifact", required=True)
@@ -4017,6 +4107,8 @@ def build_parser() -> argparse.ArgumentParser:
             "throughput-scaling",
             "phase4-resilience-gate",
             "phase5-ga-gate",
+            "phase05-engine-v0",
+            "stage-abi-v1",
         ],
     )
     tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")

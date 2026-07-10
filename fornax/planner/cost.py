@@ -14,6 +14,7 @@ class StageCost:
     remote_wait_exposed_s: float
     remote_hit_rate_decode: float
     expert_hosts: tuple[str, ...]
+    expert_host_memory_bytes: tuple[tuple[str, float], ...] = ()
 
     @property
     def decode_compute_s(self) -> float:
@@ -87,6 +88,47 @@ def stage_memory_bytes(
     return working_bytes + temp_bytes + reserved_bytes + fragmented_bytes
 
 
+def remote_expert_host_memory_bytes(
+    model: ModelSpec, layers: tuple[int, ...], target: Target
+) -> float:
+    """Return the expert-host allocation required by one remote stage assignment.
+
+    This deliberately includes the complete routed-expert weights for the selected
+    layers plus concurrent dispatch/result buffers and routing metadata. It is
+    conservative for replicated stages, where a future placement model may share
+    immutable weights while charging buffers per replica, but it never treats an
+    expert host as free capacity.
+    """
+
+    selected = [model.layers[i] for i in layers if model.layers[i].kind == "moe"]
+    if not selected:
+        return 0.0
+    expert_weights = sum(layer.num_experts * layer.expert_bytes for layer in selected)
+    active_routes = sum(layer.experts_active for layer in selected)
+    scalar_bytes = activation_nbytes(model.dtype_activation)
+    dispatch_and_result = (
+        2
+        * target.concurrency
+        * active_routes
+        * model.hidden_dim
+        * scalar_bytes
+    )
+    routing = (
+        target.concurrency
+        * active_routes
+        * target.routing_metadata_bytes_per_token
+    )
+    working_bytes = expert_weights + dispatch_and_result + routing
+    temp_bytes = working_bytes * target.temp_buffer_fraction
+    reserved_bytes = target.runtime_reserve_bytes + (
+        working_bytes * target.memory_reserve_fraction
+    )
+    fragmented_bytes = (
+        working_bytes + temp_bytes + reserved_bytes
+    ) * target.fragmentation_margin_fraction
+    return working_bytes + temp_bytes + reserved_bytes + fragmented_bytes
+
+
 def _local_flops_per_token(layers: list, mode: str) -> int:
     if mode == "resident":
         return sum(layer.resident_flops_per_token for layer in layers)
@@ -94,23 +136,32 @@ def _local_flops_per_token(layers: list, mode: str) -> int:
 
 
 def _best_expert_host(
-    inventory: Inventory, node: Node, model: ModelSpec, target: Target
-) -> tuple[Node | None, float]:
-    candidates = [x for x in inventory.nodes if x.supports_expert_worker]
-    best: tuple[Node | None, float] = (None, float("inf"))
+    inventory: Inventory,
+    node: Node,
+    model: ModelSpec,
+    target: Target,
+    layer_ids: tuple[int, ...],
+) -> tuple[Node | None, float, float]:
+    required_memory = remote_expert_host_memory_bytes(model, layer_ids, target)
+    candidates = [
+        candidate
+        for candidate in inventory.nodes
+        if candidate.supports_expert_worker
+        and candidate.id != node.id
+        and model.dtype_activation in candidate.supported_dtypes
+        and required_memory <= candidate.mem_free_bytes
+    ]
+    best: tuple[Node | None, float, float] = (None, float("inf"), required_memory)
     payload = target.concurrency * model.hidden_dim * activation_nbytes(
         model.dtype_activation
     )
     for candidate in candidates:
-        if candidate.id == node.id:
-            transfer = 0.0
-        else:
-            link = inventory.best_link(node.id, candidate.id)
-            if link is None:
-                continue
-            transfer = 2 * (payload / link.bandwidth_bytes_s + link.latency_s)
+        link = inventory.best_link(node.id, candidate.id)
+        if link is None:
+            continue
+        transfer = 2 * (payload / link.bandwidth_bytes_s + link.latency_s)
         if transfer < best[1]:
-            best = (candidate, transfer)
+            best = (candidate, transfer, required_memory)
     return best
 
 
@@ -136,15 +187,17 @@ def _remote_expert_wait_s(
     model: ModelSpec,
     target: Target,
     layer_ids: tuple[int, ...],
-) -> tuple[float, float, tuple[str, ...]]:
+) -> tuple[float, float, tuple[str, ...], tuple[tuple[str, float], ...]]:
     remote_layer_ids = [
         layer_id for layer_id in layer_ids if model.layers[layer_id].kind == "moe"
     ]
     if not remote_layer_ids:
-        return 0.0, 0.0, ()
-    host, transfer_per_expert = _best_expert_host(inventory, node, model, target)
+        return 0.0, 0.0, (), ()
+    host, transfer_per_expert, required_memory = _best_expert_host(
+        inventory, node, model, target, tuple(remote_layer_ids)
+    )
     if host is None:
-        return float("inf"), 1.0, ()
+        return float("inf"), 1.0, (), ()
 
     remote_wait = 0.0
     remote_hit_rate = 0.0
@@ -156,7 +209,12 @@ def _remote_expert_wait_s(
         )
         remote_wait += expected_experts * (transfer_per_expert + expert_compute)
         remote_hit_rate += layer_hit_rate
-    return remote_wait, remote_hit_rate / len(remote_layer_ids), (host.id,)
+    return (
+        remote_wait,
+        remote_hit_rate / len(remote_layer_ids),
+        (host.id,),
+        ((host.id, required_memory),),
+    )
 
 
 def estimate_stage_cost(
@@ -183,7 +241,12 @@ def estimate_stage_cost(
         expert_hosts: tuple[str, ...] = ()
     else:
         remote_mem = stage_memory_bytes(model, layers, target, "remote_experts")
-        remote_wait, remote_hit_rate, expert_hosts = _remote_expert_wait_s(
+        (
+            remote_wait,
+            remote_hit_rate,
+            expert_hosts,
+            expert_host_memory,
+        ) = _remote_expert_wait_s(
             inventory, node, model, target, layers
         )
         if (
@@ -197,6 +260,8 @@ def estimate_stage_cost(
             return None
         mode = "remote_experts"
         memory = remote_mem
+    if mode == "resident":
+        expert_host_memory = ()
 
     weight_bytes = (
         sum(layer.resident_weight_bytes for layer in selected)
@@ -225,4 +290,5 @@ def estimate_stage_cost(
         remote_wait_exposed_s=remote_wait,
         remote_hit_rate_decode=remote_hit_rate,
         expert_hosts=expert_hosts,
+        expert_host_memory_bytes=expert_host_memory,
     )

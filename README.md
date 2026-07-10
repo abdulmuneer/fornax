@@ -26,17 +26,18 @@ capacity-rich workers.
 
 ## Execution model
 
-Fornax places one model across the fleet. The key split is inside the MoE block:
+Fornax places one model across the fleet. The v0 spanning spine is pipeline
+parallelism by complete contiguous layer groups:
 
 ```text
-hidden states -> router -> local expert batches + remote expert batches
-              -> weighted gather -> next layer
+gateway -> stage 0 (MAX graph) -> activation frame -> stage 1 (MAX graph)
+        -> ... -> final logits / sampler
 ```
 
-The dense path includes attention, KV, routers, shared or hot experts, and the
-sampler. Routed experts can live on other workers when that improves capacity or
-throughput. The planner decides where stages and experts live, then reports both
-feasibility and predicted performance.
+Remote experts remain a deferred measured optimization. Engine v0 first builds
+the production Stage ABI, orchestrator, and TCP framing against reference and
+simulated MAX backends. Physical backends replace assumptions without changing
+the engine contract.
 
 ## Throughput and latency scope
 
@@ -118,13 +119,22 @@ this smoke. It is not distributed serving or formal G2/G3 gate closure.
 
 ## Status
 
-Active development. The planner, contract validators, local serving and proxy
-fixtures, same-host four-H100 tiny MoE serving smoke, same-host four-H100
-Qwen3-Omni real MoE text-generation smoke, Apple Silicon MAX real-MoE smoke, and
-Phase 3-5 two-H100 proxy packets are implemented and self-tested at their stated
-scope.
+Active development follows [project plan v4](docs/fornax/project-plan-v4.md).
+Phase 0.5 / M1 is complete at T0/T1: the Python package now includes two
+independent workers, the production Stage ABI and framed TCP transport,
+reference/simulated MAX backends, bounded scheduling, fault injection, evidence
+ledgers, and the planner regressions. The
+[exit review](docs/fornax/program_management/gate-reviews/phase-0-5-exit-2026-07-10.md)
+records the exact scope.
 
-Formal G1-G5 closure still requires human sign-off and real heterogeneous lab
-evidence tracked in [fornax_program_management_todo_status.md](fornax_program_management_todo_status.md).
-See [docs/fornax/program_management/](docs/fornax/program_management/) for the
-roadmap, gates, and sprint backlog.
+The active lane is Phase 1 physical `MaxStageBackend` integration and G2 evidence
+acquisition as hardware becomes available. Phase 0.5 does not establish physical
+heterogeneous correctness, supported-platform status, or production performance;
+all remaining hardware assumptions stay explicit in
+[the simulation contract](docs/fornax/simulation-and-assumption-contract.md).
+
+```bash
+python3 -m fornax test stage-abi-v1
+python3 -m fornax test phase05-engine-v0 \
+  --fixture docs/fornax/evidence/phase05-engine-v0-2026-07-10.json
+```

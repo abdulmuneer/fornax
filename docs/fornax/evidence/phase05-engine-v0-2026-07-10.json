@@ -1,0 +1,2166 @@
+{
+  "assumption_ids": [
+    "SA-001",
+    "SA-002",
+    "SA-003",
+    "SA-004",
+    "SA-005",
+    "SA-006",
+    "SA-007",
+    "SA-008",
+    "SA-009",
+    "SA-010"
+  ],
+  "checks": [
+    {
+      "name": "stage-conformance",
+      "ok": true
+    },
+    {
+      "name": "two-independent-workers",
+      "ok": true
+    },
+    {
+      "name": "prefill-decode-production-abi",
+      "ok": true
+    },
+    {
+      "name": "http-control-plane",
+      "ok": true
+    },
+    {
+      "name": "reference-output-parity",
+      "ok": true
+    },
+    {
+      "name": "credit-cancel-reconnect",
+      "ok": true
+    },
+    {
+      "name": "trace-resource-evidence-ledger",
+      "ok": true
+    },
+    {
+      "name": "named-scenario-matrix",
+      "ok": true
+    },
+    {
+      "name": "fault-matrix",
+      "ok": true
+    },
+    {
+      "name": "scheduler-concurrency-sweep",
+      "ok": true
+    },
+    {
+      "name": "sustained-bounds",
+      "ok": true
+    },
+    {
+      "name": "physical-spike-dispositioned",
+      "ok": true
+    }
+  ],
+  "conformance": {
+    "check_count": 24,
+    "checks": [
+      {
+        "evidence": "FNX1 encode/decode round trip",
+        "name": "valid-bf16-activation-frame",
+        "ok": true
+      },
+      {
+        "evidence": "LOGITS kind and tensor descriptor agree",
+        "name": "valid-bf16-logits-frame",
+        "ok": true
+      },
+      {
+        "evidence": "CREDIT/ACK/CANCEL/ERROR/HEARTBEAT encode with no tensor payload",
+        "name": "control-kinds-zero-payload",
+        "ok": true
+      },
+      {
+        "evidence": "short prelude",
+        "name": "short-prelude-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "metadata >64 KiB",
+        "name": "oversized-metadata-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "configured payload maximum",
+        "name": "oversized-payload-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "declared length exceeds bytes received",
+        "name": "truncated-payload-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "CRC32C mismatch",
+        "name": "checksum-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "ABI major 2",
+        "name": "major-version-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "duplicate JSON key",
+        "name": "duplicate-metadata-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "KV_PAGE/EXPERT_BATCH deferred in Phase 0.5",
+        "name": "reserved-payload-kinds-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "installed route identity",
+        "name": "stale-plan-and-destination-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "SequenceTracker remembers acknowledged CRC",
+        "name": "duplicate-same-crc-idempotent",
+        "ok": true
+      },
+      {
+        "evidence": "conflicting duplicate",
+        "name": "duplicate-different-crc-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "expected sequence zero",
+        "name": "out-of-order-rejected",
+        "ok": true
+      },
+      {
+        "evidence": "duplicate execution returns cached StageResult",
+        "name": "reference-at-most-once",
+        "ok": true
+      },
+      {
+        "evidence": "expired absolute deadline",
+        "name": "reference-deadline-before-execution",
+        "ok": true
+      },
+      {
+        "evidence": "cancelled request does not mutate KV",
+        "name": "reference-cancel-before-execution",
+        "ok": true
+      },
+      {
+        "evidence": "duplicate execution returns cached StageResult",
+        "name": "simulated-max-at-most-once",
+        "ok": true
+      },
+      {
+        "evidence": "expired absolute deadline",
+        "name": "simulated-max-deadline-before-execution",
+        "ok": true
+      },
+      {
+        "evidence": "cancelled request does not mutate KV",
+        "name": "simulated-max-cancel-before-execution",
+        "ok": true
+      },
+      {
+        "evidence": "shared StageExecutable transform",
+        "name": "reference-simulated-output-parity",
+        "ok": true
+      },
+      {
+        "evidence": "bounded admission queue and cleanup",
+        "name": "queue-bound-and-queued-cancel",
+        "ok": true
+      },
+      {
+        "evidence": "missing adapter is explicit unavailable status",
+        "name": "physical-max-no-fallback",
+        "ok": true
+      }
+    ],
+    "passed_count": 24
+  },
+  "evidence_class": "T1-simulation",
+  "fault_matrix": [
+    {
+      "error_code": null,
+      "fault": "none",
+      "kv_mutated": true,
+      "status": "ok"
+    },
+    {
+      "error_code": null,
+      "fault": "slow_stage",
+      "kv_mutated": true,
+      "status": "ok"
+    },
+    {
+      "error_code": "EXECUTION",
+      "fault": "disconnect",
+      "kv_mutated": false,
+      "status": "disconnected"
+    },
+    {
+      "error_code": "CHECKSUM",
+      "fault": "corruption",
+      "kv_mutated": true,
+      "status": "failed"
+    },
+    {
+      "error_code": "DEADLINE",
+      "fault": "timeout",
+      "kv_mutated": false,
+      "status": "deadline"
+    },
+    {
+      "error_code": "CANCELLED",
+      "fault": "cancel",
+      "kv_mutated": false,
+      "status": "cancelled"
+    },
+    {
+      "error_code": "STALE_PLAN",
+      "fault": "stale_plan",
+      "kv_mutated": false,
+      "status": "rejected"
+    }
+  ],
+  "generated_at": "2026-07-09T23:05:17.941392+00:00",
+  "limitations": [
+    "The 30-minute sustained interval is real wall-clock T1 loopback with concurrent simulated workers; it is not physical-hardware stability evidence.",
+    "The mechanism backend uses DeepSeek-V2-Lite boundary shapes and stage cuts with a deterministic reference transform; it is not compiled DeepSeek-V2-Lite MAX graph execution.",
+    "No Apple/NVIDIA supported-platform or throughput claim is made."
+  ],
+  "loopback": {
+    "cancel_acknowledged": true,
+    "cancel_status": "cancelled",
+    "candidate_top1": 7,
+    "channel_event_counts": [
+      71529,
+      71539
+    ],
+    "cleanup_completed": true,
+    "control_plane": [
+      {
+        "capabilities": {
+          "abi_major": 1,
+          "abi_minor": 0,
+          "backend": "simulated-max",
+          "build_id": "simulated-max-phase05",
+          "dtypes": [
+            "bf16"
+          ],
+          "max_frame_bytes": 268435456,
+          "node_id": "sim-nvidia-stage-0",
+          "ok": true,
+          "stage_id": "stage-0"
+        },
+        "health": {
+          "degraded": false,
+          "inflight": 0,
+          "manifest_hash": "sha256:70772f44da6caebea0161155ac65ff6d5122a36ed5786549e7d8b3f04175cc74",
+          "ok": true,
+          "stage_id": "stage-0",
+          "state": "READY"
+        },
+        "install": {
+          "installed": true,
+          "manifest_hash": "sha256:70772f44da6caebea0161155ac65ff6d5122a36ed5786549e7d8b3f04175cc74",
+          "ok": true,
+          "unchanged": true
+        },
+        "status": {
+          "manifest_hash": "sha256:70772f44da6caebea0161155ac65ff6d5122a36ed5786549e7d8b3f04175cc74",
+          "ok": true,
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "process_max_rss_bytes": 30949376,
+          "stage_id": "stage-0"
+        }
+      },
+      {
+        "capabilities": {
+          "abi_major": 1,
+          "abi_minor": 0,
+          "backend": "simulated-max",
+          "build_id": "simulated-max-phase05",
+          "dtypes": [
+            "bf16"
+          ],
+          "max_frame_bytes": 268435456,
+          "node_id": "sim-apple-stage-1",
+          "ok": true,
+          "stage_id": "stage-1"
+        },
+        "health": {
+          "degraded": false,
+          "inflight": 0,
+          "manifest_hash": "sha256:78dc2bbde91db0a2815a09a1a7a9d01a799de1f41be14b92a954412bb613b712",
+          "ok": true,
+          "stage_id": "stage-1",
+          "state": "READY"
+        },
+        "install": {
+          "installed": true,
+          "manifest_hash": "sha256:78dc2bbde91db0a2815a09a1a7a9d01a799de1f41be14b92a954412bb613b712",
+          "ok": true,
+          "unchanged": true
+        },
+        "status": {
+          "manifest_hash": "sha256:78dc2bbde91db0a2815a09a1a7a9d01a799de1f41be14b92a954412bb613b712",
+          "ok": true,
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "process_max_rss_bytes": 30982144,
+          "stage_id": "stage-1"
+        }
+      }
+    ],
+    "decode_status": "ok",
+    "evidence_ledger": {
+      "activation_contents_logged": false,
+      "assumption_ids": [
+        "SA-001",
+        "SA-002",
+        "SA-003",
+        "SA-004",
+        "SA-005",
+        "SA-006"
+      ],
+      "channel_metrics": [
+        {
+          "credit_events": 4,
+          "event_count": 20,
+          "frames_received": 12,
+          "frames_sent": 3,
+          "payload_bytes_sent": 98304,
+          "wire_bytes_sent": 100589
+        },
+        {
+          "credit_events": 14306,
+          "event_count": 71529,
+          "frames_received": 42917,
+          "frames_sent": 14305,
+          "payload_bytes_sent": 468746240,
+          "wire_bytes_sent": 479738871
+        },
+        {
+          "credit_events": 14308,
+          "event_count": 71539,
+          "frames_received": 42923,
+          "frames_sent": 14307,
+          "payload_bytes_sent": 468811776,
+          "wire_bytes_sent": 479805940
+        }
+      ],
+      "evidence_class": "T1-simulation",
+      "measurement_kind": "simulation",
+      "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "plan_id": "05050505-0505-4050-8050-050505050505",
+      "scenario_id": "S-DESKTOP",
+      "trace_samples": [
+        {
+          "elapsed_ns": 119848000,
+          "kind": "stage_result",
+          "kv_epoch_after": 1,
+          "kv_epoch_before": 0,
+          "phase": "prefill",
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "request_id": "40404040-4040-4040-8040-404040404040",
+          "span_id": "span-stage-0-0",
+          "stage_id": "stage-0",
+          "status": "ok",
+          "trace_id": "trace-40404040-4040-4040-8040-404040404040"
+        },
+        {
+          "elapsed_ns": 113689125,
+          "kind": "stage_result",
+          "kv_epoch_after": 1,
+          "kv_epoch_before": 0,
+          "phase": "prefill",
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "request_id": "40404040-4040-4040-8040-404040404040",
+          "span_id": "span-stage-1-0",
+          "stage_id": "stage-1",
+          "status": "ok",
+          "trace_id": "trace-40404040-4040-4040-8040-404040404040"
+        },
+        {
+          "elapsed_ns": 17378916,
+          "kind": "stage_result",
+          "kv_epoch_after": 2,
+          "kv_epoch_before": 1,
+          "phase": "decode",
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "request_id": "40404040-4040-4040-8040-404040404040",
+          "span_id": "span-stage-0-1",
+          "stage_id": "stage-0",
+          "status": "ok",
+          "trace_id": "trace-40404040-4040-4040-8040-404040404040"
+        },
+        {
+          "elapsed_ns": 17045458,
+          "kind": "stage_result",
+          "kv_epoch_after": 2,
+          "kv_epoch_before": 1,
+          "phase": "decode",
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "request_id": "40404040-4040-4040-8040-404040404040",
+          "span_id": "span-stage-1-1",
+          "stage_id": "stage-1",
+          "status": "ok",
+          "trace_id": "trace-40404040-4040-4040-8040-404040404040"
+        },
+        {
+          "elapsed_ns": 157469666,
+          "kind": "stage_result",
+          "kv_epoch_after": 1,
+          "kv_epoch_before": 0,
+          "phase": "prefill",
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "request_id": "6205427f-6afd-58b5-8a4d-e79f61ad3815",
+          "span_id": "span-stage-0-0",
+          "stage_id": "stage-0",
+          "status": "ok",
+          "trace_id": "trace-6205427f-6afd-58b5-8a4d-e79f61ad3815"
+        },
+        {
+          "elapsed_ns": 17142166,
+          "kind": "stage_result",
+          "kv_epoch_after": 1,
+          "kv_epoch_before": 0,
+          "phase": "prefill",
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "request_id": "6205427f-6afd-58b5-8a4d-e79f61ad3815",
+          "span_id": "span-stage-1-0",
+          "stage_id": "stage-1",
+          "status": "ok",
+          "trace_id": "trace-6205427f-6afd-58b5-8a4d-e79f61ad3815"
+        },
+        {
+          "elapsed_ns": 180716333,
+          "kind": "stage_result",
+          "kv_epoch_after": 1,
+          "kv_epoch_before": 0,
+          "phase": "prefill",
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "request_id": "e0359258-50e8-5d81-a427-a4c089b6ffd9",
+          "span_id": "span-stage-0-0",
+          "stage_id": "stage-0",
+          "status": "ok",
+          "trace_id": "trace-e0359258-50e8-5d81-a427-a4c089b6ffd9"
+        },
+        {
+          "elapsed_ns": 17394708,
+          "kind": "stage_result",
+          "kv_epoch_after": 1,
+          "kv_epoch_before": 0,
+          "phase": "prefill",
+          "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "plan_id": "05050505-0505-4050-8050-050505050505",
+          "request_id": "e0359258-50e8-5d81-a427-a4c089b6ffd9",
+          "span_id": "span-stage-1-0",
+          "stage_id": "stage-1",
+          "status": "ok",
+          "trace_id": "trace-e0359258-50e8-5d81-a427-a4c089b6ffd9"
+        }
+      ]
+    },
+    "independent_processes": true,
+    "max_abs_error": 0.0,
+    "no_credit_observed": true,
+    "orchestrator_event_count": 28614,
+    "output_kind": "logits",
+    "prefill_status": "ok",
+    "reconnect_status": "ok",
+    "reference_top1": 7,
+    "sustained": {
+      "activation_rows_per_request": 8,
+      "actual_loopback_iterations": 14304,
+      "concurrency": 8,
+      "configured_byte_credit": 268435456,
+      "configured_message_credit": 1,
+      "configured_process_rss_limit_bytes": 1073741824,
+      "configured_wall_seconds": 1800,
+      "context_tokens_modeled": 4096,
+      "duration_kind": "wall-clock-with-real-concurrent-loopback",
+      "max_byte_credit": 268435456,
+      "max_message_credit": 1,
+      "max_observed_concurrency": 8,
+      "max_observed_process_rss_bytes": 124043264,
+      "max_worker_rss_bytes": 49512448,
+      "memory_bound_exceeded": false,
+      "min_byte_credit": 268435456,
+      "min_message_credit": 1,
+      "minimum_loopback_iterations": 1800,
+      "parent_max_rss_bytes_end": 124043264,
+      "parent_max_rss_bytes_start": 43466752,
+      "queue_bound_exceeded": false,
+      "wall_elapsed_ns": 1800010221083,
+      "wave_count": 1788,
+      "worker_rss_samples": [
+        {
+          "elapsed_ns": 0,
+          "process_max_rss_bytes": 34865152,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 0,
+          "process_max_rss_bytes": 34684928,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 59591702000,
+          "process_max_rss_bytes": 35258368,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 59591702000,
+          "process_max_rss_bytes": 34963456,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 119908525125,
+          "process_max_rss_bytes": 35258368,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 119908525125,
+          "process_max_rss_bytes": 35127296,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 180234043292,
+          "process_max_rss_bytes": 35651584,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 180234043292,
+          "process_max_rss_bytes": 35520512,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 240667569125,
+          "process_max_rss_bytes": 36126720,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 240667569125,
+          "process_max_rss_bytes": 35995648,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 301104465625,
+          "process_max_rss_bytes": 36585472,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 301104465625,
+          "process_max_rss_bytes": 36454400,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 361527713667,
+          "process_max_rss_bytes": 37175296,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 361527713667,
+          "process_max_rss_bytes": 37011456,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 421973458375,
+          "process_max_rss_bytes": 37617664,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 421973458375,
+          "process_max_rss_bytes": 37437440,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 482407589958,
+          "process_max_rss_bytes": 38043648,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 482407589958,
+          "process_max_rss_bytes": 37896192,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 542878953875,
+          "process_max_rss_bytes": 38502400,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 542878953875,
+          "process_max_rss_bytes": 38354944,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 603326315542,
+          "process_max_rss_bytes": 38977536,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 603326315542,
+          "process_max_rss_bytes": 38830080,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 663776807458,
+          "process_max_rss_bytes": 39387136,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 663776807458,
+          "process_max_rss_bytes": 39714816,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 724205073167,
+          "process_max_rss_bytes": 39845888,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 724205073167,
+          "process_max_rss_bytes": 40484864,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 784693417417,
+          "process_max_rss_bytes": 40304640,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 784693417417,
+          "process_max_rss_bytes": 40943616,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 845146862833,
+          "process_max_rss_bytes": 40763392,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 845146862833,
+          "process_max_rss_bytes": 41385984,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 905606057500,
+          "process_max_rss_bytes": 41189376,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 905606057500,
+          "process_max_rss_bytes": 41828352,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 966017414042,
+          "process_max_rss_bytes": 41648128,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 966017414042,
+          "process_max_rss_bytes": 42287104,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1026425896625,
+          "process_max_rss_bytes": 42106880,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1026425896625,
+          "process_max_rss_bytes": 42745856,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1086874751833,
+          "process_max_rss_bytes": 42565632,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1086874751833,
+          "process_max_rss_bytes": 43204608,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1147246335958,
+          "process_max_rss_bytes": 43024384,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1147246335958,
+          "process_max_rss_bytes": 43646976,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1207589557875,
+          "process_max_rss_bytes": 43450368,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1207589557875,
+          "process_max_rss_bytes": 44072960,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1268023630500,
+          "process_max_rss_bytes": 43892736,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1268023630500,
+          "process_max_rss_bytes": 44515328,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1328524451833,
+          "process_max_rss_bytes": 44367872,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1328524451833,
+          "process_max_rss_bytes": 44990464,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1388961065125,
+          "process_max_rss_bytes": 46219264,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1388961065125,
+          "process_max_rss_bytes": 46497792,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1449419128625,
+          "process_max_rss_bytes": 46661632,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1449419128625,
+          "process_max_rss_bytes": 46940160,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1509834405542,
+          "process_max_rss_bytes": 47071232,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1509834405542,
+          "process_max_rss_bytes": 47349760,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1570271794458,
+          "process_max_rss_bytes": 47562752,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1570271794458,
+          "process_max_rss_bytes": 47808512,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1630669841125,
+          "process_max_rss_bytes": 48021504,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1630669841125,
+          "process_max_rss_bytes": 48283648,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1691113003917,
+          "process_max_rss_bytes": 48447488,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1691113003917,
+          "process_max_rss_bytes": 48709632,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1751530879125,
+          "process_max_rss_bytes": 48906240,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1751530879125,
+          "process_max_rss_bytes": 49168384,
+          "stage_id": "stage-1"
+        },
+        {
+          "elapsed_ns": 1800010221083,
+          "process_max_rss_bytes": 49250304,
+          "stage_id": "stage-0"
+        },
+        {
+          "elapsed_ns": 1800010221083,
+          "process_max_rss_bytes": 49512448,
+          "stage_id": "stage-1"
+        }
+      ]
+    },
+    "worker_count": 2,
+    "worker_pids": [
+      95098,
+      95108
+    ]
+  },
+  "manifests": [
+    {
+      "device_requirement": {
+        "assumptions": [
+          "SA-002",
+          "SA-003",
+          "SA-004",
+          "SA-006"
+        ],
+        "backend": "simulated-max",
+        "device_identity": "sim-nvidia-stage-0",
+        "dtypes": [
+          "bf16"
+        ],
+        "minimum_memory_bytes": 17179869184
+      },
+      "fornax_abi_major": 1,
+      "fornax_abi_minor": 0,
+      "input_contract": {
+        "dtype": "bf16",
+        "hidden_size": 2048,
+        "kind": "activation",
+        "layout": "contiguous_row_major"
+      },
+      "kv_policy": "stage_local",
+      "layer_end": 13,
+      "layer_start": 0,
+      "manifest_hash": "sha256:70772f44da6caebea0161155ac65ff6d5122a36ed5786549e7d8b3f04175cc74",
+      "manifest_version": 1,
+      "max_build_id": "simulated-max-phase05",
+      "model_config_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "model_id": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+      "model_snapshot": "85864749cd611b4353ce1decdb286193298f64c7",
+      "output_contract": {
+        "dtype": "bf16",
+        "hidden_size": 2048,
+        "kind": "activation",
+        "layout": "contiguous_row_major"
+      },
+      "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "plan_id": "05050505-0505-4050-8050-050505050505",
+      "stage_id": "stage-0",
+      "stage_index": 0,
+      "template_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "tokenizer_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "weight_artifacts": [
+        {
+          "layer_end": 13,
+          "layer_start": 0,
+          "path": "phase05-stage0-fixture.bin",
+          "sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+          "size": 16000000000
+        }
+      ]
+    },
+    {
+      "device_requirement": {
+        "assumptions": [
+          "SA-001",
+          "SA-003",
+          "SA-004",
+          "SA-006"
+        ],
+        "backend": "simulated-max",
+        "device_identity": "sim-apple-stage-1",
+        "dtypes": [
+          "bf16"
+        ],
+        "minimum_memory_bytes": 17179869184
+      },
+      "fornax_abi_major": 1,
+      "fornax_abi_minor": 0,
+      "input_contract": {
+        "dtype": "bf16",
+        "hidden_size": 2048,
+        "kind": "activation",
+        "layout": "contiguous_row_major"
+      },
+      "kv_policy": "stage_local",
+      "layer_end": 26,
+      "layer_start": 14,
+      "manifest_hash": "sha256:78dc2bbde91db0a2815a09a1a7a9d01a799de1f41be14b92a954412bb613b712",
+      "manifest_version": 1,
+      "max_build_id": "simulated-max-phase05",
+      "model_config_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "model_id": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+      "model_snapshot": "85864749cd611b4353ce1decdb286193298f64c7",
+      "output_contract": {
+        "dtype": "bf16",
+        "hidden_size": 2048,
+        "kind": "logits",
+        "layout": "contiguous_row_major"
+      },
+      "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "plan_id": "05050505-0505-4050-8050-050505050505",
+      "stage_id": "stage-1",
+      "stage_index": 1,
+      "template_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "tokenizer_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "weight_artifacts": [
+        {
+          "layer_end": 26,
+          "layer_start": 14,
+          "path": "phase05-stage1-fixture.bin",
+          "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+          "size": 15413626576
+        }
+      ]
+    }
+  ],
+  "measurement_kind": "simulation",
+  "phase": "0.5",
+  "physical_backend_spike": {
+    "formal_g2_passed": false,
+    "local_platform": {
+      "machine": "arm64",
+      "release": "25.5.0",
+      "system": "Darwin"
+    },
+    "physical_adapter_available": false,
+    "reason": "No StageExecutable MAX adapter and no qualifying two-node heterogeneous fleet are available in this run; S05-12 is explicitly dispositioned without falling back to simulation or blocking S05-1 through S05-11.",
+    "source_built_cli_present": true,
+    "source_checkout_present": true,
+    "status": "unavailable",
+    "two_qualifying_physical_nodes_available": false
+  },
+  "plan_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "plan_id": "05050505-0505-4050-8050-050505050505",
+  "plan_version": "v4",
+  "record_kind": "phase05-engine-v0-evidence",
+  "scenario_matrix": [
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 25059621,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.3125,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 22494085,
+      "tensor_rows": 1,
+      "transfer_ns": 2565536
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 25893018,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 23130874,
+      "tensor_rows": 4,
+      "transfer_ns": 2762144
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 27464671,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.5555555555555556,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 24440383,
+      "tensor_rows": 8,
+      "transfer_ns": 3024288
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 43094205,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.3125,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 40528669,
+      "tensor_rows": 1,
+      "transfer_ns": 2565536
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 42402973,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 39640829,
+      "tensor_rows": 4,
+      "transfer_ns": 2762144
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 37792871,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.5555555555555556,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 34768583,
+      "tensor_rows": 8,
+      "transfer_ns": 3024288
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 48361724,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.3125,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 45796188,
+      "tensor_rows": 1,
+      "transfer_ns": 2565536
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 59016026,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 56253882,
+      "tensor_rows": 4,
+      "transfer_ns": 2762144
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 48551328,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.5555555555555556,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 45527040,
+      "tensor_rows": 8,
+      "transfer_ns": 3024288
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 65021398,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.3125,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 62455862,
+      "tensor_rows": 1,
+      "transfer_ns": 2565536
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 74809598,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 72047454,
+      "tensor_rows": 4,
+      "transfer_ns": 2762144
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 69579221,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.5555555555555556,
+      "scenario_id": "S-WORST-DESKTOP",
+      "stage_service_ns": 66554933,
+      "tensor_rows": 8,
+      "transfer_ns": 3024288
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 15389311,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.375,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 14884630,
+      "tensor_rows": 1,
+      "transfer_ns": 504681
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 15356192,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.6000000000000001,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 14837468,
+      "tensor_rows": 4,
+      "transfer_ns": 518724
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 15395817,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.6666666666666666,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 14858368,
+      "tensor_rows": 8,
+      "transfer_ns": 537449
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 24879881,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.375,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 24375200,
+      "tensor_rows": 1,
+      "transfer_ns": 504681
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 24402971,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.6000000000000001,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 23884247,
+      "tensor_rows": 4,
+      "transfer_ns": 518724
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 24002346,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.6666666666666666,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 23464897,
+      "tensor_rows": 8,
+      "transfer_ns": 537449
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 29551269,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.375,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 29046588,
+      "tensor_rows": 1,
+      "transfer_ns": 504681
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 30042582,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.6000000000000001,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 29523858,
+      "tensor_rows": 4,
+      "transfer_ns": 518724
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 29464481,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.6666666666666666,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 28927032,
+      "tensor_rows": 8,
+      "transfer_ns": 537449
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 40414728,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.375,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 39910047,
+      "tensor_rows": 1,
+      "transfer_ns": 504681
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 39649898,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.6000000000000001,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 39131174,
+      "tensor_rows": 4,
+      "transfer_ns": 518724
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 40675854,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.6666666666666666,
+      "scenario_id": "S-DESKTOP",
+      "stage_service_ns": 40138405,
+      "tensor_rows": 8,
+      "transfer_ns": 537449
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 15134610,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.375,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 14882738,
+      "tensor_rows": 1,
+      "transfer_ns": 251872
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 15653660,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.6000000000000001,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 15396171,
+      "tensor_rows": 4,
+      "transfer_ns": 257489
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 15307776,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.6666666666666666,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 15042797,
+      "tensor_rows": 8,
+      "transfer_ns": 264979
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 23537432,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.375,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 23285560,
+      "tensor_rows": 1,
+      "transfer_ns": 251872
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 23480726,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.6000000000000001,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 23223237,
+      "tensor_rows": 4,
+      "transfer_ns": 257489
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 24114584,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.6666666666666666,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 23849605,
+      "tensor_rows": 8,
+      "transfer_ns": 264979
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 29317859,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.375,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 29065987,
+      "tensor_rows": 1,
+      "transfer_ns": 251872
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 30134550,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.6000000000000001,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 29877061,
+      "tensor_rows": 4,
+      "transfer_ns": 257489
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 29813759,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.6666666666666666,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 29548780,
+      "tensor_rows": 8,
+      "transfer_ns": 264979
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 39842425,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.375,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 39590553,
+      "tensor_rows": 1,
+      "transfer_ns": 251872
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 38932138,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.6000000000000001,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 38674649,
+      "tensor_rows": 4,
+      "transfer_ns": 257489
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 38358152,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.6666666666666666,
+      "scenario_id": "S-PROSUMER-25",
+      "stage_service_ns": 38093173,
+      "tensor_rows": 8,
+      "transfer_ns": 264979
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 10095226,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 10044862,
+      "tensor_rows": 1,
+      "transfer_ns": 50364
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 10072904,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.8,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 10021448,
+      "tensor_rows": 4,
+      "transfer_ns": 51456
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 9651022,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.8888888888888888,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 9598110,
+      "tensor_rows": 8,
+      "transfer_ns": 52912
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 15982628,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 15932264,
+      "tensor_rows": 1,
+      "transfer_ns": 50364
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 15589521,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.8,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 15538065,
+      "tensor_rows": 4,
+      "transfer_ns": 51456
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 15929188,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.8888888888888888,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 15876276,
+      "tensor_rows": 8,
+      "transfer_ns": 52912
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 19698246,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 19647882,
+      "tensor_rows": 1,
+      "transfer_ns": 50364
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 19955194,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.8,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 19903738,
+      "tensor_rows": 4,
+      "transfer_ns": 51456
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 19668081,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.8888888888888888,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 19615169,
+      "tensor_rows": 8,
+      "transfer_ns": 52912
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 25685754,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 25635390,
+      "tensor_rows": 1,
+      "transfer_ns": 50364
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 25628574,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.8,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 25577118,
+      "tensor_rows": 4,
+      "transfer_ns": 51456
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 25948361,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.8888888888888888,
+      "scenario_id": "S-PROSUMER-100",
+      "stage_service_ns": 25895449,
+      "tensor_rows": 8,
+      "transfer_ns": 52912
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 25000848,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.3125,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 24950484,
+      "tensor_rows": 1,
+      "transfer_ns": 50364
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 25832670,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 25781214,
+      "tensor_rows": 4,
+      "transfer_ns": 51456
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 16,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 24231450,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.5555555555555556,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 24178538,
+      "tensor_rows": 8,
+      "transfer_ns": 52912
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 40689904,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.3125,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 40639540,
+      "tensor_rows": 1,
+      "transfer_ns": 50364
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 39155256,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 39103800,
+      "tensor_rows": 4,
+      "transfer_ns": 51456
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 128,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 41279684,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.5555555555555556,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 41226772,
+      "tensor_rows": 8,
+      "transfer_ns": 52912
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 50364652,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.3125,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 50314288,
+      "tensor_rows": 1,
+      "transfer_ns": 50364
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 49875074,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 49823618,
+      "tensor_rows": 4,
+      "transfer_ns": 51456
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 512,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 48971349,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.5555555555555556,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 48918437,
+      "tensor_rows": 8,
+      "transfer_ns": 52912
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 1,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 62966973,
+      "output_finite": true,
+      "payload_bytes": 4096,
+      "pipeline_utilization": 0.3125,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 62916609,
+      "tensor_rows": 1,
+      "transfer_ns": 50364
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 4,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 66335446,
+      "output_finite": true,
+      "payload_bytes": 16384,
+      "pipeline_utilization": 0.5,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 66283990,
+      "tensor_rows": 4,
+      "transfer_ns": 51456
+    },
+    {
+      "assumption_ids": [
+        "SA-005",
+        "SA-007",
+        "SA-008"
+      ],
+      "concurrency": 8,
+      "context_execution_mode": "modeled-timing-and-resource-envelope",
+      "context_tokens": 4096,
+      "measurement_kind": "simulation",
+      "modeled_end_to_end_ns": 63168806,
+      "output_finite": true,
+      "payload_bytes": 32768,
+      "pipeline_utilization": 0.5555555555555556,
+      "scenario_id": "S-COMPUTE-SKEW",
+      "stage_service_ns": 63115894,
+      "tensor_rows": 8,
+      "transfer_ns": 52912
+    }
+  ],
+  "scheduler_sweep": [
+    {
+      "all_admitted": true,
+      "cancelled": true,
+      "concurrency": 1,
+      "deadline_removed": true,
+      "event_count": 11,
+      "fifo": true,
+      "final_stats": {
+        "inflight": 0,
+        "max_inflight": 1,
+        "max_queued": 2,
+        "queued": 0
+      },
+      "overflow_rejected": true,
+      "submitted": 2
+    },
+    {
+      "all_admitted": true,
+      "cancelled": true,
+      "concurrency": 4,
+      "deadline_removed": true,
+      "event_count": 29,
+      "fifo": true,
+      "final_stats": {
+        "inflight": 0,
+        "max_inflight": 4,
+        "max_queued": 8,
+        "queued": 0
+      },
+      "overflow_rejected": true,
+      "submitted": 8
+    },
+    {
+      "all_admitted": true,
+      "cancelled": true,
+      "concurrency": 8,
+      "deadline_removed": true,
+      "event_count": 53,
+      "fifo": true,
+      "final_stats": {
+        "inflight": 0,
+        "max_inflight": 8,
+        "max_queued": 16,
+        "queued": 0
+      },
+      "overflow_rejected": true,
+      "submitted": 16
+    }
+  ],
+  "summary": {
+    "check_count": 12,
+    "fault_count": 7,
+    "formal_g2_passed": false,
+    "passed_count": 12,
+    "phase05_exit_passed": true,
+    "physical_claim": false,
+    "scenario_row_count": 60
+  },
+  "version": 1
+}

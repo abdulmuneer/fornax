@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 from dataclasses import dataclass
 
 from .cost import StageCost, boundary_transfer_s, estimate_stage_cost
@@ -26,6 +27,7 @@ class _StageCandidate:
     transfer_in_s: float
     primary_time_s: float
     replica_times_s: tuple[tuple[str, float], ...]
+    replica_costs: tuple[StageCost, ...]
 
     @property
     def replica_ids(self) -> tuple[str, ...]:
@@ -44,6 +46,14 @@ class _CandidatePlan:
 
 
 def _candidate_node_orders(nodes: list[Node], depth: int) -> list[tuple[Node, ...]]:
+    """Return deterministic bounded node orders without a fixed top-N cutoff.
+
+    Exact enumeration is retained for ordinary local fleets. Beyond the bound,
+    multiple resource orderings plus forced coverage ensure that memory-heavy,
+    bandwidth-heavy, reliable, and compute-heavy nodes all remain candidates.
+    """
+
+    max_orders = 4096
     usable = sorted(
         nodes,
         key=lambda n: (
@@ -54,11 +64,61 @@ def _candidate_node_orders(nodes: list[Node], depth: int) -> list[tuple[Node, ..
         ),
         reverse=True,
     )
-    if len(usable) <= 6:
+    permutation_count = math.perm(len(usable), depth)
+    if permutation_count <= max_orders:
         combos = itertools.combinations(usable, depth)
         return [perm for combo in combos for perm in itertools.permutations(combo)]
-    chosen = usable[:depth]
-    return [tuple(chosen)]
+
+    orderings = [
+        usable,
+        sorted(usable, key=lambda n: (n.mem_free_bytes, n.compute_class, n.id), reverse=True),
+        sorted(
+            usable,
+            key=lambda n: (n.mem_bandwidth_bytes_s, n.compute_class, n.id),
+            reverse=True,
+        ),
+        sorted(usable, key=lambda n: (n.reliability, n.compute_class, n.id), reverse=True),
+    ]
+    results: list[tuple[Node, ...]] = []
+    seen: set[tuple[str, ...]] = set()
+
+    def add(order: tuple[Node, ...]) -> None:
+        key = tuple(node.id for node in order)
+        if len(order) == depth and len(set(key)) == depth and key not in seen:
+            seen.add(key)
+            results.append(order)
+
+    # Preserve every node in every pipeline position before spending the rest of
+    # the bound on locally rich permutations.
+    for ranking in orderings:
+        for forced in ranking:
+            remaining = [node for node in ranking if node.id != forced.id]
+            for position in range(depth):
+                order = remaining[: depth - 1]
+                order.insert(position, forced)
+                add(tuple(order))
+
+    pool_size = min(len(usable), max(depth + 3, 8))
+    for ranking in orderings:
+        pool = ranking[:pool_size]
+        for order in itertools.permutations(pool, depth):
+            add(order)
+            if len(results) >= max_orders:
+                return results
+    return results[:max_orders]
+
+
+def _resource_capacity_ok(inventory: Inventory, stages: tuple[_StageCandidate, ...]) -> bool:
+    allocations: dict[str, float] = {}
+    for stage in stages:
+        for (node_id, _), cost in zip(stage.replica_times_s, stage.replica_costs):
+            allocations[node_id] = allocations.get(node_id, 0.0) + cost.memory_bytes
+            for host_id, memory_bytes in cost.expert_host_memory_bytes:
+                allocations[host_id] = allocations.get(host_id, 0.0) + memory_bytes
+    return all(
+        allocated <= inventory.node(node_id).mem_free_bytes
+        for node_id, allocated in allocations.items()
+    )
 
 
 def _partition_for_order(
@@ -128,9 +188,11 @@ def _build_candidate(
                 transfer_in_s=transfer_in,
                 primary_time_s=primary_time,
                 replica_times_s=((order[idx].id, primary_time),),
+                replica_costs=(cost,),
             )
         )
-    return _CandidatePlan(tuple(stages), tuple(boundary_links))
+    candidate = _CandidatePlan(tuple(stages), tuple(boundary_links))
+    return candidate if _resource_capacity_ok(inventory, candidate.stages) else None
 
 
 def _with_replicas(
@@ -164,6 +226,21 @@ def _with_replicas(
                 for _, time_s in bottleneck.replica_times_s + ((node.id, replica_time),)
             )
             improvement = effective_before - 1.0 / capacity_after
+            tentative_stage = _StageCandidate(
+                layers=bottleneck.layers,
+                node=bottleneck.node,
+                cost=bottleneck.cost,
+                transfer_in_s=bottleneck.transfer_in_s,
+                primary_time_s=bottleneck.primary_time_s,
+                replica_times_s=bottleneck.replica_times_s + ((node.id, replica_time),),
+                replica_costs=bottleneck.replica_costs + (cost,),
+            )
+            tentative_stages = tuple(
+                tentative_stage if index == bottleneck_idx else stage
+                for index, stage in enumerate(stages)
+            )
+            if not _resource_capacity_ok(inventory, tentative_stages):
+                continue
             if best is None or improvement > best[1]:
                 best = (node_idx, improvement, cost, replica_time)
         if best is None or best[1] <= 0:
@@ -177,6 +254,7 @@ def _with_replicas(
             transfer_in_s=bottleneck.transfer_in_s,
             primary_time_s=bottleneck.primary_time_s,
             replica_times_s=bottleneck.replica_times_s + ((node.id, replica_time),),
+            replica_costs=bottleneck.replica_costs + (cost,),
         )
     return _CandidatePlan(tuple(stages), plan.boundary_links)
 

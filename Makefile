@@ -33,7 +33,8 @@ GOLDEN_TESTS := \
 	phase5-ga-gate \
 	benchmark-ledger \
 	pipeline-correctness-probe \
-	throughput-scaling
+	throughput-scaling \
+	stage-abi-v1
 
 .PHONY: test golden unittest doctor help
 
