@@ -31,7 +31,7 @@ Last updated: 2026-07-10
 
 | ID | Class | Required artifact | Gate/sprint effect | Status |
 |---|---|---|---|---|
-| EV-007 | T0-contract | Planner defect regression report | Phase 0.5 exit | **Closed** — I-7/I-8 regressions pass in `tests/test_fornax_planner.py`; see [development journal](../../fornax_development_journal.md) |
+| EV-007 | T0-contract | Planner defect regression report | Phase 0.5 exit | **Closed** — I-7/I-8 regressions pass in `tests/test_fornax_planner.py`; see [development journal](program_management/internal/journal/fornax_development_journal.md) |
 | EV-008 | T0/T1 | Stage ABI and backend conformance corpus | Phase 0.5 exit | **Closed** — `fornax/golden_vectors/stage_abi_v1`, 24/24 checks |
 | EV-009 | T1-simulation | Deterministic two-process pipeline/fault/sustained-run bundle | Phase 0.5 exit | **Closed** — [`evidence/phase05-engine-v0-2026-07-10.json`](evidence/phase05-engine-v0-2026-07-10.json), SHA-256 `d9f57d940306568959fd87139c0e95b8dcdd770166eabc2c31e9d425d40d1e37` |
 | EV-010 | T2-physical-single-node | Fresh Apple numerical operator/stage parity | G2 / Phase 1 | Open |

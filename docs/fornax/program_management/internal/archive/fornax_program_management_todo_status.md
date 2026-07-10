@@ -14,11 +14,13 @@ does not approve physical heterogeneous correctness, supported-platform status,
 or production performance.
 
 **Plan of record:**
-[`docs/fornax/project-plan-v4.md`](docs/fornax/project-plan-v4.md)  
+[`docs/fornax/project-plan-v4.md`](../../../project-plan-v4.md)
+
 **Gate record:**
-[`docs/fornax/program_management/gate-reviews/phase-0-5-exit-2026-07-10.md`](docs/fornax/program_management/gate-reviews/phase-0-5-exit-2026-07-10.md)  
+[`docs/fornax/program_management/gate-reviews/phase-0-5-exit-2026-07-10.md`](../../gate-reviews/phase-0-5-exit-2026-07-10.md)
+
 **Active sprint:**
-[`docs/fornax/program_management/sprints/phase-1-worker-contract-transport-sprint.md`](docs/fornax/program_management/sprints/phase-1-worker-contract-transport-sprint.md)
+[`docs/fornax/program_management/sprints/phase-1-worker-contract-transport-sprint.md`](../../sprints/phase-1-worker-contract-transport-sprint.md)
 
 ### V4 baseline completed
 
@@ -93,7 +95,7 @@ Sources:
 - `docs/fornax/program_management/sprints/README.md` and phase sprint backlog files
 - `docs/fornax/program_management/05-raid-log.md`
 - `docs/fornax/program_management/08-decision-log.md`
-- Current repo evidence under `fornax/`, `fornax/golden_vectors/`, `tests/`, and `fornax_development_journal.md`
+- Current repo evidence under `fornax/`, `fornax/golden_vectors/`, `tests/`, and `../journal/fornax_development_journal.md`
 
 Legend:
 - `[x]` means current repo evidence satisfies the plan item at its stated scope.

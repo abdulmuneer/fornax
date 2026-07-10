@@ -1,7 +1,7 @@
 # Fornax Project Plan — Multi-Lens Review
 
 **Artifact reviewed:** `docs/fornax/project-plan.md` (the elaborated plan)
-**Against:** `docs/fornax/review_lenses_by_skill_for_fornax.md`
+**Against:** `docs/fornax/program_management/internal/reviews/review_lenses_by_skill_for_fornax.md`
 **Mode:** Read-only. No changes made to the plan.
 **Reviewer:** Claude (single reviewer representing all twelve lenses in turn)
 **Date:** 2026-06-20

@@ -61,7 +61,15 @@ ceremony.
 | [G1 gate review](gate-reviews/g1-2026-07-10.md) | Recorded G1 packet and outcome |
 | [Phase 0.5 exit review](gate-reviews/phase-0-5-exit-2026-07-10.md) | M1 closure and exact G2 authorization boundary |
 | [sprints/](sprints/) | Completed Phase 0.5 plus active physical-validation and deferred backlog |
+| [internal/](internal/) | Release-disposable raw reviews, research inputs, development journal, and archived status |
 | [templates/](templates/) | Status report, gate review, decision record templates |
+
+## Release boundary
+
+The engine, technical contracts, ADRs, current plan, and evidence remain outside
+`program_management/internal/`. Development clones keep that internal subtree so
+program progress moves between machines. Release packaging may omit the entire
+subtree without removing runtime code or normative technical contracts.
 
 ## Conventions
 

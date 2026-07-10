@@ -6,7 +6,7 @@ Reviewed artifact:
 
 Review rubric:
 
-- `docs/fornax/review_lenses_by_skill_for_fornax.md`
+- `docs/fornax/program_management/internal/reviews/review_lenses_by_skill_for_fornax.md`
 
 Context checked:
 

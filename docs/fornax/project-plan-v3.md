@@ -2,7 +2,7 @@
 
 > **Version 3.** Supersedes [project-plan-v2.md](project-plan-v2.md), which is
 > preserved unchanged with its review output
-> ([fornax_plan_v2_review_codex.md](fornax_plan_v2_review_codex.md)).
+> ([fornax_plan_v2_review_codex.md](program_management/internal/reviews/fornax_plan_v2_review_codex.md)).
 >
 > V3 incorporates the v2 review. Its core correction is status honesty: V3 does
 > **not** say the old blockers are solved merely because they are named. It says
@@ -16,7 +16,7 @@
 Authoritative inputs:
 
 - [fornax_plan_review_reconciled.md](fornax_plan_review_reconciled.md)
-- [fornax_plan_v2_review_codex.md](fornax_plan_v2_review_codex.md)
+- [fornax_plan_v2_review_codex.md](program_management/internal/reviews/fornax_plan_v2_review_codex.md)
 - Program-management layer:
   - [01-stakeholders-and-raci.md](program_management/01-stakeholders-and-raci.md)
   - [phase-0-evidence-sprint.md](program_management/sprints/phase-0-evidence-sprint.md)

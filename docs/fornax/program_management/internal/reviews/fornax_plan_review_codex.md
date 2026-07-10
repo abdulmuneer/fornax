@@ -6,7 +6,7 @@ Reviewed artifacts:
 - `docs/fornax/project-plan.md`
 - `docs/fornax/partitioner-spec.md`
 - `docs/fornax/apple-silicon-max-skills.md`
-- `docs/fornax/review_lenses_by_skill_for_fornax.md`
+- `docs/fornax/program_management/internal/reviews/review_lenses_by_skill_for_fornax.md`
 
 Review mode: read-only review of the plan. I did not change the plan documents. This file is the review output requested by the user.
 

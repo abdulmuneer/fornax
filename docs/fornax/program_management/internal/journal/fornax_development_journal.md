@@ -1056,7 +1056,7 @@
     artifacts without reloading the model.
   - Updated README, CLI reference, and getting-started guide with the Apple
     Silicon MAX/Qwen MoE workflow and the legacy-`modular` caveat.
-- Review-lens pass against `combined_skill_groups.md`:
+- Review-lens pass against `../research/combined_skill_groups.md`:
   - Hardware/Apple: fixed the important issue that a dense local Qwen artifact
     could be mistaken for MoE evidence by requiring MoE config fields in the
     validator.
@@ -2335,7 +2335,7 @@
 - Updated the program-management README and Phase-0 sprint note to reflect the current execution rule: implementation can continue through the full backlog using simulation and local two-GPU logical-host validation, but formal G2-G5 gate closure still requires the real evidence named in `04-stage-gates.md`.
 - Review-lens pass:
   - Organizational Skill: approve. The sprint folder now has execution structure for all roadmap phases, not only the originally active G1 evidence sprint.
-  - Documentation: approve with comments. The backlog is navigable and states simulation-vs-gate limitations; detailed completion evidence still lives in `fornax_program_management_todo_status.md`.
+  - Documentation: approve with comments. The backlog is navigable and states simulation-vs-gate limitations; detailed completion evidence still lives in `../archive/fornax_program_management_todo_status.md`.
   - Program Management: approve. This removes ambiguity that one sprint file limited development while preserving the stage-gate honesty invariant.
 - Verification: local Markdown link check across `docs/fornax/program_management/sprints/*.md` passed.
 
@@ -2794,7 +2794,7 @@
 ### Whole-package skill-lens code review (2026-06-23)
 
 - Ran a code review of the `fornax/` package (~38 KLOC) through the skill review
-  lenses in `docs/fornax/review_lenses_by_skill_for_fornax.md`. Output written to
+  lenses in `../reviews/review_lenses_by_skill_for_fornax.md`. Output written to
   `docs/fornax/code_review_claude.md`. Overall: Approve with comments —
   honesty architecture is strong; findings are about cost-model fidelity, module
   size, and proxy-regime reach, not dishonesty.
@@ -2841,8 +2841,8 @@
 ### Combined skill-groups review-lens hardening milestone
 
 - Reviewed the current Fornax repo on branch `fornax_review` using
-  `combined_skill_groups.md` and
-  `docs/fornax/review_lenses_by_skill_for_fornax.md`, with emphasis on
+  `../research/combined_skill_groups.md` and
+  `../reviews/review_lenses_by_skill_for_fornax.md`, with emphasis on
   evidence honesty, security/backpressure boundaries, LLM/runtime correctness,
   testing discipline, and documentation status.
 - Top review findings implemented:
@@ -3017,7 +3017,7 @@
 - Next required fix: promote this from an ad hoc script to a Fornax command and
   validator, update committed docs so the real-model command is distinct from
   the synthetic fixture smoke, run the command for a saved Fornax artifact, then
-  review it through `combined_skill_groups.md` before claiming completion.
+  review it through `../research/combined_skill_groups.md` before claiming completion.
 
 ### Real Qwen MoE serving command, validation, and review (2026-06-29)
 
@@ -3041,7 +3041,7 @@
 - The saved run generated 24 new tokens from 33 prompt tokens in about 9.60 s
   (`tokens_s=2.50`) after a cached load of about 23.11 s. Generated text began:
   `MoE stands for Mixture of Experts, a technique in AI inference...`.
-- Review through `combined_skill_groups.md` / the repo review lenses found no
+- Review through `../research/combined_skill_groups.md` / the repo review lenses found no
   release-blocking code issue for this scoped evidence, but did identify required
   claim hygiene: this is real-model same-host text-generation evidence, not vLLM,
   live HTTP, full multimodal Qwen-Omni serving, production distributed transport,

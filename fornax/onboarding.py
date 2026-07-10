@@ -182,7 +182,7 @@ def simulate_onboarding_methodology(
                 "# Fornax Developer Workflow\n\n"
                 "Run `make fornax-golden`, `make fornax-test`, and a T1 bundle "
                 "before committing milestone work. Record review-lens findings in "
-                "`fornax_development_journal.md`."
+                "`docs/fornax/program_management/internal/journal/fornax_development_journal.md`."
             ),
         ),
         "onboarding/benchmark-methodology.md": _document(

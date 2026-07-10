@@ -15,7 +15,7 @@ Thin process: enough to surface risk and reach decisions, no more.
 | Engine v0 demo | each sprint review | RT + DIST | executable request/trace, not slideware |
 
 The **architecture review** reuses the existing review-lens rubric
-(`../review_lenses_by_skill_for_fornax.md`) as the standing rubric — the same
+([review rubric](internal/reviews/review_lenses_by_skill_for_fornax.md)) as the standing rubric — the same
 mechanism that produced the reconciled review.
 
 ## Weekly status report

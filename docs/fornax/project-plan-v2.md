@@ -2,7 +2,7 @@
 
 > **Version 2.** Supersedes [project-plan.md](project-plan.md) (v1), which is
 > **preserved unchanged** so that the review chain
-> ([claude](fornax_plan_review_claude.md) · [codex](fornax_plan_review_codex.md) ·
+> ([claude](program_management/internal/reviews/fornax_plan_review_claude.md) · [codex](program_management/internal/reviews/fornax_plan_review_codex.md) ·
 > [reconciled](fornax_plan_review_reconciled.md)) stays mapped to the artifact it
 > graded. This v2 is the revision that *answers* that reconciled review. Every
 > change below is tagged with the blocker / priority it resolves, e.g. `(resolves

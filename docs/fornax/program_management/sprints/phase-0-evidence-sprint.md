@@ -42,7 +42,7 @@ Phase 1 physical validation is active as resources permit.
 | S0-9 | Implemented at workflow scope with G1 packet output; gate closure still depends on reviewed artifacts. |
 
 Detailed item status lives in
-[`../../../../fornax_program_management_todo_status.md`](../../../../fornax_program_management_todo_status.md).
+[`../internal/archive/fornax_program_management_todo_status.md`](../internal/archive/fornax_program_management_todo_status.md).
 
 ## The decision this sprint feeds (G1)
 

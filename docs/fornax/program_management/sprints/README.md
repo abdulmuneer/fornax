@@ -33,4 +33,4 @@ available.
 - Do not mark G2-G5 complete without the evidence in
   [`04-stage-gates.md`](../04-stage-gates.md).
 - Keep the detailed completion ledger in
-  [`../../../../fornax_program_management_todo_status.md`](../../../../fornax_program_management_todo_status.md).
+  [`../internal/archive/fornax_program_management_todo_status.md`](../internal/archive/fornax_program_management_todo_status.md).

@@ -2,9 +2,9 @@
 
 Inputs reconciled:
 
-- `docs/fornax/fornax_plan_review_claude.md`
-- `fornax_plan_review_codex.md`
-- Review rubric: `docs/fornax/review_lenses_by_skill_for_fornax.md`
+- `docs/fornax/program_management/internal/reviews/fornax_plan_review_claude.md`
+- `docs/fornax/program_management/internal/reviews/fornax_plan_review_codex.md`
+- Review rubric: `docs/fornax/program_management/internal/reviews/review_lenses_by_skill_for_fornax.md`
 
 Mode: reconciliation only. The Fornax plan documents were not changed.
 
