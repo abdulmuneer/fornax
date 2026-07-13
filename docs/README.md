@@ -22,6 +22,7 @@ evidence remains required before any supported-platform, throughput, or G2 claim
 
 | Guide | Use it for |
 |---|---|
+| [Operator quickstart](onboarding/quickstart.md) | Get a complete two-stage simulated result and inspect its evidence boundary in one command. |
 | [Getting started](getting-started.md) | Install from a clone, verify the repo, run the first plan and simulation, and optionally smoke DeepSeek-V2-Lite with source-built MAX on Apple Silicon. |
 | [Concepts](concepts.md) | Learn the model, fleet, stage, expert, prediction, and runtime vocabulary used by the other docs. |
 | [Planning and simulation](planning-and-simulation.md) | Work through the full planning flow: target contract, inventory, plan, simulation, validation, and preflight bundle. |
@@ -33,6 +34,7 @@ evidence remains required before any supported-platform, throughput, or G2 claim
 ## Quick check
 
 ```bash
+python3 -m fornax quickstart
 make test
 python3 -m fornax plan \
     --target my_target.md \

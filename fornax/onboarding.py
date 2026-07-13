@@ -16,11 +16,11 @@ REQUIRED_TRACKS = {
     "reviewer",
 }
 REQUIRED_DOCUMENTS = {
-    "onboarding/quickstart.md",
-    "onboarding/operator-runbook.md",
-    "onboarding/developer-workflow.md",
-    "onboarding/benchmark-methodology.md",
-    "glossary.md",
+    "docs/onboarding/quickstart.md",
+    "docs/onboarding/operator-runbook.md",
+    "docs/onboarding/developer-workflow.md",
+    "docs/onboarding/benchmark-methodology.md",
+    "docs/glossary.md",
 }
 REQUIRED_GLOSSARY_TERMS = {
     "plan_id",
@@ -131,25 +131,24 @@ def simulate_onboarding_methodology(
         raise ValueError("; ".join(errors))
 
     documents = {
-        "onboarding/quickstart.md": _document(
-            path="onboarding/quickstart.md",
+        "docs/onboarding/quickstart.md": _document(
+            path="docs/onboarding/quickstart.md",
             title="Fornax Operator Quickstart",
             audience="firm operator",
             sections=[
                 "Prerequisites",
-                "Create cluster.yaml",
-                "Run simulated validation",
+                "Run fornax quickstart",
+                "Inspect simulation evidence",
                 "Interpret pass/fail evidence",
             ],
             markdown=(
                 "# Fornax Operator Quickstart\n\n"
-                "Use the two-logical-host simulation before real cluster work. "
-                "Run `python3 -m fornax program simulate-t1`, then inspect the "
-                "validation bundle and warnings before moving to lab hardware."
+                "Run `python3 -m fornax quickstart --out-dir fornax-quickstart`, "
+                "then inspect its summary and simulation warning before hardware."
             ),
         ),
-        "onboarding/operator-runbook.md": _document(
-            path="onboarding/operator-runbook.md",
+        "docs/onboarding/operator-runbook.md": _document(
+            path="docs/onboarding/operator-runbook.md",
             title="Fornax Operator Runbook",
             audience="SRE / operator",
             sections=[
@@ -168,8 +167,8 @@ def simulate_onboarding_methodology(
                 "in-flight request counts at zero."
             ),
         ),
-        "onboarding/developer-workflow.md": _document(
-            path="onboarding/developer-workflow.md",
+        "docs/onboarding/developer-workflow.md": _document(
+            path="docs/onboarding/developer-workflow.md",
             title="Fornax Developer Workflow",
             audience="developer",
             sections=[
@@ -180,13 +179,13 @@ def simulate_onboarding_methodology(
             ],
             markdown=(
                 "# Fornax Developer Workflow\n\n"
-                "Run `make fornax-golden`, `make fornax-test`, and a T1 bundle "
+                "Run `make golden`, `make unittest`, and a T1 bundle "
                 "before committing milestone work. Record review-lens findings in "
                 "`docs/fornax/program_management/internal/journal/fornax_development_journal.md`."
             ),
         ),
-        "onboarding/benchmark-methodology.md": _document(
-            path="onboarding/benchmark-methodology.md",
+        "docs/onboarding/benchmark-methodology.md": _document(
+            path="docs/onboarding/benchmark-methodology.md",
             title="Benchmark Methodology Of Record",
             audience="benchmark owner",
             sections=[
@@ -204,8 +203,8 @@ def simulate_onboarding_methodology(
                 "T2-T4 lab evidence."
             ),
         ),
-        "glossary.md": _document(
-            path="glossary.md",
+        "docs/glossary.md": _document(
+            path="docs/glossary.md",
             title="Fornax Glossary",
             audience="all roles",
             sections=[
@@ -229,13 +228,13 @@ def simulate_onboarding_methodology(
             track_id="operator",
             audience="firm operator / SRE",
             documents=[
-                "onboarding/quickstart.md",
-                "onboarding/operator-runbook.md",
-                "glossary.md",
+                "docs/onboarding/quickstart.md",
+                "docs/onboarding/operator-runbook.md",
+                "docs/glossary.md",
             ],
             prerequisites=[
-                "cluster.yaml",
-                "model.yaml",
+                "target.json",
+                "inventory.json",
                 "placement.json",
                 "access to simulated validation bundle",
             ],
@@ -260,9 +259,9 @@ def simulate_onboarding_methodology(
             track_id="developer",
             audience="Fornax developer",
             documents=[
-                "onboarding/developer-workflow.md",
-                "onboarding/benchmark-methodology.md",
-                "glossary.md",
+                "docs/onboarding/developer-workflow.md",
+                "docs/onboarding/benchmark-methodology.md",
+                "docs/glossary.md",
             ],
             prerequisites=[
                 "branch fornax",
@@ -271,8 +270,8 @@ def simulate_onboarding_methodology(
                 "development journal",
             ],
             first_run_commands=[
-                "make fornax-golden",
-                "make fornax-test",
+                "make golden",
+                "make unittest",
                 "python3 -m fornax program simulate-t1 --out-dir t1-bundle",
             ],
             success_evidence=[
@@ -290,8 +289,8 @@ def simulate_onboarding_methodology(
             track_id="benchmark-owner",
             audience="benchmark owner",
             documents=[
-                "onboarding/benchmark-methodology.md",
-                "glossary.md",
+                "docs/onboarding/benchmark-methodology.md",
+                "docs/glossary.md",
             ],
             prerequisites=[
                 "lab-reference hardware reservation",
@@ -320,9 +319,9 @@ def simulate_onboarding_methodology(
             track_id="reviewer",
             audience="PM / TL / review-lens owner",
             documents=[
-                "onboarding/developer-workflow.md",
-                "onboarding/benchmark-methodology.md",
-                "glossary.md",
+                "docs/onboarding/developer-workflow.md",
+                "docs/onboarding/benchmark-methodology.md",
+                "docs/glossary.md",
             ],
             prerequisites=[
                 "program-management WBS",
@@ -347,16 +346,16 @@ def simulate_onboarding_methodology(
     ]
 
     glossary_terms = [
-        _glossary_term("plan_id", "Plan ID", "Stable identifier propagated through placement, transport, serving, and evidence artifacts.", ["glossary.md", "onboarding/operator-runbook.md"]),
-        _glossary_term("logical_host", "Logical host", "A simulated host used to exercise multi-host semantics on local hardware without claiming real cluster evidence.", ["glossary.md", "onboarding/quickstart.md"]),
-        _glossary_term("placement_plan", "Placement plan", "The planner output that maps layers, stages, replicas, and explanations to nodes.", ["glossary.md", "onboarding/quickstart.md"]),
-        _glossary_term("t1_simulation", "T1 simulation", "CI-safe simulated-worker evidence used for development before T2-T4 lab validation.", ["glossary.md", "onboarding/developer-workflow.md"]),
-        _glossary_term("benchmark_of_record", "Benchmark of record", "The reproducible lab-reference benchmark used for gate-grade performance claims.", ["glossary.md", "onboarding/benchmark-methodology.md"]),
-        _glossary_term("lab_reference", "lab-reference", "Controlled heterogeneous lab target for benchmark-of-record runs and T2-T4 evidence.", ["glossary.md", "onboarding/benchmark-methodology.md"]),
-        _glossary_term("drain", "Drain", "Stop admitting new work to a node and let in-flight work complete before mutation.", ["glossary.md", "onboarding/operator-runbook.md"]),
-        _glossary_term("rollback", "Rollback", "Return a node or deployment to the previous known-good version after a failed or rejected change.", ["glossary.md", "onboarding/operator-runbook.md"]),
-        _glossary_term("node_replacement", "Node replacement", "Remove a drained node, admit a replacement, verify health, and restore traffic.", ["glossary.md", "onboarding/operator-runbook.md"]),
-        _glossary_term("gate", "Gate", "Sponsor decision point with PROCEED, ITERATE, NARROW, or KILL outcomes.", ["glossary.md", "onboarding/developer-workflow.md"]),
+        _glossary_term("plan_id", "Plan ID", "Stable identifier propagated through placement, transport, serving, and evidence artifacts.", ["docs/glossary.md", "docs/onboarding/operator-runbook.md"]),
+        _glossary_term("logical_host", "Logical host", "A simulated host used to exercise multi-host semantics on local hardware without claiming real cluster evidence.", ["docs/glossary.md", "docs/onboarding/quickstart.md"]),
+        _glossary_term("placement_plan", "Placement plan", "The planner output that maps layers, stages, replicas, and explanations to nodes.", ["docs/glossary.md", "docs/onboarding/quickstart.md"]),
+        _glossary_term("t1_simulation", "T1 simulation", "CI-safe simulated-worker evidence used for development before T2-T4 lab validation.", ["docs/glossary.md", "docs/onboarding/developer-workflow.md"]),
+        _glossary_term("benchmark_of_record", "Benchmark of record", "The reproducible lab-reference benchmark used for gate-grade performance claims.", ["docs/glossary.md", "docs/onboarding/benchmark-methodology.md"]),
+        _glossary_term("lab_reference", "lab-reference", "Controlled heterogeneous lab target for benchmark-of-record runs and T2-T4 evidence.", ["docs/glossary.md", "docs/onboarding/benchmark-methodology.md"]),
+        _glossary_term("drain", "Drain", "Stop admitting new work to a node and let in-flight work complete before mutation.", ["docs/glossary.md", "docs/onboarding/operator-runbook.md"]),
+        _glossary_term("rollback", "Rollback", "Return a node or deployment to the previous known-good version after a failed or rejected change.", ["docs/glossary.md", "docs/onboarding/operator-runbook.md"]),
+        _glossary_term("node_replacement", "Node replacement", "Remove a drained node, admit a replacement, verify health, and restore traffic.", ["docs/glossary.md", "docs/onboarding/operator-runbook.md"]),
+        _glossary_term("gate", "Gate", "Sponsor decision point with PROCEED, ITERATE, NARROW, or KILL outcomes.", ["docs/glossary.md", "docs/onboarding/developer-workflow.md"]),
     ]
 
     benchmark_methodology = {
@@ -396,8 +395,8 @@ def simulate_onboarding_methodology(
         },
         "development_path": {
             "t0_t1_commands": [
-                "make fornax-golden",
-                "make fornax-test",
+                "make golden",
+                "make unittest",
                 "python3 -m fornax program simulate-t1 --out-dir t1-bundle",
             ],
             "simulation_warning_required": True,
@@ -408,7 +407,7 @@ def simulate_onboarding_methodology(
     operator_handoff = {
         "checklist": [
             "install prerequisites",
-            "prepare cluster.yaml, model.yaml, and placement.json",
+            "prepare target.json, inventory.json, and placement.json",
             "run doctor and T1 simulation before lab deployment",
             "drain before upgrade, restart, rollback, or node replacement",
             "attach benchmark-of-record evidence before performance claims",
@@ -467,6 +466,8 @@ def _validate_documents(data: dict[str, Any], errors: list[str]) -> set[str]:
             continue
         if document.get("path") != path:
             errors.append(f"{field}.path must match document key")
+        if not Path(path).is_file():
+            errors.append(f"{field}.path does not exist in the repository")
         _non_empty_string(document.get("title"), f"{field}.title", errors)
         _non_empty_string(document.get("audience"), f"{field}.audience", errors)
         sections = _require_string_list(document.get("sections"), f"{field}.sections", errors)

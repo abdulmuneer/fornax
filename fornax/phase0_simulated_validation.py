@@ -69,7 +69,7 @@ def run_phase0_simulated_validation(
     include_calibration: bool = False,
     calibration_torch_python: str | None = None,
     program_report_date: str | None = None,
-    program_plan_version: str = "v3",
+    program_plan_version: str = "v4",
     substrate_pinned_build: str = "unset",
     kickoff_date: str | None = None,
     ker_status: str = "unassigned",

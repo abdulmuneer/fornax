@@ -377,9 +377,9 @@ def run_t1_simulated_validation(
     )
     program_governance = simulate_program_governance(
         plan_id=f"{plan_id}-governance",
-        report_date="2026-06-22",
-        plan_version="v3",
-        current_gate="G1",
+        report_date="2026-07-13",
+        plan_version="v4",
+        current_gate="G2",
     )
     write_json(scheduler_path, scheduler)
     write_json(worker_path, worker)

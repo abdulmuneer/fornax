@@ -1,6 +1,6 @@
 # Fornax — heterogeneous frontier-model serving
 
-**Fornax** is a **Mojo/MAX-native distributed inference engine** — a *custom
+**Fornax** is building a **Mojo/MAX-native distributed inference engine** — a *custom
 surgery of MAX* — that makes a fleet of heterogeneous, commodity machines
 (consumer NVIDIA GPUs + Apple Silicon Macs + whatever else is on the LAN) serve a
 **single frontier-scale MoE model that no individual node can hold**, at high

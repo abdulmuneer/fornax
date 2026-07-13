@@ -76,15 +76,15 @@
         ]
       }
     ],
-    "current_gate": "G1",
-    "report_date": "2026-06-22"
+    "current_gate": "G2",
+    "report_date": "2026-07-13"
   },
   "controls": [
     {
       "control_id": "X1-gate-operation",
       "evidence": [
-        "gate-review template",
-        "DEC-005 pending",
+        "G1 gate review",
+        "DEC-005 accepted",
         "allowed outcomes"
       ],
       "failure_mode": "gate outcome is implied without Sponsor decision",
@@ -95,8 +95,8 @@
     {
       "control_id": "X1-decision-log",
       "evidence": [
-        "DEC-001..DEC-006 present",
-        "DEC-005 pending"
+        "DEC-001..DEC-008 present",
+        "DEC-005 and DEC-008 recorded"
       ],
       "failure_mode": "expensive decision lacks DEC entry",
       "status": "active",
@@ -140,7 +140,8 @@
       "control_id": "R10-status-drift",
       "evidence": [
         "simulation-only warnings",
-        "G1 not gate-ready"
+        "G1 passed",
+        "G2 open"
       ],
       "failure_mode": "planned or simulated work is reported as proven closure",
       "status": "active",
@@ -148,7 +149,7 @@
       "workstream": "X3"
     }
   ],
-  "current_gate": "G1",
+  "current_gate": "G2",
   "decision_log": {
     "allowed_gate_outcomes": [
       "ITERATE",
@@ -192,11 +193,11 @@
       },
       {
         "authority": "Sponsor",
-        "decision": "G1 go/no-go outcome plus re-baselined schedule",
+        "decision": "G1 PROCEED to bounded assumption-driven Engine v0; physical proof remains G2",
         "id": "DEC-005",
-        "ref": "stage gate G1",
-        "reverses": "no",
-        "status": "Pending"
+        "ref": "G1 gate review 2026-07-10",
+        "reverses": "reversible at G2",
+        "status": "Accepted"
       },
       {
         "authority": "Sponsor",
@@ -205,6 +206,22 @@
         "ref": "plan v3 section 3.5",
         "reverses": "contract opt-in",
         "status": "Accepted"
+      },
+      {
+        "authority": "Sponsor",
+        "decision": "Approve plan v4 and freeze new Phase 3-5 proxy expansion",
+        "id": "DEC-007",
+        "ref": "plan v4 and platform review disposition",
+        "reverses": "plan-version change",
+        "status": "Accepted"
+      },
+      {
+        "authority": "Sponsor",
+        "decision": "Close Phase 0.5 at T0/T1 and proceed to Phase 1 physical validation",
+        "id": "DEC-008",
+        "ref": "Phase 0.5 exit review 2026-07-10",
+        "reverses": "if T1 evidence regresses",
+        "status": "Recorded"
       }
     ],
     "path": "docs/fornax/program_management/08-decision-log.md",
@@ -213,7 +230,7 @@
   "external_watch": {
     "capability_needed": "target-model expert-MLP on target Mac within tolerance and throughput bound",
     "dependency_id": "D-1",
-    "last_checked": "2026-06-22",
+    "last_checked": "2026-07-13",
     "local_probe_required": true,
     "path": "docs/fornax/program_management/06-dependencies-and-external-watch.md",
     "pinned_build": "max-26.4.0",
@@ -254,8 +271,8 @@
       "TL"
     ],
     "decision_authority": "Sponsor",
-    "gate_of_record": "G1",
-    "phase1_authorized": false,
+    "gate_of_record": "G2",
+    "phase1_authorized": true,
     "workstreams": [
       "X1",
       "X2",
@@ -263,9 +280,9 @@
     ]
   },
   "mode": "t1-simulation",
-  "note": "T1 program governance simulation: validates WS-X gate, decision-log, RAID, external-watch, and cadence controls. Not G1/G5 closure evidence.",
+  "note": "T1 program governance simulation: validates WS-X gate, decision-log, RAID, external-watch, and cadence controls against plan v4. It records the accepted G1/Phase-1 posture but is not G2/G5 closure evidence.",
   "plan_id": "golden-program-governance",
-  "plan_version": "v3",
+  "plan_version": "v4",
   "raid_register": {
     "assumptions": [
       {
@@ -415,11 +432,12 @@
   "summary": {
     "cadence_artifact_count": 6,
     "control_count": 6,
-    "dec005_pending": true,
-    "decision_count": 6,
+    "dec005_pending": false,
+    "decision_count": 8,
     "dependency_count": 4,
     "external_watch_rank1_required": true,
-    "g1_gate_ready": false,
+    "g1_gate_ready": true,
+    "g2_gate_ready": false,
     "issue_count": 6,
     "risk_count": 3,
     "silent_proceed_forbidden": true,

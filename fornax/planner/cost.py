@@ -232,6 +232,11 @@ def estimate_stage_cost(
         return None
 
     selected = [model.layers[i] for i in layers]
+    if not node.supports_kv and any(
+        layer.kind == "attention" or layer.kv_bytes_per_token > 0
+        for layer in selected
+    ):
+        return None
     resident_mem = stage_memory_bytes(model, layers, target, "resident")
     if resident_mem <= node.mem_free_bytes:
         mode = "resident"

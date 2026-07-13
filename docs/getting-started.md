@@ -37,9 +37,26 @@ Run Fornax as a module from the repo root:
 python3 -m fornax --help
 ```
 
-There is no installed `fornax` shell command in the default workflow.
+An editable install is optional. From a virtual environment it provides the
+same CLI as a `fornax` shell command:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/fornax --help
+```
 
 ## 3. Verify the repo
+
+Run the one-command tour first:
+
+```bash
+python3 -m fornax quickstart --out-dir fornax-quickstart
+```
+
+It creates a tiny synthetic fleet and target, forces a two-stage
+NVIDIA-to-Apple placement, validates it, and writes a simulation summary. The
+output is labeled `simulation_fixture`; it is not hardware evidence.
 
 Run the deterministic golden-vector checks and the unit tests:
 

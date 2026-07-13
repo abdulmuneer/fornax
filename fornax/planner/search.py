@@ -340,6 +340,11 @@ def _node_exclusion_reason(
             "excluded: node does not support activation dtype "
             f"{model.dtype_activation}"
         )
+    if not node.supports_kv and all(
+        layer.kind == "attention" or layer.kv_bytes_per_token > 0
+        for layer in model.layers
+    ):
+        return "excluded: node does not support KV-bearing attention stages"
     if not _single_layer_stage_possible(model, inventory, node, target):
         return (
             "excluded: insufficient memory, missing expert host/link, or remote "

@@ -52,11 +52,15 @@ unittest:
 	$(PYTHON) -m unittest discover -s tests -p 'test_fornax*.py'
 
 doctor:
-	$(PYTHON) -m fornax doctor
+	@if [ -z "$(BUNDLE)" ]; then \
+		echo "usage: make doctor BUNDLE=path/to/preflight-bundle"; \
+		exit 2; \
+	fi
+	$(PYTHON) -m fornax doctor --bundle "$(BUNDLE)"
 
 help:
 	@echo "make test      - golden self-tests + unittest suite (no hardware)"
 	@echo "make golden    - deterministic CLI contract/golden self-tests"
 	@echo "make unittest  - unittest suites only"
-	@echo "make doctor    - inspect a phase-0 evidence bundle"
+	@echo "make doctor BUNDLE=... - inspect a phase-0 evidence bundle"
 	@echo "python3 -m fornax --help  - full CLI surface"

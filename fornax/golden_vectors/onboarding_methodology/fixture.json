@@ -13,8 +13,8 @@
       "not_lab_evidence": true,
       "simulation_warning_required": true,
       "t0_t1_commands": [
-        "make fornax-golden",
-        "make fornax-test",
+        "make golden",
+        "make unittest",
         "python3 -m fornax program simulate-t1 --out-dir t1-bundle"
       ]
     },
@@ -53,10 +53,10 @@
     "status": "methodology-stub"
   },
   "documents": {
-    "glossary.md": {
+    "docs/glossary.md": {
       "audience": "all roles",
       "markdown": "# Fornax Glossary\n\nDefines plan IDs, logical hosts, placement plans, T1 simulation, benchmark of record, lab-reference, drain, rollback, node replacement, and gate terminology.",
-      "path": "glossary.md",
+      "path": "docs/glossary.md",
       "sections": [
         "Planning terms",
         "Runtime terms",
@@ -66,10 +66,10 @@
       ],
       "title": "Fornax Glossary"
     },
-    "onboarding/benchmark-methodology.md": {
+    "docs/onboarding/benchmark-methodology.md": {
       "audience": "benchmark owner",
       "markdown": "# Benchmark Methodology Of Record\n\nThe benchmark of record runs on `lab-reference` with commands, prompts or traces, versions, correctness artifacts, environment, raw logs, and a ledger record. Simulation evidence cannot replace T2-T4 lab evidence.",
-      "path": "onboarding/benchmark-methodology.md",
+      "path": "docs/onboarding/benchmark-methodology.md",
       "sections": [
         "Benchmark of record",
         "Required inputs",
@@ -79,10 +79,10 @@
       ],
       "title": "Benchmark Methodology Of Record"
     },
-    "onboarding/developer-workflow.md": {
+    "docs/onboarding/developer-workflow.md": {
       "audience": "developer",
-      "markdown": "# Fornax Developer Workflow\n\nRun `make fornax-golden`, `make fornax-test`, and a T1 bundle before committing milestone work. Record review-lens findings in `docs/fornax/program_management/internal/journal/fornax_development_journal.md`.",
-      "path": "onboarding/developer-workflow.md",
+      "markdown": "# Fornax Developer Workflow\n\nRun `make golden`, `make unittest`, and a T1 bundle before committing milestone work. Record review-lens findings in `docs/fornax/program_management/internal/journal/fornax_development_journal.md`.",
+      "path": "docs/onboarding/developer-workflow.md",
       "sections": [
         "Local checks",
         "Golden vectors",
@@ -91,10 +91,10 @@
       ],
       "title": "Fornax Developer Workflow"
     },
-    "onboarding/operator-runbook.md": {
+    "docs/onboarding/operator-runbook.md": {
       "audience": "SRE / operator",
       "markdown": "# Fornax Operator Runbook\n\nOperator actions must drain before mutation, verify health after each mutation, preserve plan-integrity tags, and keep dropped in-flight request counts at zero.",
-      "path": "onboarding/operator-runbook.md",
+      "path": "docs/onboarding/operator-runbook.md",
       "sections": [
         "Deploy",
         "Drain",
@@ -106,14 +106,14 @@
       ],
       "title": "Fornax Operator Runbook"
     },
-    "onboarding/quickstart.md": {
+    "docs/onboarding/quickstart.md": {
       "audience": "firm operator",
-      "markdown": "# Fornax Operator Quickstart\n\nUse the two-logical-host simulation before real cluster work. Run `python3 -m fornax program simulate-t1`, then inspect the validation bundle and warnings before moving to lab hardware.",
-      "path": "onboarding/quickstart.md",
+      "markdown": "# Fornax Operator Quickstart\n\nRun `python3 -m fornax quickstart --out-dir fornax-quickstart`, then inspect its summary and simulation warning before hardware.",
+      "path": "docs/onboarding/quickstart.md",
       "sections": [
         "Prerequisites",
-        "Create cluster.yaml",
-        "Run simulated validation",
+        "Run fornax quickstart",
+        "Inspect simulation evidence",
         "Interpret pass/fail evidence"
       ],
       "title": "Fornax Operator Quickstart"
@@ -123,8 +123,8 @@
     {
       "definition": "Stable identifier propagated through placement, transport, serving, and evidence artifacts.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/operator-runbook.md"
+        "docs/glossary.md",
+        "docs/onboarding/operator-runbook.md"
       ],
       "term": "Plan ID",
       "term_id": "plan_id"
@@ -132,8 +132,8 @@
     {
       "definition": "A simulated host used to exercise multi-host semantics on local hardware without claiming real cluster evidence.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/quickstart.md"
+        "docs/glossary.md",
+        "docs/onboarding/quickstart.md"
       ],
       "term": "Logical host",
       "term_id": "logical_host"
@@ -141,8 +141,8 @@
     {
       "definition": "The planner output that maps layers, stages, replicas, and explanations to nodes.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/quickstart.md"
+        "docs/glossary.md",
+        "docs/onboarding/quickstart.md"
       ],
       "term": "Placement plan",
       "term_id": "placement_plan"
@@ -150,8 +150,8 @@
     {
       "definition": "CI-safe simulated-worker evidence used for development before T2-T4 lab validation.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/developer-workflow.md"
+        "docs/glossary.md",
+        "docs/onboarding/developer-workflow.md"
       ],
       "term": "T1 simulation",
       "term_id": "t1_simulation"
@@ -159,8 +159,8 @@
     {
       "definition": "The reproducible lab-reference benchmark used for gate-grade performance claims.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/benchmark-methodology.md"
+        "docs/glossary.md",
+        "docs/onboarding/benchmark-methodology.md"
       ],
       "term": "Benchmark of record",
       "term_id": "benchmark_of_record"
@@ -168,8 +168,8 @@
     {
       "definition": "Controlled heterogeneous lab target for benchmark-of-record runs and T2-T4 evidence.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/benchmark-methodology.md"
+        "docs/glossary.md",
+        "docs/onboarding/benchmark-methodology.md"
       ],
       "term": "lab-reference",
       "term_id": "lab_reference"
@@ -177,8 +177,8 @@
     {
       "definition": "Stop admitting new work to a node and let in-flight work complete before mutation.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/operator-runbook.md"
+        "docs/glossary.md",
+        "docs/onboarding/operator-runbook.md"
       ],
       "term": "Drain",
       "term_id": "drain"
@@ -186,8 +186,8 @@
     {
       "definition": "Return a node or deployment to the previous known-good version after a failed or rejected change.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/operator-runbook.md"
+        "docs/glossary.md",
+        "docs/onboarding/operator-runbook.md"
       ],
       "term": "Rollback",
       "term_id": "rollback"
@@ -195,8 +195,8 @@
     {
       "definition": "Remove a drained node, admit a replacement, verify health, and restore traffic.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/operator-runbook.md"
+        "docs/glossary.md",
+        "docs/onboarding/operator-runbook.md"
       ],
       "term": "Node replacement",
       "term_id": "node_replacement"
@@ -204,8 +204,8 @@
     {
       "definition": "Sponsor decision point with PROCEED, ITERATE, NARROW, or KILL outcomes.",
       "referenced_by": [
-        "glossary.md",
-        "onboarding/developer-workflow.md"
+        "docs/glossary.md",
+        "docs/onboarding/developer-workflow.md"
       ],
       "term": "Gate",
       "term_id": "gate"
@@ -216,7 +216,7 @@
   "operator_handoff": {
     "checklist": [
       "install prerequisites",
-      "prepare cluster.yaml, model.yaml, and placement.json",
+      "prepare target.json, inventory.json, and placement.json",
       "run doctor and T1 simulation before lab deployment",
       "drain before upgrade, restart, rollback, or node replacement",
       "attach benchmark-of-record evidence before performance claims",
@@ -246,9 +246,9 @@
     {
       "audience": "firm operator / SRE",
       "documents": [
-        "onboarding/quickstart.md",
-        "onboarding/operator-runbook.md",
-        "glossary.md"
+        "docs/onboarding/quickstart.md",
+        "docs/onboarding/operator-runbook.md",
+        "docs/glossary.md"
       ],
       "escalation": [
         "missing config artifact",
@@ -262,8 +262,8 @@
         "python3 -m fornax program simulate-t1 --out-dir t1-bundle"
       ],
       "prerequisites": [
-        "cluster.yaml",
-        "model.yaml",
+        "target.json",
+        "inventory.json",
         "placement.json",
         "access to simulated validation bundle"
       ],
@@ -277,9 +277,9 @@
     {
       "audience": "Fornax developer",
       "documents": [
-        "onboarding/developer-workflow.md",
-        "onboarding/benchmark-methodology.md",
-        "glossary.md"
+        "docs/onboarding/developer-workflow.md",
+        "docs/onboarding/benchmark-methodology.md",
+        "docs/glossary.md"
       ],
       "escalation": [
         "new warning lacks program-management note",
@@ -287,8 +287,8 @@
         "review-lens issue blocks next milestone"
       ],
       "first_run_commands": [
-        "make fornax-golden",
-        "make fornax-test",
+        "make golden",
+        "make unittest",
         "python3 -m fornax program simulate-t1 --out-dir t1-bundle"
       ],
       "prerequisites": [
@@ -307,8 +307,8 @@
     {
       "audience": "benchmark owner",
       "documents": [
-        "onboarding/benchmark-methodology.md",
-        "glossary.md"
+        "docs/onboarding/benchmark-methodology.md",
+        "docs/glossary.md"
       ],
       "escalation": [
         "lab-reference unavailable",
@@ -337,9 +337,9 @@
     {
       "audience": "PM / TL / review-lens owner",
       "documents": [
-        "onboarding/developer-workflow.md",
-        "onboarding/benchmark-methodology.md",
-        "glossary.md"
+        "docs/onboarding/developer-workflow.md",
+        "docs/onboarding/benchmark-methodology.md",
+        "docs/glossary.md"
       ],
       "escalation": [
         "gate claim exceeds evidence tier",

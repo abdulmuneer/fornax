@@ -84,6 +84,7 @@ from .local_serving_smoke import (
 )
 from .planner import plan_placement
 from .preflight import run_phase0_preflight
+from .quickstart import run_quickstart
 from .remote_expert_probe import (
     run_remote_expert_batch_probe,
     validate_remote_expert_batch_probe,
@@ -538,6 +539,27 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
         f"bubble={predicted['bubble_fraction']:.3f}"
         f"{suffix}"
     )
+    return 0
+
+
+def _cmd_quickstart(args: argparse.Namespace) -> int:
+    result = run_quickstart(args.out_dir)
+    if result["result"] != "ok":
+        print(f"quickstart failed; inspect {result['artifacts']['summary']}")
+        return 2
+    predicted = result["predicted"]
+    stage_route = " -> ".join(
+        f"{stage['node']}[layers {stage['layers'][0]}-{stage['layers'][-1]}]"
+        for stage in result["stages"]
+    )
+    print("Fornax quickstart complete — simulation fixture, not a hardware result")
+    print(f"placement: {stage_route}")
+    print(
+        "prediction: "
+        f"{predicted['throughput_tok_s']:.3f} tok/s, "
+        f"bubble={predicted['bubble_fraction']:.3f}"
+    )
+    print(f"artifacts: {result['artifacts']['summary']}")
     return 0
 
 
@@ -3122,10 +3144,33 @@ def _cmd_test(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="fornax")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(
+        prog="fornax",
+        description=(
+            "Plan, simulate, validate, and bring up heterogeneous MAX model serving. "
+            "Start with `fornax quickstart`."
+        ),
+        epilog=(
+            "Predictions are simulator output; only benchmark and serving-smoke "
+            "artifacts are measurements."
+        ),
+    )
+    sub = parser.add_subparsers(
+        dest="command", required=True, title="workflows", metavar="COMMAND"
+    )
 
-    accelerator = sub.add_parser("accelerator")
+    quickstart = sub.add_parser(
+        "quickstart",
+        help="run a one-command, no-hardware tour and write inspectable artifacts",
+        description=(
+            "Plan and simulate a tiny model that must span synthetic NVIDIA and "
+            "Apple nodes. The result is teaching evidence, never a hardware claim."
+        ),
+    )
+    quickstart.add_argument("--out-dir", default="fornax-quickstart")
+    quickstart.set_defaults(func=_cmd_quickstart)
+
+    accelerator = sub.add_parser("accelerator", help="run physical or CPU accelerator probes")
     accelerator_sub = accelerator.add_subparsers(
         dest="accelerator_command", required=True
     )
@@ -3179,7 +3224,7 @@ def build_parser() -> argparse.ArgumentParser:
     target_fixture_probe.add_argument("--timeout-s", type=float, default=180.0)
     target_fixture_probe.set_defaults(func=_cmd_accelerator_target_fixture_probe)
 
-    calibrate = sub.add_parser("calibrate")
+    calibrate = sub.add_parser("calibrate", help="collect local cost-model calibration inputs")
     calibrate_sub = calibrate.add_subparsers(dest="calibrate_command", required=True)
     calibrate_local = calibrate_sub.add_parser("local")
     calibrate_local.add_argument("--out", required=True)
@@ -3192,7 +3237,7 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate_local.add_argument("--cuda-iterations", type=int, default=10)
     calibrate_local.set_defaults(func=_cmd_calibrate_local)
 
-    apple = sub.add_parser("apple")
+    apple = sub.add_parser("apple", help="prepare, validate, and decide Apple worker evidence")
     apple_sub = apple.add_subparsers(dest="apple_command", required=True)
     apple_template = apple_sub.add_parser("probe-template")
     apple_template.add_argument("--out", required=True)
@@ -3223,7 +3268,7 @@ def build_parser() -> argparse.ArgumentParser:
     apple_decision.add_argument("--out", required=True)
     apple_decision.set_defaults(func=_cmd_apple_role_decision)
 
-    inv = sub.add_parser("inventory")
+    inv = sub.add_parser("inventory", help="collect or synthesize fleet inventory")
     inv_sub = inv.add_subparsers(dest="inventory_command", required=True)
     inv_collect = inv_sub.add_parser("collect")
     inv_collect.add_argument("--out", required=True)
@@ -3241,7 +3286,7 @@ def build_parser() -> argparse.ArgumentParser:
     inv_simulate.add_argument("--slow-node-factor", type=float, default=0.65)
     inv_simulate.set_defaults(func=_cmd_inventory_simulate_cluster)
 
-    fabric = sub.add_parser("fabric")
+    fabric = sub.add_parser("fabric", help="probe declared network links")
     fabric_sub = fabric.add_subparsers(dest="fabric_command", required=True)
     fabric_probe = fabric_sub.add_parser("probe")
     fabric_probe.add_argument("--inventory", required=True)
@@ -3252,7 +3297,7 @@ def build_parser() -> argparse.ArgumentParser:
     fabric_probe.add_argument("--active-local-iterations", type=int, default=4)
     fabric_probe.set_defaults(func=_cmd_fabric_probe)
 
-    target = sub.add_parser("target")
+    target = sub.add_parser("target", help="draft or validate an executable target contract")
     target_sub = target.add_subparsers(dest="target_command", required=True)
     target_validate = target_sub.add_parser("validate")
     target_validate.add_argument("target")
@@ -3268,7 +3313,7 @@ def build_parser() -> argparse.ArgumentParser:
     target_draft.add_argument("--out", required=True)
     target_draft.set_defaults(func=_cmd_target_draft)
 
-    program = sub.add_parser("program")
+    program = sub.add_parser("program", help="run milestone evidence and governance workflows")
     program_sub = program.add_subparsers(dest="program_command", required=True)
     rebaseline = program_sub.add_parser("rebaseline")
     rebaseline.add_argument("--out", required=True)
@@ -3282,7 +3327,7 @@ def build_parser() -> argparse.ArgumentParser:
     governance.add_argument("--out", required=True)
     governance.add_argument("--plan-id", default="program-governance-plan")
     governance.add_argument("--report-date", default="2026-06-22")
-    governance.add_argument("--plan-version", default="v3")
+    governance.add_argument("--plan-version", default="v4")
     governance.add_argument("--current-gate", default="G1")
     governance.set_defaults(func=_cmd_program_governance_simulate)
 
@@ -3334,14 +3379,14 @@ def build_parser() -> argparse.ArgumentParser:
     g1_packet.add_argument("--out", required=True)
     g1_packet.add_argument("--markdown-out")
     g1_packet.add_argument("--date")
-    g1_packet.add_argument("--plan-version", default="v3")
+    g1_packet.add_argument("--plan-version", default="v4")
     g1_packet.set_defaults(func=_cmd_program_g1_evidence_packet)
 
     g1_review = program_sub.add_parser("g1-review")
     g1_review.add_argument("--bundle", required=True)
     g1_review.add_argument("--out", required=True)
     g1_review.add_argument("--date")
-    g1_review.add_argument("--plan-version", default="v3")
+    g1_review.add_argument("--plan-version", default="v4")
     g1_review.set_defaults(func=_cmd_program_g1_review)
 
     phase0_status = program_sub.add_parser("phase0-status")
@@ -3349,7 +3394,7 @@ def build_parser() -> argparse.ArgumentParser:
     phase0_status.add_argument("--out")
     phase0_status.add_argument("--markdown-out")
     phase0_status.add_argument("--date")
-    phase0_status.add_argument("--plan-version", default="v3")
+    phase0_status.add_argument("--plan-version", default="v4")
     phase0_status.set_defaults(func=_cmd_program_phase0_status)
 
     simulate_phase0 = program_sub.add_parser("simulate-phase0")
@@ -3370,7 +3415,7 @@ def build_parser() -> argparse.ArgumentParser:
     simulate_phase0.add_argument("--include-calibration", action="store_true")
     simulate_phase0.add_argument("--calibration-torch-python")
     simulate_phase0.add_argument("--program-report-date")
-    simulate_phase0.add_argument("--program-plan-version", default="v3")
+    simulate_phase0.add_argument("--program-plan-version", default="v4")
     simulate_phase0.add_argument("--substrate-pinned-build", default="unset")
     simulate_phase0.add_argument("--kickoff-date")
     simulate_phase0.add_argument("--ker-status", choices=KER_STATUS_VALUES, default="unassigned")
@@ -3646,21 +3691,21 @@ def build_parser() -> argparse.ArgumentParser:
     apple_moe.add_argument("--timeout-s", type=float, default=1800.0)
     apple_moe.set_defaults(func=_cmd_program_apple_silicon_moe_serving_smoke)
 
-    plan = sub.add_parser("plan")
+    plan = sub.add_parser("plan", help="place a target model on an inventory")
     plan.add_argument("--target", required=True)
     plan.add_argument("--inventory", required=True)
     plan.add_argument("--links")
     plan.add_argument("--out", required=True)
     plan.set_defaults(func=_cmd_plan)
 
-    simulate = sub.add_parser("simulate")
+    simulate = sub.add_parser("simulate", help="predict performance from a placement plan")
     simulate.add_argument("--plan", required=True)
     simulate.add_argument("--requests")
     simulate.add_argument("--trace", help="deprecated alias for --requests")
     simulate.add_argument("--out")
     simulate.set_defaults(func=_cmd_simulate)
 
-    engine = sub.add_parser("engine")
+    engine = sub.add_parser("engine", help="exercise engine request and batching contracts")
     engine_sub = engine.add_subparsers(dest="engine_command", required=True)
     engine_simulate = engine_sub.add_parser("simulate")
     engine_simulate.add_argument("--out", required=True)
@@ -3673,7 +3718,7 @@ def build_parser() -> argparse.ArgumentParser:
     engine_simulate.add_argument("--timeout-ms", type=float, default=50.0)
     engine_simulate.set_defaults(func=_cmd_engine_simulate)
 
-    observability = sub.add_parser("observability")
+    observability = sub.add_parser("observability", help="exercise metrics and trace contracts")
     observability_sub = observability.add_subparsers(
         dest="observability_command", required=True
     )
@@ -3697,7 +3742,7 @@ def build_parser() -> argparse.ArgumentParser:
     trace.add_argument("--trace-id", default="trace-trace-ledger")
     trace.set_defaults(func=_cmd_observability_trace_simulate)
 
-    runtime = sub.add_parser("runtime")
+    runtime = sub.add_parser("runtime", help="exercise per-stage runtime contracts")
     runtime_sub = runtime.add_subparsers(dest="runtime_command", required=True)
     stage_host = runtime_sub.add_parser("stage-host-simulate")
     stage_host.add_argument("--out", required=True)
@@ -3717,7 +3762,7 @@ def build_parser() -> argparse.ArgumentParser:
     stage_host.add_argument("--tolerance", type=float, default=0.0)
     stage_host.set_defaults(func=_cmd_runtime_stage_host_simulate)
 
-    serving = sub.add_parser("serving")
+    serving = sub.add_parser("serving", help="exercise serving and state-ownership contracts")
     serving_sub = serving.add_subparsers(dest="serving_command", required=True)
     serving_adapter = serving_sub.add_parser("adapter-simulate")
     serving_adapter.add_argument("--out", required=True)
@@ -3740,7 +3785,7 @@ def build_parser() -> argparse.ArgumentParser:
     state_ownership.add_argument("--model", default="qwen3-moe-class-target")
     state_ownership.set_defaults(func=_cmd_serving_state_ownership_simulate)
 
-    workers = sub.add_parser("workers")
+    workers = sub.add_parser("workers", help="exercise worker lifecycle contracts")
     workers_sub = workers.add_subparsers(dest="workers_command", required=True)
     workers_simulate = workers_sub.add_parser("simulate")
     workers_simulate.add_argument("--out", required=True)
@@ -3750,7 +3795,7 @@ def build_parser() -> argparse.ArgumentParser:
     workers_simulate.add_argument("--max-queue-depth", type=int, default=2)
     workers_simulate.set_defaults(func=_cmd_workers_simulate)
 
-    transport = sub.add_parser("transport")
+    transport = sub.add_parser("transport", help="exercise data-plane and trust contracts")
     transport_sub = transport.add_subparsers(dest="transport_command", required=True)
     transport_simulate = transport_sub.add_parser("simulate")
     transport_simulate.add_argument("--out", required=True)
@@ -3772,7 +3817,7 @@ def build_parser() -> argparse.ArgumentParser:
     trust_boundary.add_argument("--token-ttl-s", type=float, default=30.0)
     trust_boundary.set_defaults(func=_cmd_transport_trust_boundary_simulate)
 
-    replication = sub.add_parser("replication")
+    replication = sub.add_parser("replication", help="exercise stage-replication contracts")
     replication_sub = replication.add_subparsers(dest="replication_command", required=True)
     replication_simulate = replication_sub.add_parser("simulate")
     replication_simulate.add_argument("--out", required=True)
@@ -3788,7 +3833,7 @@ def build_parser() -> argparse.ArgumentParser:
     replication_simulate.add_argument("--tolerance", type=float, default=0.0)
     replication_simulate.set_defaults(func=_cmd_replication_simulate)
 
-    resilience = sub.add_parser("resilience")
+    resilience = sub.add_parser("resilience", help="exercise failure and replay contracts")
     resilience_sub = resilience.add_subparsers(
         dest="resilience_command", required=True
     )
@@ -3805,7 +3850,7 @@ def build_parser() -> argparse.ArgumentParser:
     replay_simulate.add_argument("--vocab-size", type=int, default=97)
     replay_simulate.set_defaults(func=_cmd_resilience_replay_simulate)
 
-    ops = sub.add_parser("ops")
+    ops = sub.add_parser("ops", help="exercise lifecycle and onboarding contracts")
     ops_sub = ops.add_subparsers(dest="ops_command", required=True)
     lifecycle = ops_sub.add_parser("lifecycle-simulate")
     lifecycle.add_argument("--out", required=True)
@@ -3826,7 +3871,7 @@ def build_parser() -> argparse.ArgumentParser:
     onboarding.add_argument("--benchmark-id", default="fornax-benchmark-of-record-methodology")
     onboarding.set_defaults(func=_cmd_ops_onboarding_simulate)
 
-    scheduler = sub.add_parser("scheduler")
+    scheduler = sub.add_parser("scheduler", help="exercise admission and scheduling contracts")
     scheduler_sub = scheduler.add_subparsers(dest="scheduler_command", required=True)
     scheduler_simulate = scheduler_sub.add_parser("simulate")
     scheduler_simulate.add_argument("--plan", required=True)
@@ -3838,7 +3883,7 @@ def build_parser() -> argparse.ArgumentParser:
     scheduler_simulate.add_argument("--out")
     scheduler_simulate.set_defaults(func=_cmd_scheduler_simulate)
 
-    moe = sub.add_parser("moe")
+    moe = sub.add_parser("moe", help="exercise MoE routing, parity, and migration contracts")
     moe_sub = moe.add_subparsers(dest="moe_command", required=True)
     moe_simulate = moe_sub.add_parser("simulate")
     moe_simulate.add_argument("--out", required=True)
@@ -3909,7 +3954,7 @@ def build_parser() -> argparse.ArgumentParser:
     parity_probe.add_argument("--timeout-s", type=float, default=180.0)
     parity_probe.set_defaults(func=_cmd_moe_parity_probe)
 
-    model_support = sub.add_parser("model-support")
+    model_support = sub.add_parser("model-support", help="inspect model capability coverage")
     model_support_sub = model_support.add_subparsers(
         dest="model_support_command", required=True
     )
@@ -3925,7 +3970,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     model_support_simulate.set_defaults(func=_cmd_model_support_simulate)
 
-    batching = sub.add_parser("batching")
+    batching = sub.add_parser("batching", help="exercise continuous-batching contracts")
     batching_sub = batching.add_subparsers(dest="batching_command", required=True)
     batching_simulate = batching_sub.add_parser("simulate")
     batching_simulate.add_argument("--out", required=True)
@@ -3937,7 +3982,7 @@ def build_parser() -> argparse.ArgumentParser:
     batching_simulate.add_argument("--transfer-s", type=float, default=0.002)
     batching_simulate.set_defaults(func=_cmd_batching_simulate)
 
-    pipeline = sub.add_parser("pipeline")
+    pipeline = sub.add_parser("pipeline", help="run pipeline correctness probes")
     pipeline_sub = pipeline.add_subparsers(dest="pipeline_command", required=True)
     pipeline_probe = pipeline_sub.add_parser("correctness-probe")
     pipeline_probe.add_argument("--out", required=True)
@@ -3958,7 +4003,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_probe.add_argument("--timeout-s", type=float, default=180.0)
     pipeline_probe.set_defaults(func=_cmd_pipeline_correctness_probe)
 
-    throughput = sub.add_parser("throughput")
+    throughput = sub.add_parser("throughput", help="analyze concurrency and throughput scaling")
     throughput_sub = throughput.add_subparsers(dest="throughput_command", required=True)
     throughput_scaling = throughput_sub.add_parser("scaling-simulate")
     throughput_scaling.add_argument("--out", required=True)
@@ -3974,7 +4019,7 @@ def build_parser() -> argparse.ArgumentParser:
     throughput_scaling.add_argument("--jitter-fraction", type=float, default=0.015)
     throughput_scaling.set_defaults(func=_cmd_throughput_scaling_simulate)
 
-    benchmark = sub.add_parser("benchmark")
+    benchmark = sub.add_parser("benchmark", help="measure a plan and record attributable evidence")
     benchmark.add_argument("--plan", required=True)
     benchmark.add_argument("--mode", default="tiny-moe-or-expert-mlp")
     benchmark.add_argument("--iterations", type=int, default=25)
@@ -3992,12 +4037,12 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--thermals", default="unknown")
     benchmark.set_defaults(func=_cmd_benchmark)
 
-    doctor = sub.add_parser("doctor")
+    doctor = sub.add_parser("doctor", help="explain the health of an evidence bundle")
     doctor.add_argument("--bundle", required=True)
     doctor.add_argument("--out")
     doctor.set_defaults(func=_cmd_doctor)
 
-    preflight = sub.add_parser("preflight")
+    preflight = sub.add_parser("preflight", help="build a complete planning evidence bundle")
     preflight.add_argument("--target", required=True)
     preflight.add_argument("--out-dir", required=True)
     preflight.add_argument("--inventory")
@@ -4011,7 +4056,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--include-golden-plans", action="store_true")
     preflight.add_argument("--include-program-reports", action="store_true")
     preflight.add_argument("--program-report-date")
-    preflight.add_argument("--program-plan-version", default="v3")
+    preflight.add_argument("--program-plan-version", default="v4")
     preflight.add_argument("--include-simulated-apple-evidence", action="store_true")
     preflight.add_argument("--simulated-apple-role", choices=["capacity-only", "expert-worker"], default="capacity-only")
     preflight.add_argument("--simulated-apple-reason")
@@ -4027,7 +4072,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--scope", choices=SCOPE_VALUES, default="pending")
     preflight.set_defaults(func=_cmd_preflight)
 
-    spec = sub.add_parser("spec")
+    spec = sub.add_parser("spec", help="render or validate executable specifications")
     spec_sub = spec.add_subparsers(dest="spec_command", required=True)
     spec_runtime = spec_sub.add_parser("runtime-format")
     spec_runtime.add_argument("--golden", default="fornax/golden_vectors/runtime_format")
@@ -4063,7 +4108,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     spec_substrate.set_defaults(func=_cmd_spec_substrate_adr)
 
-    tests = sub.add_parser("test")
+    tests = sub.add_parser("test", help="replay a named golden or contract suite")
     tests.add_argument(
         "test_name",
         choices=[
@@ -4124,4 +4169,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if shutil.which("python3") is None:
         print("warning: python3 not found on PATH")
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except FileNotFoundError as exc:
+        missing = exc.filename or str(exc)
+        print(f"fornax: input not found: {missing}")
+        return 2
+    except (KeyError, ValueError) as exc:
+        print(f"fornax: invalid input: {exc}")
+        return 2

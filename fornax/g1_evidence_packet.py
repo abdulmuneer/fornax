@@ -110,7 +110,7 @@ def build_g1_evidence_packet(
     bundle_path: str | Path,
     *,
     packet_date: str | None = None,
-    plan_version: str = "v3",
+    plan_version: str = "v4",
 ) -> dict[str, Any]:
     """Build a machine-checkable G1 evidence packet from a Phase-0 bundle."""
 

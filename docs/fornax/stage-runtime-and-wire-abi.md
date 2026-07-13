@@ -223,5 +223,6 @@ text. Hashes use `sha256:<64 lowercase hex>`.
 - Cancellation before queue, while queued, and after execution starts.
 - Credit exhaustion and recovery.
 
-Conformance must run in T0/T1 and against the physical T3 channel before G1
-`PROCEED`.
+Conformance must run in T0/T1 and against the physical T3 channel before G2
+`PROCEED`. G1 authorized Engine v0 against reference/simulated backends; it did
+not close physical channel conformance.

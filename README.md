@@ -1,9 +1,15 @@
 # [WiP] Fornax - heterogeneous frontier-model serving
 
-Fornax is a Mojo/MAX-native distributed inference engine for serving a single
+Fornax is building a Mojo/MAX-native distributed inference engine for serving a single
 frontier-scale sparse-MoE model across a fleet of heterogeneous commodity
 machines. The target fleet can include consumer NVIDIA GPUs, Apple Silicon Macs,
 AMD devices, and CPU workers on a local network.
+
+Today this repository is a **pre-alpha executable specification and Engine v0
+prototype**: planner, stable Stage ABI, two-worker reference/simulated execution,
+framed loopback transport, validators, and hardware bring-up tools. A physical
+cross-vendor `MaxStageBackend` and frontier-capacity proof remain open G2/G3
+milestones.
 
 The engine uses MAX components where they fit: graph compilation, kernels,
 KV-cache primitives, and custom ops. Fornax adds the missing distributed pieces:
@@ -65,11 +71,25 @@ model download. The full guide index is [docs/README.md](docs/README.md).
 ## Quickstart
 
 ```bash
+python3 -m fornax quickstart          # one-command, no-hardware tour
 make test                         # golden self-tests + unittest suite
 make golden                       # deterministic CLI contract/golden self-tests
 python3 -m fornax --help          # CLI surface
-python3 -m fornax doctor          # inspect a phase-0 evidence bundle
+python3 -m fornax doctor --bundle <preflight-dir>
 python3 -m fornax test golden-plans
+```
+
+The quickstart forces a tiny model across synthetic NVIDIA and Apple nodes and
+writes inspectable target, inventory, placement, validation, and simulation
+artifacts under `fornax-quickstart/`. Its numbers are predictions, not hardware
+measurements.
+
+For an isolated editable install with a `fornax` console command:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/fornax quickstart
 ```
 
 These commands run on CPU with no model. Machines with four visible CUDA GPUs can

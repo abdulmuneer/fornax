@@ -13,6 +13,12 @@ Most commands below the core workflow are simulation and contract commands. They
 validate the contracts that the heterogeneous runtime will use and replay golden
 vectors. The everyday user flow is in the core workflow group.
 
+Start with the deterministic no-hardware tour:
+
+```bash
+python3 -m fornax quickstart --out-dir fornax-quickstart
+```
+
 ## Core workflow
 
 Use these commands to turn a model and fleet into a placement and prediction. See
@@ -20,6 +26,7 @@ Use these commands to turn a model and fleet into a placement and prediction. Se
 
 | Command | Purpose |
 |---|---|
+| `quickstart [--out-dir D]` | Create a tiny synthetic NVIDIA/Apple target and fleet, force a two-stage plan, validate and simulate it, and write an honest summary. |
 | `plan --target T --inventory INV [--links L] --out P` | Place the model across the fleet and write plan `P`. Exit `2` if infeasible. |
 | `simulate --plan P [--requests R] [--out O]` | Predict throughput, latency, and pipeline bubble for a plan. Optionally project request-trace decode wall time. |
 | `target validate TARGET --inventory INV [--links L] [--out O]` | Plan, then check the placement against target-contract thresholds. Exit `2` if any check fails. |
