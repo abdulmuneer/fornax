@@ -23,7 +23,7 @@ def render_phase0_status_report(
     bundle_path: str | Path,
     *,
     report_date: str | None = None,
-    plan_version: str = "v3",
+    plan_version: str = "v4",
 ) -> dict[str, Any]:
     """Render a Phase-0 sprint status report from a preflight evidence bundle."""
 

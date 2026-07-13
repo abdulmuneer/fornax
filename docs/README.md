@@ -4,28 +4,37 @@ Start here for the runnable Fornax workflow.
 
 ## Current scope
 
-The repository currently ships the planner and the simulation/contract layer.
-This code is pure Python and needs no GPU, model download, or network access.
+The repository currently ships the planner plus the Phase 0.5 Engine v0
+simulation/contract layer. This code is pure Python and needs no GPU or model
+download; the Engine v0 tests use local loopback sockets and spawned processes.
 You can describe a model and a fleet, ask Fornax to place the model across the
 fleet, and inspect the predicted throughput, latency, and feasibility result.
 
-The heterogeneous Mojo/MAX runtime that turns a plan into served tokens across
-real machines is still under development. Guide pages label simulator output as
-predictions and hardware runs as measurements.
+The physical Mojo/MAX backend that turns the same Stage ABI into served tokens
+across heterogeneous machines is still under development. Guide pages label
+simulator output as predictions and hardware runs as measurements.
+
+Plan v4 Phase 0.5 is complete at T0/T1 against reference/simulated MAX stage
+backends using the production Stage ABI and multi-process loopback TCP. Physical
+evidence remains required before any supported-platform, throughput, or G2 claim.
 
 ## Guides
 
 | Guide | Use it for |
 |---|---|
+| [Operator quickstart](onboarding/quickstart.md) | Get a complete two-stage simulated result and inspect its evidence boundary in one command. |
 | [Getting started](getting-started.md) | Install from a clone, verify the repo, run the first plan and simulation, and optionally smoke DeepSeek-V2-Lite with source-built MAX on Apple Silicon. |
 | [Concepts](concepts.md) | Learn the model, fleet, stage, expert, prediction, and runtime vocabulary used by the other docs. |
 | [Planning and simulation](planning-and-simulation.md) | Work through the full planning flow: target contract, inventory, plan, simulation, validation, and preflight bundle. |
 | [Input file reference](input-formats.md) | Look up the JSON fields for target contracts, inventories, and links files. |
 | [CLI reference](cli-reference.md) | Find the `python3 -m fornax` command surface grouped by task. |
+| [Project plan v4](fornax/project-plan-v4.md) | Current architecture, assumption-driven execution scope, and gates. |
+| [Simulation contract](fornax/simulation-and-assumption-contract.md) | Named hardware assumptions, sensitivity scenarios, and replacement rules. |
 
 ## Quick check
 
 ```bash
+python3 -m fornax quickstart
 make test
 python3 -m fornax plan \
     --target my_target.md \

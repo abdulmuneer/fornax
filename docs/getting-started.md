@@ -6,6 +6,11 @@ runnable layer today is the planner and simulation/contract layer, implemented i
 standard-library Python. An optional four-GPU smoke section is included for CUDA
 machines with PyTorch.
 
+Plan v4 Phase 0.5 has delivered Engine v0 with two independent worker processes,
+the production Stage ABI, persistent loopback TCP, and reference/simulated MAX
+backends. This remains T0/T1 evidence; the physical MAX backend and G2 packet are
+the active next lane.
+
 Read [Concepts](concepts.md) first if you want the model and fleet vocabulary.
 
 ## 1. Prerequisites
@@ -32,9 +37,26 @@ Run Fornax as a module from the repo root:
 python3 -m fornax --help
 ```
 
-There is no installed `fornax` shell command in the default workflow.
+An editable install is optional. From a virtual environment it provides the
+same CLI as a `fornax` shell command:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/fornax --help
+```
 
 ## 3. Verify the repo
+
+Run the one-command tour first:
+
+```bash
+python3 -m fornax quickstart --out-dir fornax-quickstart
+```
+
+It creates a tiny synthetic fleet and target, forces a two-stage
+NVIDIA-to-Apple placement, validates it, and writes a simulation summary. The
+output is labeled `simulation_fixture`; it is not hardware evidence.
 
 Run the deterministic golden-vector checks and the unit tests:
 
@@ -52,6 +74,27 @@ python3 -m fornax --help          # command list
 
 A healthy run reports all golden suites passed and ends the unit tests with
 `OK`.
+
+Verify the Phase 0.5 contract and saved closure bundle directly:
+
+```bash
+python3 -m fornax test stage-abi-v1
+python3 -m fornax test phase05-engine-v0 \
+  --fixture docs/fornax/evidence/phase05-engine-v0-2026-07-10.json
+```
+
+The second command validates a 30-minute T1 loopback artifact; it does not rerun
+the 30-minute workload. To reproduce that workload and replace the artifact:
+
+```bash
+python3 -m fornax program phase05-engine-v0 \
+  --out docs/fornax/evidence/phase05-engine-v0-2026-07-10.json \
+  --sustained-wall-seconds 1800 \
+  --sustained-min-iterations 1800
+```
+
+These engine commands bind localhost ports. The artifact is simulation/loopback
+evidence and cannot close G2.
 
 ## 4. Run the first plan and simulation
 

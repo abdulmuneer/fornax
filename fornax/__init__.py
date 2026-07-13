@@ -1,8 +1,7 @@
-"""Fornax Phase-0 planning tools.
+"""Fornax executable contracts, planner, and Engine v0 simulation tools.
 
-The current package is intentionally model-free. It implements the Phase-0
-partitioner, cost model, golden-plan tests, and preflight CLI surfaces described
-in docs/fornax before any distributed runtime work begins.
+The Python package is the hardware-free reference layer. Physical MAX backends
+remain gated separately and never silently fall back to simulation.
 """
 
 __version__ = "0.1.0"

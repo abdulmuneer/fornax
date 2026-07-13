@@ -13,6 +13,12 @@ Most commands below the core workflow are simulation and contract commands. They
 validate the contracts that the heterogeneous runtime will use and replay golden
 vectors. The everyday user flow is in the core workflow group.
 
+Start with the deterministic no-hardware tour:
+
+```bash
+python3 -m fornax quickstart --out-dir fornax-quickstart
+```
+
 ## Core workflow
 
 Use these commands to turn a model and fleet into a placement and prediction. See
@@ -20,6 +26,7 @@ Use these commands to turn a model and fleet into a placement and prediction. Se
 
 | Command | Purpose |
 |---|---|
+| `quickstart [--out-dir D]` | Create a tiny synthetic NVIDIA/Apple target and fleet, force a two-stage plan, validate and simulate it, and write an honest summary. |
 | `plan --target T --inventory INV [--links L] --out P` | Place the model across the fleet and write plan `P`. Exit `2` if infeasible. |
 | `simulate --plan P [--requests R] [--out O]` | Predict throughput, latency, and pipeline bubble for a plan. Optionally project request-trace decode wall time. |
 | `target validate TARGET --inventory INV [--links L] [--out O]` | Plan, then check the placement against target-contract thresholds. Exit `2` if any check fails. |
@@ -69,6 +76,7 @@ matching golden vector under `fornax/golden_vectors/**` and a `test` target.
 | `pipeline correctness-probe` | Pipeline correctness. |
 | `observability {metrics-simulate,trace-simulate}` | Metrics and trace ledgers. |
 | `ops {lifecycle-simulate,onboarding-simulate}` | Operational lifecycle and onboarding. |
+| `program phase05-engine-v0 --out O [--sustained-wall-seconds 1800] [--sustained-min-iterations 1800]` | Run the two-process Engine v0 closure workload, full scenario/fault/scheduler matrix, and real wall-clock sustained loopback; writes T1 evidence only. |
 
 ## Specs and program management
 
@@ -85,6 +93,9 @@ matching golden vector under `fornax/golden_vectors/**` and a `test` target.
 ```bash
 python3 -m fornax test golden-plans        # planner golden plans
 python3 -m fornax test engine-seam         # string-in/string-out engine interface
+python3 -m fornax test stage-abi-v1        # FNX1/backend conformance
+python3 -m fornax test phase05-engine-v0 \
+  --fixture docs/fornax/evidence/phase05-engine-v0-2026-07-10.json
 python3 -m fornax test --help              # full suite list
 ```
 
@@ -98,7 +109,8 @@ Available suites include `golden-plans`, `runtime-format`, `network-contract`,
 `stage-replication`, `resilience-replay`, `ops-lifecycle`,
 `onboarding-methodology`, `program-governance`, `backend-coverage`,
 `phase3-proxy-gate`, `phase4-resilience-gate`, `phase5-ga-gate`,
-`benchmark-ledger`, `pipeline-correctness-probe`, `throughput-scaling`, and more.
+`benchmark-ledger`, `pipeline-correctness-probe`, `throughput-scaling`,
+`stage-abi-v1`, `phase05-engine-v0`, and more.
 Run `python3 -m fornax test --help` for the current list.
 
 `make golden` runs the deterministic no-hardware contract and golden suites.

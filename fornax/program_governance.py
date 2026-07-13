@@ -10,7 +10,16 @@ MODE = "t1-simulation"
 SIMULATION_METHOD = "program-governance-x1-x3-controls"
 
 REQUIRED_WORKSTREAMS = {"X1", "X2", "X3"}
-REQUIRED_DECISIONS = {"DEC-001", "DEC-002", "DEC-003", "DEC-004", "DEC-005", "DEC-006"}
+REQUIRED_DECISIONS = {
+    "DEC-001",
+    "DEC-002",
+    "DEC-003",
+    "DEC-004",
+    "DEC-005",
+    "DEC-006",
+    "DEC-007",
+    "DEC-008",
+}
 REQUIRED_RISK_IDS = {"R-4", "R-8", "R-10"}
 REQUIRED_ASSUMPTION_IDS = {"A-1", "A-2", "A-5"}
 REQUIRED_ISSUE_IDS = {"I-1", "I-2", "I-3", "I-4", "I-5", "I-6"}
@@ -110,9 +119,9 @@ def _control(
 def simulate_program_governance(
     *,
     plan_id: str = "program-governance-plan",
-    report_date: str = "2026-06-22",
-    plan_version: str = "v3",
-    current_gate: str = "G1",
+    report_date: str = "2026-07-13",
+    plan_version: str = "v4",
+    current_gate: str = "G2",
 ) -> dict[str, Any]:
     errors: list[str] = []
     _non_empty_string(plan_id, "plan_id", errors)
@@ -162,11 +171,11 @@ def simulate_program_governance(
             ),
             _decision(
                 "DEC-005",
-                "Pending",
-                "G1 go/no-go outcome plus re-baselined schedule",
+                "Accepted",
+                "G1 PROCEED to bounded assumption-driven Engine v0; physical proof remains G2",
                 "Sponsor",
-                "no",
-                "stage gate G1",
+                "reversible at G2",
+                "G1 gate review 2026-07-10",
             ),
             _decision(
                 "DEC-006",
@@ -175,6 +184,22 @@ def simulate_program_governance(
                 "Sponsor",
                 "contract opt-in",
                 "plan v3 section 3.5",
+            ),
+            _decision(
+                "DEC-007",
+                "Accepted",
+                "Approve plan v4 and freeze new Phase 3-5 proxy expansion",
+                "Sponsor",
+                "plan-version change",
+                "plan v4 and platform review disposition",
+            ),
+            _decision(
+                "DEC-008",
+                "Recorded",
+                "Close Phase 0.5 at T0/T1 and proceed to Phase 1 physical validation",
+                "Sponsor",
+                "if T1 evidence regresses",
+                "Phase 0.5 exit review 2026-07-10",
             ),
         ],
     }
@@ -341,7 +366,7 @@ def simulate_program_governance(
             "X1-gate-operation",
             workstream="X1",
             status="active",
-            evidence=["gate-review template", "DEC-005 pending", "allowed outcomes"],
+            evidence=["G1 gate review", "DEC-005 accepted", "allowed outcomes"],
             validator="validate_program_governance_fixture",
             failure_mode="gate outcome is implied without Sponsor decision",
         ),
@@ -349,7 +374,7 @@ def simulate_program_governance(
             "X1-decision-log",
             workstream="X1",
             status="active",
-            evidence=["DEC-001..DEC-006 present", "DEC-005 pending"],
+            evidence=["DEC-001..DEC-008 present", "DEC-005 and DEC-008 recorded"],
             validator="validate_program_governance_fixture",
             failure_mode="expensive decision lacks DEC entry",
         ),
@@ -381,7 +406,7 @@ def simulate_program_governance(
             "R10-status-drift",
             workstream="X3",
             status="active",
-            evidence=["simulation-only warnings", "G1 not gate-ready"],
+            evidence=["simulation-only warnings", "G1 passed", "G2 open"],
             validator="validate_program_governance_fixture",
             failure_mode="planned or simulated work is reported as proven closure",
         ),
@@ -400,7 +425,7 @@ def simulate_program_governance(
             "gate_of_record": current_gate,
             "decision_authority": "Sponsor",
             "advised_by": ["PM", "TL"],
-            "phase1_authorized": False,
+            "phase1_authorized": True,
         },
         "decision_log": decision_log,
         "raid_register": raid_register,
@@ -414,8 +439,9 @@ def simulate_program_governance(
             "risk_count": len(raid_register["risks"]),
             "issue_count": len(raid_register["issues"]),
             "dependency_count": len(raid_register["dependencies"]),
-            "dec005_pending": True,
-            "g1_gate_ready": False,
+            "dec005_pending": False,
+            "g1_gate_ready": True,
+            "g2_gate_ready": False,
             "silent_proceed_forbidden": True,
             "status_drift_controlled": True,
             "external_watch_rank1_required": True,
@@ -423,7 +449,8 @@ def simulate_program_governance(
         },
         "note": (
             "T1 program governance simulation: validates WS-X gate, decision-log, "
-            "RAID, external-watch, and cadence controls. Not G1/G5 closure evidence."
+            "RAID, external-watch, and cadence controls against plan v4. It records "
+            "the accepted G1/Phase-1 posture but is not G2/G5 closure evidence."
         ),
     }
 
@@ -469,8 +496,8 @@ def _validate_decision_log(data: dict[str, Any], errors: list[str]) -> set[str]:
     if not isinstance(dec005, dict):
         errors.append("DEC-005 must be present")
     else:
-        if dec005.get("status") != "Pending":
-            errors.append("DEC-005.status must remain Pending in simulated governance evidence")
+        if dec005.get("status") != "Accepted":
+            errors.append("DEC-005.status must be Accepted for the plan-v4 governance record")
         if dec005.get("authority") != "Sponsor":
             errors.append("DEC-005.authority must be Sponsor")
         if "G1" not in str(dec005.get("decision", "")):
@@ -652,8 +679,12 @@ def validate_program_governance_fixture(data: dict[str, Any]) -> dict[str, Any]:
     if data.get("simulation_method") != SIMULATION_METHOD:
         errors.append(f"simulation_method must be {SIMULATION_METHOD}")
     _non_empty_string(data.get("plan_id"), "plan_id", errors)
-    _non_empty_string(data.get("plan_version"), "plan_version", errors)
-    _non_empty_string(data.get("current_gate"), "current_gate", errors)
+    plan_version = _non_empty_string(data.get("plan_version"), "plan_version", errors)
+    current_gate = _non_empty_string(data.get("current_gate"), "current_gate", errors)
+    if plan_version != "v4":
+        errors.append("plan_version must be v4 for the current governance fixture")
+    if current_gate != "G2":
+        errors.append("current_gate must be G2 for the current governance fixture")
 
     scope = data.get("governance_scope")
     if not isinstance(scope, dict):
@@ -663,8 +694,8 @@ def validate_program_governance_fixture(data: dict[str, Any]) -> dict[str, Any]:
         errors.append(f"governance_scope.workstreams must be {sorted(REQUIRED_WORKSTREAMS)}")
     if scope.get("decision_authority") != "Sponsor":
         errors.append("governance_scope.decision_authority must be Sponsor")
-    if scope.get("phase1_authorized") is not False:
-        errors.append("governance_scope.phase1_authorized must be false for simulated governance evidence")
+    if scope.get("phase1_authorized") is not True:
+        errors.append("governance_scope.phase1_authorized must be true after DEC-005")
 
     decision_ids = _validate_decision_log(data, errors)
     raid_ids = _validate_raid(data, errors)
@@ -695,12 +726,12 @@ def validate_program_governance_fixture(data: dict[str, Any]) -> dict[str, Any]:
         errors.append("summary.issue_count must equal issue count")
     if summary.get("dependency_count") != len(dependencies):
         errors.append("summary.dependency_count must equal dependency count")
-    if summary.get("dec005_pending") is not ("DEC-005" in decision_ids):
-        errors.append("summary.dec005_pending must reflect DEC-005 presence")
-    if summary.get("dec005_pending") is not True:
-        errors.append("summary.dec005_pending must be true")
-    if summary.get("g1_gate_ready") is not False:
-        errors.append("summary.g1_gate_ready must be false for this simulated governance artifact")
+    if summary.get("dec005_pending") is not False:
+        errors.append("summary.dec005_pending must be false after G1 decision")
+    if summary.get("g1_gate_ready") is not True:
+        errors.append("summary.g1_gate_ready must be true after G1 PROCEED")
+    if summary.get("g2_gate_ready") is not False:
+        errors.append("summary.g2_gate_ready must remain false until physical evidence closes")
     if summary.get("silent_proceed_forbidden") is not True:
         errors.append("summary.silent_proceed_forbidden must be true")
     if summary.get("status_drift_controlled") is not ("R-10" in raid_ids["risks"]):
@@ -713,7 +744,7 @@ def validate_program_governance_fixture(data: dict[str, Any]) -> dict[str, Any]:
         errors.append("summary cannot pass without all cadence artifacts")
     if not REQUIRED_WORKSTREAMS <= workstreams:
         errors.append("summary cannot pass without X1-X3 controls")
-    warnings.append("program governance is simulation evidence, not G1/G5 closure evidence")
+    warnings.append("program governance records G1 status; it is not G2/G5 closure evidence")
     return {
         "ok": not errors,
         "errors": errors,
@@ -727,6 +758,8 @@ def validate_program_governance_fixture(data: dict[str, Any]) -> dict[str, Any]:
             "dependency_count": summary.get("dependency_count"),
             "dec005_pending": summary.get("dec005_pending") is True,
             "g1_gate_ready": summary.get("g1_gate_ready") is True,
+            "g2_gate_ready": summary.get("g2_gate_ready") is True,
+            "phase1_authorized": scope.get("phase1_authorized") is True,
             "silent_proceed_forbidden": summary.get("silent_proceed_forbidden") is True,
             "status_drift_controlled": summary.get("status_drift_controlled") is True,
             "external_watch_rank1_required": summary.get("external_watch_rank1_required") is True,

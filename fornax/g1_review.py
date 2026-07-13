@@ -12,7 +12,7 @@ def render_g1_gate_review_draft(
     bundle_path: str | Path,
     *,
     review_date: str | None = None,
-    plan_version: str = "v3",
+    plan_version: str = "v4",
 ) -> dict[str, Any]:
     """Render a G1 gate-review draft from a Phase-0 evidence bundle."""
 
@@ -239,7 +239,7 @@ def _render_markdown(
         "",
         "- [ ] Record outcome as DEC-005 in `docs/fornax/program_management/08-decision-log.md`.",
         "- [ ] Re-baseline schedule if Sponsor selects PROCEED or NARROW.",
-        "- [ ] Update RAID, sprint board, and `fornax_development_journal.md`.",
+        "- [ ] Update RAID, sprint board, and `docs/fornax/program_management/internal/journal/fornax_development_journal.md`.",
         "",
     ]
     return "\n".join(lines)

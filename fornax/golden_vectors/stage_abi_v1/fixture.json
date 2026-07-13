@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "record_kind": "stage-abi-v1-golden",
+  "dtype": "bf16",
+  "shape": [2, 2048],
+  "row_mapping": [
+    {"request_id": "request-0", "token_position": 0},
+    {"request_id": "request-1", "token_position": 0}
+  ],
+  "input_generator": "phase05_tensor_v1",
+  "expected_input_payload_sha256": "sha256:dabf18bb7cfedc0474bee1856fed18ea8dd410ea62807df2ba8dfb7ba9f3fb54",
+  "expected_manifest_hashes": [
+    "sha256:70772f44da6caebea0161155ac65ff6d5122a36ed5786549e7d8b3f04175cc74",
+    "sha256:78dc2bbde91db0a2815a09a1a7a9d01a799de1f41be14b92a954412bb613b712"
+  ],
+  "fixed_deadline_ns": 999999999999999999,
+  "expected_activation_frame_sha256": "sha256:cf7a01183bbae8bb6a9de7c8a9c38485b19286a18f5713dba7caf84bc3e1cef1",
+  "expected_final_payload_sha256": "sha256:33ef48772d2f6df08b05b96c22880e5e582baea09a771ba99719bf21f8e5f3e1",
+  "expected_final_first16": [
+    0.0011444091796875,
+    0.0390625,
+    0.0,
+    0.006500244140625,
+    0.04345703125,
+    0.0,
+    0.01287841796875,
+    0.0478515625,
+    0.0,
+    0.0277099609375,
+    0.0,
+    0.0,
+    0.0196533203125,
+    0.0,
+    0.0,
+    0.0299072265625
+  ],
+  "expected_top1": 7,
+  "required_conformance_checks": [
+    "valid-bf16-activation-frame",
+    "valid-bf16-logits-frame",
+    "control-kinds-zero-payload",
+    "short-prelude-rejected",
+    "oversized-metadata-rejected",
+    "oversized-payload-rejected",
+    "truncated-payload-rejected",
+    "checksum-rejected",
+    "major-version-rejected",
+    "duplicate-metadata-rejected",
+    "reserved-payload-kinds-rejected",
+    "stale-plan-and-destination-rejected",
+    "duplicate-same-crc-idempotent",
+    "duplicate-different-crc-rejected",
+    "out-of-order-rejected",
+    "reference-at-most-once",
+    "reference-deadline-before-execution",
+    "reference-cancel-before-execution",
+    "simulated-max-at-most-once",
+    "simulated-max-deadline-before-execution",
+    "simulated-max-cancel-before-execution",
+    "reference-simulated-output-parity",
+    "queue-bound-and-queued-cancel",
+    "physical-max-no-fallback"
+  ],
+  "related_logical_contracts": [
+    "fornax/golden_vectors/runtime_format/manifest.json"
+  ]
+}

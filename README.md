@@ -1,9 +1,15 @@
 # [WiP] Fornax - heterogeneous frontier-model serving
 
-Fornax is a Mojo/MAX-native distributed inference engine for serving a single
+Fornax is building a Mojo/MAX-native distributed inference engine for serving a single
 frontier-scale sparse-MoE model across a fleet of heterogeneous commodity
 machines. The target fleet can include consumer NVIDIA GPUs, Apple Silicon Macs,
 AMD devices, and CPU workers on a local network.
+
+Today this repository is a **pre-alpha executable specification and Engine v0
+prototype**: planner, stable Stage ABI, two-worker reference/simulated execution,
+framed loopback transport, validators, and hardware bring-up tools. A physical
+cross-vendor `MaxStageBackend` and frontier-capacity proof remain open G2/G3
+milestones.
 
 The engine uses MAX components where they fit: graph compilation, kernels,
 KV-cache primitives, and custom ops. Fornax adds the missing distributed pieces:
@@ -26,17 +32,18 @@ capacity-rich workers.
 
 ## Execution model
 
-Fornax places one model across the fleet. The key split is inside the MoE block:
+Fornax places one model across the fleet. The v0 spanning spine is pipeline
+parallelism by complete contiguous layer groups:
 
 ```text
-hidden states -> router -> local expert batches + remote expert batches
-              -> weighted gather -> next layer
+gateway -> stage 0 (MAX graph) -> activation frame -> stage 1 (MAX graph)
+        -> ... -> final logits / sampler
 ```
 
-The dense path includes attention, KV, routers, shared or hot experts, and the
-sampler. Routed experts can live on other workers when that improves capacity or
-throughput. The planner decides where stages and experts live, then reports both
-feasibility and predicted performance.
+Remote experts remain a deferred measured optimization. Engine v0 first builds
+the production Stage ABI, orchestrator, and TCP framing against reference and
+simulated MAX backends. Physical backends replace assumptions without changing
+the engine contract.
 
 ## Throughput and latency scope
 
@@ -64,11 +71,25 @@ model download. The full guide index is [docs/README.md](docs/README.md).
 ## Quickstart
 
 ```bash
+python3 -m fornax quickstart          # one-command, no-hardware tour
 make test                         # golden self-tests + unittest suite
 make golden                       # deterministic CLI contract/golden self-tests
 python3 -m fornax --help          # CLI surface
-python3 -m fornax doctor          # inspect a phase-0 evidence bundle
+python3 -m fornax doctor --bundle <preflight-dir>
 python3 -m fornax test golden-plans
+```
+
+The quickstart forces a tiny model across synthetic NVIDIA and Apple nodes and
+writes inspectable target, inventory, placement, validation, and simulation
+artifacts under `fornax-quickstart/`. Its numbers are predictions, not hardware
+measurements.
+
+For an isolated editable install with a `fornax` console command:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/fornax quickstart
 ```
 
 These commands run on CPU with no model. Machines with four visible CUDA GPUs can
@@ -118,13 +139,22 @@ this smoke. It is not distributed serving or formal G2/G3 gate closure.
 
 ## Status
 
-Active development. The planner, contract validators, local serving and proxy
-fixtures, same-host four-H100 tiny MoE serving smoke, same-host four-H100
-Qwen3-Omni real MoE text-generation smoke, Apple Silicon MAX real-MoE smoke, and
-Phase 3-5 two-H100 proxy packets are implemented and self-tested at their stated
-scope.
+Active development follows [project plan v4](docs/fornax/project-plan-v4.md).
+Phase 0.5 / M1 is complete at T0/T1: the Python package now includes two
+independent workers, the production Stage ABI and framed TCP transport,
+reference/simulated MAX backends, bounded scheduling, fault injection, evidence
+ledgers, and the planner regressions. The
+[exit review](docs/fornax/program_management/gate-reviews/phase-0-5-exit-2026-07-10.md)
+records the exact scope.
 
-Formal G1-G5 closure still requires human sign-off and real heterogeneous lab
-evidence tracked in [fornax_program_management_todo_status.md](fornax_program_management_todo_status.md).
-See [docs/fornax/program_management/](docs/fornax/program_management/) for the
-roadmap, gates, and sprint backlog.
+The active lane is Phase 1 physical `MaxStageBackend` integration and G2 evidence
+acquisition as hardware becomes available. Phase 0.5 does not establish physical
+heterogeneous correctness, supported-platform status, or production performance;
+all remaining hardware assumptions stay explicit in
+[the simulation contract](docs/fornax/simulation-and-assumption-contract.md).
+
+```bash
+python3 -m fornax test stage-abi-v1
+python3 -m fornax test phase05-engine-v0 \
+  --fixture docs/fornax/evidence/phase05-engine-v0-2026-07-10.json
+```

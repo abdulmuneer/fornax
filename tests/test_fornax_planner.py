@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 from fornax.accelerator_probe import (
@@ -30,6 +32,7 @@ from fornax.benchmark_ledger import (
     validate_benchmark_ledger_record,
 )
 from fornax.calibration import run_cpu_memory_copy_probe, run_local_calibration
+from fornax.cli import main as cli_main
 from fornax.continuous_batching import (
     simulate_continuous_batching,
     validate_continuous_batching,
@@ -160,6 +163,7 @@ from fornax.phase5_ga_gate import (
 )
 from fornax.t1_simulated_validation import run_t1_simulated_validation
 from fornax.preflight import run_phase0_preflight
+from fornax.quickstart import run_quickstart
 from fornax.program_governance import (
     simulate_program_governance,
     validate_program_governance,
@@ -396,6 +400,45 @@ def inventory_with_link(bandwidth: float = 12_500_000_000.0) -> Inventory:
 
 
 class FornaxPlannerTest(unittest.TestCase):
+    def test_quickstart_produces_honest_two_stage_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_quickstart(Path(tmp))
+
+            self.assertEqual(result["result"], "ok")
+            self.assertTrue(result["feasible"])
+            self.assertTrue(result["contract_valid"])
+            self.assertEqual(result["stage_count"], 2)
+            self.assertEqual(result["evidence_class"], "simulation_fixture")
+            self.assertFalse(result["physical_measurement"])
+            self.assertEqual(
+                [stage["node"] for stage in result["stages"]],
+                ["nvidia-node", "apple-node"],
+            )
+            for artifact in result["artifacts"].values():
+                self.assertTrue(Path(artifact).is_file())
+
+    def test_cli_missing_input_is_actionable_without_traceback(self) -> None:
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = cli_main(
+                [
+                    "plan",
+                    "--target",
+                    "/missing/fornax-target.json",
+                    "--inventory",
+                    "/missing/fornax-inventory.json",
+                    "--out",
+                    "/tmp/unused-placement.json",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn(
+            "fornax: input not found: /missing/fornax-target.json",
+            output.getvalue(),
+        )
+
 
     def test_local_calibration_records_measured_cpu_probe(self) -> None:
         memory = run_cpu_memory_copy_probe(size_bytes=1024, iterations=2)
@@ -3013,7 +3056,7 @@ class FornaxPlannerTest(unittest.TestCase):
 
     def test_onboarding_methodology_rejects_missing_required_document(self) -> None:
         contract = simulate_onboarding_methodology()
-        del contract["documents"]["glossary.md"]
+        del contract["documents"]["docs/glossary.md"]
         contract["summary"]["document_count"] = len(contract["documents"])
         contract["summary"]["required_documents_present"] = False
         result = validate_onboarding_methodology_fixture(contract)
@@ -3023,32 +3066,47 @@ class FornaxPlannerTest(unittest.TestCase):
     def test_program_governance_fixture_passes(self) -> None:
         result = validate_program_governance("fornax/golden_vectors/program_governance")
         self.assertTrue(result["ok"], result["errors"])
-        self.assertEqual(6, result["summary"]["decision_count"])
-        self.assertTrue(result["summary"]["dec005_pending"])
-        self.assertFalse(result["summary"]["g1_gate_ready"])
+        self.assertEqual(8, result["summary"]["decision_count"])
+        self.assertFalse(result["summary"]["dec005_pending"])
+        self.assertTrue(result["summary"]["g1_gate_ready"])
+        self.assertFalse(result["summary"]["g2_gate_ready"])
+        self.assertTrue(result["summary"]["phase1_authorized"])
 
     def test_simulated_program_governance_validates_controls(self) -> None:
         contract = simulate_program_governance(plan_id="unit-program-governance")
         result = validate_program_governance_fixture(contract)
         self.assertTrue(result["ok"], result["errors"])
-        self.assertFalse(contract["summary"]["g1_gate_ready"])
+        self.assertTrue(contract["summary"]["g1_gate_ready"])
+        self.assertFalse(contract["summary"]["g2_gate_ready"])
         self.assertTrue(contract["summary"]["silent_proceed_forbidden"])
         self.assertTrue(contract["external_watch"]["local_probe_required"])
         self.assertEqual({"X1", "X2", "X3"}, set(contract["governance_scope"]["workstreams"]))
 
-    def test_program_governance_rejects_dec005_proceed_claim(self) -> None:
+    def test_program_governance_rejects_stale_dec005_pending_claim(self) -> None:
         contract = simulate_program_governance()
         for entry in contract["decision_log"]["entries"]:
             if entry["id"] == "DEC-005":
-                entry["status"] = "Accepted"
-                entry["decision"] = "G1 PROCEED"
-        contract["summary"]["g1_gate_ready"] = True
-        contract["summary"]["dec005_pending"] = False
+                entry["status"] = "Pending"
+                entry["decision"] = "G1 pending"
+        contract["summary"]["g1_gate_ready"] = False
+        contract["summary"]["dec005_pending"] = True
         result = validate_program_governance_fixture(contract)
         self.assertFalse(result["ok"])
         text = "; ".join(result["errors"])
         self.assertIn("DEC-005.status", text)
         self.assertIn("g1_gate_ready", text)
+
+    def test_program_governance_rejects_stale_plan_version(self) -> None:
+        contract = simulate_program_governance()
+        contract["plan_version"] = "v3"
+        contract["current_gate"] = "G1"
+
+        result = validate_program_governance_fixture(contract)
+
+        self.assertFalse(result["ok"])
+        text = "; ".join(result["errors"])
+        self.assertIn("plan_version must be v4", text)
+        self.assertIn("current_gate must be G2", text)
 
     def test_program_governance_rejects_missing_status_drift_control(self) -> None:
         contract = simulate_program_governance()
@@ -4541,6 +4599,258 @@ class FornaxPlannerTest(unittest.TestCase):
         assert plan.predicted is not None
         self.assertAlmostEqual(0.125, plan.predicted.remote_expert_hit_rate_decode)
         self.assertGreater(plan.predicted.remote_expert_wait_s_per_token, 0.0)
+
+    def test_remote_expert_host_memory_and_dtype_are_required(self) -> None:
+        model = ModelSpec.from_dict(
+            {
+                "hidden_dim": 16,
+                "dtype_weight": "q4",
+                "dtype_activation": "fp16",
+                "layers": [
+                    {
+                        "kind": "moe",
+                        "weight_bytes": 1_000,
+                        "active_flops_per_token": 1_000,
+                        "num_experts": 4,
+                        "experts_active": 2,
+                        "expert_bytes": 1_000_000,
+                        "expert_flops_per_token": 1_000,
+                    }
+                ],
+            }
+        )
+        target = Target(
+            4,
+            16,
+            8,
+            memory_reserve_fraction=0.0,
+            fragmentation_margin_fraction=0.0,
+            routing_metadata_bytes_per_token=0.0,
+            temp_buffer_fraction=0.0,
+        )
+
+        def inventory(expert_memory: int, expert_dtype: str = "fp16") -> Inventory:
+            return Inventory.from_dict(
+                {
+                    "nodes": [
+                        {
+                            "id": "stage",
+                            "vendor": "nvidia",
+                            "runtime": "max",
+                            "mem_free_bytes": 100_000,
+                            "compute_class": 1_000_000_000.0,
+                            "mem_bandwidth_bytes_s": 1_000_000_000.0,
+                            "supports_expert_worker": False,
+                            "supported_dtypes": ["fp16"],
+                        },
+                        {
+                            "id": "expert",
+                            "vendor": "nvidia",
+                            "runtime": "max",
+                            "mem_free_bytes": expert_memory,
+                            "compute_class": 1_000_000_000.0,
+                            "mem_bandwidth_bytes_s": 1_000_000_000.0,
+                            "supports_stage": False,
+                            "supports_expert_worker": True,
+                            "supported_dtypes": [expert_dtype],
+                        },
+                    ],
+                    "links": [
+                        {
+                            "a": "stage",
+                            "b": "expert",
+                            "bandwidth_bytes_s": 1_000_000_000.0,
+                            "latency_s": 0.0,
+                        }
+                    ],
+                }
+            )
+
+        insufficient = plan_placement(model, inventory(2_000_000), target)
+        self.assertFalse(insufficient.feasible)
+        wrong_dtype = plan_placement(model, inventory(10_000_000, "bf16"), target)
+        self.assertFalse(wrong_dtype.feasible)
+        sufficient = plan_placement(model, inventory(10_000_000), target)
+        self.assertTrue(sufficient.feasible, sufficient.infeasible_reason)
+        self.assertEqual(("expert",), sufficient.stages[0].expert_hosts)
+
+    def test_remote_expert_concurrent_assignments_share_host_capacity(self) -> None:
+        model = ModelSpec.from_dict(
+            {
+                "hidden_dim": 16,
+                "dtype_weight": "q4",
+                "dtype_activation": "fp16",
+                "layers": [
+                    {
+                        "kind": "moe",
+                        "weight_bytes": 1_000,
+                        "active_flops_per_token": 1_000,
+                        "num_experts": 4,
+                        "experts_active": 2,
+                        "expert_bytes": 1_000_000,
+                        "expert_flops_per_token": 1_000,
+                    }
+                    for _ in range(2)
+                ],
+            }
+        )
+        inventory = Inventory.from_dict(
+            {
+                "nodes": [
+                    {
+                        "id": node_id,
+                        "vendor": "nvidia",
+                        "runtime": "max",
+                        "mem_free_bytes": 100_000,
+                        "compute_class": 1_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 1_000_000_000.0,
+                        "supports_expert_worker": False,
+                        "supported_dtypes": ["fp16"],
+                    }
+                    for node_id in ("stage-0", "stage-1")
+                ]
+                + [
+                    {
+                        "id": "expert",
+                        "vendor": "nvidia",
+                        "runtime": "max",
+                        "mem_free_bytes": 6_000_000,
+                        "compute_class": 1_000_000_000.0,
+                        "mem_bandwidth_bytes_s": 1_000_000_000.0,
+                        "supports_stage": False,
+                        "supports_expert_worker": True,
+                        "supported_dtypes": ["fp16"],
+                    }
+                ],
+                "links": [
+                    {
+                        "a": "stage-0",
+                        "b": "stage-1",
+                        "bandwidth_bytes_s": 1_000_000_000.0,
+                        "latency_s": 0.0,
+                    },
+                    {
+                        "a": "stage-0",
+                        "b": "expert",
+                        "bandwidth_bytes_s": 1_000_000_000.0,
+                        "latency_s": 0.0,
+                    },
+                    {
+                        "a": "stage-1",
+                        "b": "expert",
+                        "bandwidth_bytes_s": 1_000_000_000.0,
+                        "latency_s": 0.0,
+                    },
+                ],
+            }
+        )
+        target = Target(
+            4,
+            16,
+            8,
+            memory_reserve_fraction=0.0,
+            fragmentation_margin_fraction=0.0,
+            routing_metadata_bytes_per_token=0.0,
+            temp_buffer_fraction=0.0,
+        )
+        plan = plan_placement(
+            model, inventory, target, min_stages=2, max_stages=2
+        )
+        self.assertFalse(plan.feasible)
+
+    def test_more_than_six_nodes_retains_only_feasible_high_memory_node(self) -> None:
+        model = ModelSpec.from_dict(
+            {
+                "hidden_dim": 8,
+                "dtype_weight": "fp16",
+                "dtype_activation": "fp16",
+                "layers": [
+                    {
+                        "kind": "dense",
+                        "weight_bytes": 1_000_000,
+                        "active_flops_per_token": 1_000,
+                    }
+                ],
+            }
+        )
+        nodes = [
+            {
+                "id": f"fast-{index}",
+                "vendor": "nvidia",
+                "runtime": "max",
+                "mem_free_bytes": 100_000,
+                "compute_class": float(10_000_000_000 - index),
+                "mem_bandwidth_bytes_s": 1_000_000_000.0,
+                "supported_dtypes": ["fp16"],
+            }
+            for index in range(6)
+        ]
+        nodes.append(
+            {
+                "id": "only-feasible-memory-node",
+                "vendor": "cpu",
+                "runtime": "custom",
+                "mem_free_bytes": 2_000_000,
+                "compute_class": 1_000_000.0,
+                "mem_bandwidth_bytes_s": 1_000_000.0,
+                "supported_dtypes": ["fp16"],
+            }
+        )
+        target = Target(
+            1,
+            1,
+            1,
+            memory_reserve_fraction=0.0,
+            fragmentation_margin_fraction=0.0,
+            routing_metadata_bytes_per_token=0.0,
+            temp_buffer_fraction=0.0,
+        )
+        plan = plan_placement(
+            model, Inventory.from_dict({"nodes": nodes}), target, min_stages=1, max_stages=1
+        )
+        self.assertTrue(plan.feasible, plan.infeasible_reason)
+        self.assertEqual(("only-feasible-memory-node",), plan.stages[0].replicas)
+
+    def test_planner_rejects_attention_on_kv_incapable_node(self) -> None:
+        model = ModelSpec.from_dict(
+            {
+                "hidden_dim": 32,
+                "dtype_weight": "fp16",
+                "dtype_activation": "fp16",
+                "layers": [
+                    {
+                        "kind": "attention",
+                        "weight_bytes": 1_000,
+                        "active_flops_per_token": 1_000,
+                        "kv_bytes_per_token": 64,
+                    }
+                ],
+            }
+        )
+        inventory = Inventory.from_dict(
+            {
+                "nodes": [
+                    {
+                        "id": "no-kv",
+                        "vendor": "nvidia",
+                        "runtime": "max",
+                        "mem_free_bytes": 1_000_000,
+                        "compute_class": 1_000_000.0,
+                        "mem_bandwidth_bytes_s": 1_000_000.0,
+                        "supports_kv": False,
+                        "supported_dtypes": ["fp16"],
+                    }
+                ]
+            }
+        )
+
+        plan = plan_placement(model, inventory, Target(1, 8, 2))
+
+        self.assertFalse(plan.feasible)
+        self.assertIn(
+            "does not support KV-bearing attention stages",
+            plan.explanations[0].reason,
+        )
 
     def test_stage_memory_counts_context_and_budget_terms(self) -> None:
         model = ModelSpec.from_dict(

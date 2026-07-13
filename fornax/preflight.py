@@ -229,7 +229,7 @@ def run_phase0_preflight(
     include_golden_plans: bool = False,
     include_program_reports: bool = False,
     program_report_date: str | None = None,
-    program_plan_version: str = "v3",
+    program_plan_version: str = "v4",
     include_simulated_apple_evidence: bool = False,
     simulated_apple_role: str = "capacity-only",
     simulated_apple_reason: str | None = None,

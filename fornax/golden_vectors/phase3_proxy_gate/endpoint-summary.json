@@ -3,7 +3,7 @@
   "formal_g3_validation_deferred": true,
   "record_kind": "phase3-proxy-endpoint-summary",
   "scope": "two-H100 local proxy endpoint summary; not formal heterogeneous G3 evidence",
-  "source": "summarized from the 2026-06-23 local HTTP serving smoke artifact recorded in fornax_program_management_todo_status.md",
+  "source": "summarized from the 2026-06-23 local HTTP serving smoke artifact recorded in docs/fornax/program_management/internal/archive/fornax_program_management_todo_status.md",
   "summary": {
     "activation_transfer_bandwidth_gib_s": 296.44,
     "check_count": 8,
