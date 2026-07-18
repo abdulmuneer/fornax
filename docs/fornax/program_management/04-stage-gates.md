@@ -49,19 +49,28 @@ their corresponding G2/G3 claims. See DEC-005 and the 2026-07-10 gate review.
 
 ### Entry
 
-- [x] Engine v0 exits on two independent worker processes using the production ABI.
+- [x] Engine v0 exits in recorded T0/T1 scope on two independent loopback worker
+  processes using experimental FNX1 v1 under a lockstep orchestrator.
 - [x] Planner regressions pass.
+- [ ] Root MAX lineage, patch, deterministic reconstruction, and fail-closed
+  packet validator are committed to the durable repository. The working-tree
+  mechanism is implemented and verified; commit is still pending.
+- [x] Candidate FNX2 ragged reference/golden/integrated two-worker path passes
+  at T0/T1.
 - [ ] At least the required physical backend resources become available.
 
-The first two entry conditions are closed by
+The historical first two entry conditions are closed by
 [DEC-008](08-decision-log.md) and the
-[Phase 0.5 exit review](gate-reviews/phase-0-5-exit-2026-07-10.md). Hardware and
-the physical `MaxStageBackend` path remain the admission constraint; G2 has not
-been convened or passed.
+[Phase 0.5 exit review](gate-reviews/phase-0-5-exit-2026-07-10.md). Working-tree
+root-lineage and FNX2 hardening reduce execution risk but have no physical-gate
+authority; the lineage files must first be committed. Hardware and the physical
+`MaxStageBackend` path remain the main admission constraints; G2 has not been
+convened or passed.
 
 ### Exit
 
-- Root-pinned reproducible MAX build lineage.
+- Root-pinned reproducible MAX build lineage verified clean on every
+  participating evidence host.
 - Numerical operator/stage parity on each participating backend.
 - Correct prefill/decode generation across 2–3 physical nodes.
 - Boundary activations and logits within accepted dtype tolerances.
@@ -80,6 +89,8 @@ been convened or passed.
 ## G3 — Frontier-capacity heterogeneous target
 
 - Exact model exceeds one node's usable memory and fits the fleet with headroom.
+- Target workload and saturation concurrency are backed by qualified customer
+  discovery and privacy-safe traces, or the product scope is narrowed.
 - Real target serves on the accepted heterogeneous roles at contracted
   concurrency and throughput.
 - Security/backpressure posture for the deployment is active.
@@ -96,6 +107,11 @@ been convened or passed.
 
 - Fresh operator installs, configures, diagnoses, upgrades, and rolls back the
   service without oral context.
+- Commercial-use, supported-device, patched-build packaging, branding, and
+  redistribution rights are counsel-reviewed and compatible with the shipped
+  product; required notices and attribution are present.
+- At least one accepted paid pilot and a repeatable product/service/support
+  boundary exist; enthusiasm alone is not commercial evidence.
 - Benchmark of record and supported/unsupported matrix are published.
 - Sponsor accepts the product evidence.
 
@@ -104,3 +120,7 @@ been convened or passed.
 Use [templates/gate-review.md](templates/gate-review.md). Every review must show
 assumptions validated/invalidated, evidence class, unresolved physical gaps, and
 the exact scope authorized by `PROCEED`.
+
+Fundraising/package release uses the separate XG-1…XG-8 controls in
+[`../fundraising/external-readiness-gates.md`](../fundraising/external-readiness-gates.md).
+Those gates do not replace or lower G0…G5 technical/product criteria.

@@ -8,8 +8,10 @@
 > wait) at a target concurrency.
 
 It is **pure logic** — no model, no GPU — so it is unit-testable in the Ignis
-fixture style. It also answers the buyer's first question directly: *"will my
-pile of hardware run this model, and how fast?"*
+fixture style. Today it answers a narrower question: *"under these supplied
+model, capacity, compute, and link assumptions, what placement is modeled as
+feasible and how does the cost model compare candidates?"* Physical fit and
+speed require measured calibration and runtime capability evidence.
 
 ---
 
@@ -26,6 +28,9 @@ ModelSpec:
   layers: [LayerSpec]                 # per-layer, in order
   dtype_weight: enum {q4, q8, fp8, fp16}
   dtype_activation: enum {fp8, fp16}
+  source_id: str?                       # exact model snapshot / manifest evidence
+  quantization_source_id: str?          # exact encoded-weight evidence
+  expert_trace_source_id: str?          # required for remote-expert authority
 
 LayerSpec:
   kind: enum {dense, attention, moe}
@@ -61,16 +66,40 @@ Node:
   supports_expert_worker: bool        # can execute routed expert MLP batches
   supports_kv: bool                   # can host KV for attention layers
   supported_dtypes: [dtype]
+  build_id: str?                      # exact observed backend build
+  capabilities_complete: bool        # false means the capability set is unknown/incomplete
+  supported_operations: [str]        # backend-reported operation IDs
+  supported_quantizations: [dtype]   # backend-reported weight encodings
+  capability_source_id: str?         # capability-attestation evidence ID
+  measurement_provenance:
+    mem_free_bytes: MeasurementProvenance
+    compute_class: MeasurementProvenance
+    mem_bandwidth_bytes_s: MeasurementProvenance
 
 Link:
   a: node_id; b: node_id
   bandwidth_bytes_s: float            # measured, both directions
   latency_s: float                    # measured RTT/2
+  measurement_provenance:
+    bandwidth_bytes_s: MeasurementProvenance
+    latency_s: MeasurementProvenance
+
+MeasurementProvenance:
+  status: enum {measured, estimated, uncalibrated, unsupported}
+  source_id: str?
+  confidence: enum {high, medium, low, unknown}
+  expected_relative_error: float?     # fraction; 0.20 means +/-20%
 # Inventory = {nodes: [Node], links: [Link]}  -> a weighted topology graph
 ```
 
-All compute/bandwidth/link numbers are **measured by probes**, not nameplate
-specs — heterogeneous reality diverges from datasheets.
+For deployment-authoritative use, all compute/bandwidth/link numbers must be
+measured by probes rather than taken from nameplate specifications. T0 fixtures
+and simulations may use synthetic/assumed values; they are automatically labeled
+`exploratory`. Deployment mode requires measured source IDs, medium/high
+confidence, declared error bounds within the target limit, and exact complete
+capability declarations. Every source ID must also resolve through the separate
+registry in §1.4. This schema and resolver enforcement is implemented; the
+physical calibration records needed for G2 are not bundled.
 
 ### 1.3 Workload target (`Target`)
 
@@ -80,7 +109,53 @@ Target:
   prompt_len: int                     # for TTFT / prefill cost
   gen_len: int                        # for per-request latency
   objective: enum {max_throughput, min_latency, balanced}
+  authority_mode: enum {exploratory, deployment}
+  required_runtime: str?
+  accepted_build_ids: [str]
+  required_operations: [str]
+  prediction_calibration: MeasurementProvenance
+  max_expected_relative_error: float # default 0.20
 ```
+
+`exploratory` is the backward-compatible default. `deployment` is fail closed:
+missing model/quantization IDs, incomplete backend capability reports, missing
+measurements, unsupported exact requirements, unbounded calibration, or a
+missing/unresolved evidence registry record produce `feasible=false` and
+`authority.status=rejected`.
+
+### 1.4 Evidence registry (`EvidenceRegistry`)
+
+Deployment authority has a separate trust input. Source IDs declared in the
+model, inventory, links, and target do not authorize anything by themselves.
+The CLI receives the registry through `--evidence-registry`; the Python API
+receives an `EvidenceRegistry` object through `plan_placement(...,
+evidence_registry=...)`.
+
+```text
+EvidenceRegistry:
+  schema_version: "fornax.planner-evidence-registry.v1"
+  records: [EvidenceRecord]
+
+EvidenceRecord:
+  source_id: str
+  evidence_type: enum {
+    model, quantization, expert_trace, capability,
+    measurement, calibration, route
+  }
+  artifact_path: str                  # relative to registry file or absolute
+  artifact_sha256: str                # exactly 64 lowercase hexadecimal digits
+  status: enum {active, revoked}
+  not_before: ISO-8601 timestamp?      # timezone required when present
+  expires_at: ISO-8601 timestamp?      # stale at or after this instant
+```
+
+The resolver hashes each artifact before planning. Missing artifacts, digest
+mismatches, absent IDs, type mismatches, revoked records, future records, and
+expired records reject deployment. Node measurements use `measurement`; link
+bandwidth/latency records use `route`; the target prediction-error study uses
+`calibration`. Because candidate values affect ranking and exclusion, every
+source declared by the deployment-search inventory is resolved, not only source
+IDs attached to the winning stage list.
 
 ## 2. Output (`PlacementPlan`)
 
@@ -105,9 +180,28 @@ PlacementPlan:
     remote_expert_hit_rate_decode: float
     bottleneck_stage: int
     bubble_fraction: float
+    prediction_provenance: MeasurementProvenance
+    prediction_intervals: object?     # null when no error calibration exists
   feasible: bool
   infeasible_reason: str?             # e.g. "model 412GB > total usable 380GB"
+  authority:
+    requested_mode: enum {exploratory, deployment}
+    status: enum {exploratory, rejected, deployment_authoritative}
+    deployment_authorized: bool
+    confidence: enum {high, medium, low, unknown}
+    prediction_expected_relative_error: float?
+    input_max_expected_relative_error: float?
+    source_ids: [str]
+    evidence_registry_sha256: str?    # sha256:<digest> of the registry manifest
+    reasons: [str]
 ```
+
+Passing admission proves that each cited local artifact matched an active,
+type-correct registry record at planning time. It is not a signature, remote
+attestation, or proof that an artifact came from the physical run it describes.
+A `deployment_authoritative` plan is meaningful only when its cited sources are
+real, governed physical records. Current golden plans and quickstart inputs are
+deliberately exploratory.
 
 ## 3. Cost model
 
@@ -254,6 +348,12 @@ ILP/beam search without changing the interface).
 - **Golden plans:** fixture `(ModelSpec, Inventory, Target) → PlacementPlan`
   snapshots, deterministic, checked in. (Mirrors Ignis's deterministic-eval
   discipline — the planner gates, like `make eval`.)
+- **Authority admission:** legacy fixtures remain exploratory; explicit
+  runtime/build/operation/quantization mismatches fail; deployment mode rejects
+  every missing/unmeasured critical input; invented source strings, absent or
+  stale registry records, wrong evidence types, and artifact hash mismatches
+  reject; a complete SHA-bound registry admits a simple measured fixture but is
+  not represented as physical G2 evidence.
 
 ## 6. Interface it schedules onto (`FornaxEngine` / worker contract)
 

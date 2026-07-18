@@ -1,0 +1,60 @@
+{
+  "build": {
+    "accepted_cli_version": "MAX 26.5.0.dev2026063006",
+    "primary_target": "//max/python/max/_entrypoints:pipelines",
+    "source_cli_path": "external/modular/bazel-bin/max/python/max/_entrypoints/pipelines"
+  },
+  "dependency": "modular-max",
+  "fetch_instructions": [
+    {
+      "argv": [
+        "python3",
+        "dependencies/reconstruct_max_lineage.py",
+        "--checkout",
+        "external/modular"
+      ]
+    }
+  ],
+  "lineage": {
+    "patch_commit": "957aeded5296d6638386409849b60f82c36146dd",
+    "patch_diff_sha256": "sha256:84994557ff335ce2d681116de2393e0a1819df19200b5f5211f53b38e8e68a4d",
+    "patch_file": "dependencies/max-patches/957aeded5296d6638386409849b60f82c36146dd.diff",
+    "patch_series": [
+      {
+        "commit": "957aeded5296d6638386409849b60f82c36146dd",
+        "diff_sha256": "sha256:84994557ff335ce2d681116de2393e0a1819df19200b5f5211f53b38e8e68a4d",
+        "parent": "0735fa29762a5c53d65a0456d0b53eac1472180f",
+        "subject": "enabling DeepSeek-V2-Lite on Apple Silicon M3+",
+        "tree": "16c4b863517366d5889c5fba9048652575644919"
+      }
+    ],
+    "patch_tree": "16c4b863517366d5889c5fba9048652575644919",
+    "reconstruction": {
+      "author_date": "1782890189 +0400",
+      "author_email": "379885+abdulmuneer@users.noreply.github.com",
+      "author_name": "Abdul Muneer",
+      "committer_date": "1782890189 +0400",
+      "committer_email": "379885+abdulmuneer@users.noreply.github.com",
+      "committer_name": "Abdul Muneer",
+      "message": "enabling DeepSeek-V2-Lite on Apple Silicon M3+"
+    },
+    "reconstruction_script": "dependencies/reconstruct_max_lineage.py",
+    "reconstruction_script_sha256": "sha256:6b858a9d020e4141bfff09cb3ab9a86d8f1638659a7a3f2dd6989a9c963ae8b7",
+    "upstream_base_commit": "0735fa29762a5c53d65a0456d0b53eac1472180f",
+    "upstream_base_tree": "c66b7444b6b8c136a40769755e2c59a9585ceacc"
+  },
+  "repository": {
+    "checkout_path": "external/modular",
+    "remote": "origin",
+    "url": "https://github.com/modular/modular.git"
+  },
+  "schema_version": 1,
+  "verification": {
+    "local_reconstruction": "verified 2026-07-17 with --source-repository external/modular; reproduced exact base tree, patch tree, patch commit, and clean checkout",
+    "network_fetch": "public-origin network fetch was not independently rerun; the tracked diff reconstructs the local-only patch from the pinned public base"
+  },
+  "source_of_record": [
+    "docs/fornax/max-fork-build-reproducibility.md",
+    "docs/fornax/deepseek-v2-lite-max-check.md"
+  ]
+}

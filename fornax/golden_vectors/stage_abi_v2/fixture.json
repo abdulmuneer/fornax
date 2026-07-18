@@ -1,0 +1,152 @@
+{
+  "decode_token_ids": {
+    "11111111-1111-4111-8111-111111111111": 7,
+    "22222222-2222-4222-8222-222222222222": 8
+  },
+  "expected": {
+    "direct_stage0": {
+      "input_row_counts": [
+        2,
+        3
+      ],
+      "output_digest": "sha256:89fd6affdf192846bad10a4c149d58f583d95fe7e39eb6ec7a2f60fabb957573",
+      "output_shape": [
+        5,
+        4
+      ],
+      "statuses": [
+        "ok",
+        "ok"
+      ]
+    },
+    "loopback": {
+      "decode_output_digest": "sha256:9c75442fe36a9a50f6489d38ba806b2ab078fa9c2c2f1749d2a92afd2db0da89",
+      "decode_output_shape": [
+        2,
+        8
+      ],
+      "prefill_output_digest": "sha256:c161973219a5257c48acb1efd0639e1118b8e502ca456144d1e742acfae7c9fe",
+      "prefill_output_shape": [
+        5,
+        8
+      ]
+    },
+    "wire": {
+      "bytes": 1292,
+      "sha256": "sha256:1f4ba161723e850234198404deaae18aa0976ff321e8ce9d312ecf7cf816bb6b"
+    }
+  },
+  "limits": {
+    "max_rows": 32,
+    "max_sequences": 4
+  },
+  "plan_generation_id": "99999999-9999-4999-8999-999999999999",
+  "manifests": [
+    {
+      "abi_major": 2,
+      "abi_minor": 0,
+      "build_id": "fornax-reference-fnx2",
+      "dtype": "bf16",
+      "hidden_size": 4,
+      "input_kind": "token_ids",
+      "layer_end": 0,
+      "layer_start": 0,
+      "output_kind": "activation",
+      "plan_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "stage_id": "stage-0",
+      "stage_index": 0,
+      "stage_role": "first",
+      "vocabulary_size": null
+    },
+    {
+      "abi_major": 2,
+      "abi_minor": 0,
+      "build_id": "fornax-reference-fnx2",
+      "dtype": "bf16",
+      "hidden_size": 4,
+      "input_kind": "activation",
+      "layer_end": 1,
+      "layer_start": 1,
+      "output_kind": "logits",
+      "plan_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "stage_id": "stage-1",
+      "stage_index": 1,
+      "stage_role": "final",
+      "vocabulary_size": 8
+    }
+  ],
+  "prefill": {
+    "batch": {
+      "batch_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "batch_sequence_no": 0,
+      "input_row_count": 5,
+      "phase": "prefill",
+      "sequences": [
+        {
+          "deadline_budget_ns": 60000000000,
+          "execution_lease_id": "ab746fa9-f719-5b8c-b140-8f1a60541d02",
+          "input_row_count": 2,
+          "input_row_start": 0,
+          "kv_epoch": 0,
+          "request_id": "11111111-1111-4111-8111-111111111111",
+          "request_sequence_no": 0,
+          "span_id": "span-a-0",
+          "token_position_start": 0,
+          "trace_id": "trace-a"
+        },
+        {
+          "deadline_budget_ns": 60000000000,
+          "execution_lease_id": "ebe712c1-2ce3-54d8-a3bf-8be29c4af572",
+          "input_row_count": 3,
+          "input_row_start": 2,
+          "kv_epoch": 0,
+          "request_id": "22222222-2222-4222-8222-222222222222",
+          "request_sequence_no": 0,
+          "span_id": "span-b-0",
+          "token_position_start": 0,
+          "trace_id": "trace-b"
+        }
+      ]
+    },
+    "tensor": {
+      "dtype": "int32",
+      "kind": "token_ids",
+      "shape": [
+        5
+      ],
+      "values": [
+        10,
+        11,
+        20,
+        21,
+        22
+      ]
+    },
+    "wire_sequence_no": 7
+  },
+  "record_kind": "fnx2-ragged-golden",
+  "requests": [
+    {
+      "execution_lease_id": "ab746fa9-f719-5b8c-b140-8f1a60541d02",
+      "max_new_tokens": 2,
+      "prompt_token_ids": [
+        10,
+        11
+      ],
+      "request_id": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "execution_lease_id": "ebe712c1-2ce3-54d8-a3bf-8be29c4af572",
+      "max_new_tokens": 3,
+      "prompt_token_ids": [
+        20,
+        21,
+        22
+      ],
+      "request_id": "22222222-2222-4222-8222-222222222222"
+    }
+  ],
+  "schema_version": 1
+}

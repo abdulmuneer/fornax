@@ -13,6 +13,8 @@
 | Deterministic simulation, protocol state machines, fault injection | WS-J, WS-E, WS-F | Critical for Engine v0 | Medium |
 | Numerical backend validation / reference methodology | WS-D, WS-J, WS-C | Critical for G2 | High |
 | Build/release reproducibility for MAX fork | WS-B, WS-D | High | High |
+| Customer discovery, enterprise deployment, and service productization | WS-I | High for commercial validation | Medium |
+| Product counsel: entity/IP, dependency licensing, patched-runtime distribution, trademarks, customer terms | WS-I, WS-X | Critical before external distribution | High |
 | Program management | WS-X | High | Low |
 
 ## The physical-validation binding constraint
@@ -40,6 +42,15 @@ One person may hold several functions, but each accountability must be explicit:
 | KER | High for G2 | Physical MAX/Apple parity and role decision |
 | PM | Medium | Resource scheduling, assumption replacement, G2 packet honesty |
 | TL/SP | Low–Medium | Architecture decisions and gate authority |
+
+The parallel discovery lane needs explicit PM/SP capacity for qualified
+interviews, workload-trace governance, pilot scoping, pricing discovery, and
+service-repeatability accounting. This is not a substitute for an eventual
+product/customer-success owner.
+
+Named-person, entity/IP, and MAX commercial-rights decisions require authorized
+principals and qualified counsel. Runtime expertise or repository provenance
+cannot substitute for those approvals (R-17/R-18, XG-1/XG-2).
 
 LLM ramps at Phase 1+. **v3 pulled SRE into Phase 0** (preflight `fornax doctor`/
 diagnostics + observability from T1 simulation), so it is no longer purely a

@@ -14,9 +14,15 @@ The physical Mojo/MAX backend that turns the same Stage ABI into served tokens
 across heterogeneous machines is still under development. Guide pages label
 simulator output as predictions and hardware runs as measurements.
 
-Plan v4 Phase 0.5 is complete at T0/T1 against reference/simulated MAX stage
-backends using the production Stage ABI and multi-process loopback TCP. Physical
-evidence remains required before any supported-platform, throughput, or G2 claim.
+Plan v4 Phase 0.5 is complete in its recorded T0/T1 scope against
+reference/simulated stage backends: two independent loopback workers use
+versioned experimental FNX1 v1 framing under a lockstep orchestrator. Candidate
+FNX2 2.0 adds an integrated ragged scheduler, reference oracle, and two-worker
+golden path at T0/T1. Physical evidence remains required before any
+supported-platform, throughput, or G2 claim. Release, idle expiry, internal
+leases, same-worker tombstones, and bounded reference retention are implemented;
+restart durability, reviewed long-duration evidence, and physical native-memory
+validation remain required before a production-memory claim.
 
 ## Guides
 
@@ -28,6 +34,8 @@ evidence remains required before any supported-platform, throughput, or G2 claim
 | [Planning and simulation](planning-and-simulation.md) | Work through the full planning flow: target contract, inventory, plan, simulation, validation, and preflight bundle. |
 | [Input file reference](input-formats.md) | Look up the JSON fields for target contracts, inventories, and links files. |
 | [CLI reference](cli-reference.md) | Find the `python3 -m fornax` command surface grouped by task. |
+| [Stage Backend adapters](fornax/stage-backend-adapters.md) | Implement an explicit physical worker factory, use the public Python SDK, and run the bounded functional conformance smoke. |
+| [Stage ABI v2 ragged contract](fornax/stage-abi-v2-ragged-design.md) | Review the implemented T0/T1 candidate for unequal prefill, independent decode, per-sequence KV/errors, leases, expiry, tombstones, and two-worker loopback execution; physical MAX conformance remains open. |
 | [Project plan v4](fornax/project-plan-v4.md) | Current architecture, assumption-driven execution scope, and gates. |
 | [Simulation contract](fornax/simulation-and-assumption-contract.md) | Named hardware assumptions, sensitivity scenarios, and replacement rules. |
 

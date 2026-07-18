@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 import socket
 import struct
 import uuid
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
@@ -143,6 +143,16 @@ def _validate_data_metadata(
             raise FrameError("METADATA", f"{field_name} must be sha256:<64 lowercase hex>")
     if metadata.get("sequence_no") != sequence_no:
         raise FrameError("SEQUENCE", "metadata sequence_no does not match prelude")
+    if "request_sequence_no" in metadata:
+        request_sequence_no = metadata["request_sequence_no"]
+        if (
+            isinstance(request_sequence_no, bool)
+            or not isinstance(request_sequence_no, int)
+            or request_sequence_no < 0
+        ):
+            raise FrameError(
+                "METADATA", "request_sequence_no must be a non-negative integer"
+            )
     if metadata.get("phase") not in {"prefill", "decode"}:
         raise FrameError("METADATA", "phase must be prefill or decode")
     for field_name in ("token_start", "kv_epoch"):
@@ -225,7 +235,7 @@ class Frame:
             raise ValueError("sequence_no must be non-negative")
         if self.flags != 0:
             raise ValueError("reserved frame flags must be zero")
-        if self.abi_major != ABI_MAJOR or self.abi_minor < 0:
+        if self.abi_major != ABI_MAJOR or self.abi_minor != ABI_MINOR:
             raise ValueError("unsupported ABI version")
 
     @classmethod
@@ -300,8 +310,8 @@ def decode_frame(data: bytes, *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BY
         expected_crc,
         reserved,
     ) = PRELUDE.unpack(data[:PRELUDE_BYTES])
-    if magic != MAGIC or abi_major != ABI_MAJOR:
-        raise FrameError("ABI_VERSION", "unsupported frame magic or major version")
+    if magic != MAGIC or abi_major != ABI_MAJOR or abi_minor != ABI_MINOR:
+        raise FrameError("ABI_VERSION", "unsupported frame magic or ABI version")
     if flags or reserved:
         raise FrameError("ABI_VERSION", "reserved frame fields must be zero")
     if metadata_length > MAX_METADATA_BYTES or payload_length > max_payload_bytes:
@@ -377,10 +387,18 @@ def send_frame(
 class SequenceTracker:
     next_sequence: int = 0
     acknowledged: dict[int, int] | None = None
+    max_entries: int = 1024
+    _order: deque[int] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if self.max_entries <= 0:
+            raise ValueError("max_entries must be positive")
         if self.acknowledged is None:
             self.acknowledged = {}
+        self._order = deque(sorted(self.acknowledged))
+        while len(self._order) > self.max_entries:
+            expired = self._order.popleft()
+            self.acknowledged.pop(expired, None)
 
     def accept(self, frame: Frame) -> str:
         checksum = int(frame.crc or crc32c(canonical_json_bytes(frame.metadata) + frame.payload))
@@ -395,6 +413,10 @@ class SequenceTracker:
                 f"expected sequence {self.next_sequence}, got {frame.sequence_no}",
             )
         self.acknowledged[frame.sequence_no] = checksum
+        self._order.append(frame.sequence_no)
+        while len(self._order) > self.max_entries:
+            expired = self._order.popleft()
+            self.acknowledged.pop(expired, None)
         self.next_sequence += 1
         return "accepted"
 

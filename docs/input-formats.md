@@ -1,9 +1,10 @@
 # Input file reference
 
 This page documents the files passed to Fornax: target contracts, inventories,
-and links files. Field types and defaults come from the planner data model in
-`fornax/planner/model.py`. Loaders validate input on read and raise `ValueError`
-with a specific message for invalid files.
+links files, and the separate deployment evidence registry. Field types and
+defaults come from the planner data model in `fornax/planner/model.py` and the
+registry resolver in `fornax/planner/evidence.py`. Loaders validate input on
+read and raise `ValueError` with a specific message for invalid files.
 
 All files are JSON. A target contract can also be Markdown with a fenced
 `json fornax-target` block.
@@ -53,6 +54,9 @@ The network to serve.
 | `dtype_weight` | str | yes | Weight dtype, such as `q4`, `fp8`, or `fp16`. Must be known to the cost model. |
 | `dtype_activation` | str | yes | Activation dtype, such as `fp16`. |
 | `layers` | list | yes | One entry per layer, in order. |
+| `source_id` | str | deployment only | Model snapshot/manifest evidence reference. |
+| `quantization_source_id` | str | deployment only | Encoded-weight evidence reference. |
+| `expert_trace_source_id` | str | remote-expert deployment only | Representative expert-trace evidence reference. |
 
 Layer entry fields:
 
@@ -88,6 +92,12 @@ The serving goal.
 | `routing_metadata_bytes_per_token` | float >= 0 | `16.0` | Per-token routing metadata overhead. |
 | `temp_buffer_fraction` | float >= 0 | `0.05` | Scratch-buffer reserve. |
 | `runtime_reserve_bytes` | int >= 0 | `0` | Flat per-node runtime reservation. |
+| `authority_mode` | str | `exploratory` | `exploratory` or fail-closed `deployment`. |
+| `required_runtime` | str or null | `null` | Exact runtime required in deployment mode. |
+| `accepted_build_ids` | list[str] | `[]` | Accepted exact backend builds. |
+| `required_operations` | list[str] | `[]` | Operations every selected stage node must support. |
+| `prediction_calibration` | object | uncalibrated | Measurement provenance for prediction error. |
+| `max_expected_relative_error` | float >= 0 | `0.20` | Maximum admitted input/calibration error fraction. |
 
 The defaults are suitable for a first plan. Tune the reserve and margin fractions
 when you need the cost model to match a specific allocator.
@@ -124,6 +134,12 @@ An inventory describes the fleet with `nodes` and `links`.
 | `supports_expert_worker` | bool | `false` | Node may host routed MoE experts. |
 | `supports_kv` | bool | `true` | Node may hold KV cache. |
 | `supported_dtypes` | list[str] | `["fp16"]` | Dtypes the node can execute. |
+| `build_id` | str or null | `null` | Exact observed backend build. |
+| `capabilities_complete` | bool | `false` | Whether the capability set is complete. |
+| `supported_operations` | list[str] | `[]` | Backend-reported operation IDs. |
+| `supported_quantizations` | list[str] | `[]` | Backend-reported weight encodings. |
+| `capability_source_id` | str or null | `null` | Capability evidence reference. |
+| `measurement_provenance` | object | `{}` | Per-field source, status, confidence, and error. |
 
 Use role flags to describe heterogeneous fleets. For example, a capacity-rich Mac
 can be an expert worker while a fast GPU hosts dense stages.
@@ -139,6 +155,7 @@ inventory's `links` key or in a separate file passed with `--links`.
 | `b` | str | Other endpoint node id. It must differ from `a`. |
 | `bandwidth_bytes_s` | float > 0 | Link bandwidth in bytes/s. |
 | `latency_s` | float >= 0 | Link latency in seconds. |
+| `measurement_provenance` | object | Per-field source, status, confidence, and error for bandwidth and latency. |
 
 A separate links file can be a bare list of link objects or an object with a
 `links` key:
@@ -159,6 +176,38 @@ python3 -m fornax plan \
 
 When `--links` is supplied, it supplies or overrides the inventory's inline
 links. Use an empty list for a single-node fleet.
+
+## Deployment evidence registry
+
+Input `source_id` values are references only. A plan requested with
+`--authority-mode deployment` also needs an independent registry passed with
+`--evidence-registry`:
+
+```json
+{
+  "schema_version": "fornax.planner-evidence-registry.v1",
+  "records": [
+    {
+      "source_id": "EV-G2-stage-profile-001",
+      "evidence_type": "measurement",
+      "artifact_path": "evidence/EV-G2-stage-profile-001.json",
+      "artifact_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "status": "active",
+      "expires_at": "2026-10-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+`artifact_path` is relative to the registry file unless it is absolute. The
+resolver hashes every artifact and rejects absent IDs/files, digest or evidence-
+type mismatches, revoked records, records not active yet, and expired records.
+Allowed evidence types are `model`, `quantization`, `expert_trace`,
+`capability`, `measurement`, `calibration`, and `route`. `not_before` and
+`expires_at` are optional ISO-8601 timestamps with timezones.
+
+See the [cost model and calibration contract](fornax/cost-model-and-calibration.md#71-separate-evidence-registry)
+for the mapping from planner fields to evidence types and the trust boundary.
 
 ## Validation behavior
 

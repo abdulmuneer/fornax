@@ -1,8 +1,12 @@
 # Fornax Runtime Format and Invariants
 
-Version: 1.0-draft  
-Plan: `project-plan-v4.md` §4.4  
-Status: Implemented and golden-validated at T0/T1; accelerator conformance pending G2
+Version: 1.1-draft
+
+Plan: `project-plan-v4.md` §4.4
+
+Status: Logical target; dense single-request subset is implemented at T0/T1.
+Ragged row mapping, real vocabulary logits, KV-page transfer, and expert batches
+remain unimplemented and block the corresponding G2/product claims.
 
 ## 1. Contract layers
 
@@ -21,6 +25,9 @@ ownership, or token order.
 - NaN or infinity is invalid unless a future operation-specific contract permits
   it. No Phase 0.5 payload permits it.
 - Backend conversion is explicit; silent dtype reinterpretation is forbidden.
+- Logical/native import and export record descriptor validation, byte count,
+  ownership, and whether a copy occurred; opaque native handles never weaken
+  logical validation.
 - The producer owns a source buffer until handoff acknowledgement.
 - Plan changes never mutate an in-flight payload's interpretation.
 
@@ -51,9 +58,12 @@ policy, packing order, and backend compatibility in the model manifest.
 | Consumer | Exactly one next stage in Phase 0.5 |
 | Lifetime | Through receiver acknowledgement or terminal error |
 
-The activation descriptor includes the original request-to-row mapping. A
-microbatch may not reorder rows without updating the mapping and reference gather
-order.
+The target activation descriptor includes the original request-to-row mapping.
+Current FNX1 v1 does not carry that mapping in `TensorDescriptor`; its golden
+fixture has only a sidecar `row_mapping`. Therefore v1 cannot execute a real
+ragged multi-request stage batch, and a microbatching claim must wait for ABI v2.
+Once implemented, a microbatch may not reorder rows without updating the mapping
+and reference gather order.
 
 ## 5. Logits tensor
 
@@ -67,6 +77,11 @@ order.
 
 Greedy validation records maximum absolute/relative error, top-1 identity, and
 the top-k overlap chosen by the validation plan.
+
+The current Phase 0.5 mechanism fixture labels its final hidden-width tensor
+`logits`; it does not execute a vocabulary projection and is not model-logit
+evidence. ABI v2/final-stage conformance must bind `vocabulary_size` and reject a
+hidden-width substitute.
 
 ## 6. KV page logical format
 
@@ -115,13 +130,45 @@ are correctness failures.
 |---|---|---|
 | Input activation source buffer | Sending stage | Matching ACK or terminal channel failure |
 | Received activation buffer | Receiving stage | Stage execution and replay policy complete |
-| Stage-local KV | Owning stage | Request completion/cancel cleanup or plan drain |
+| Stage-local KV | Owning stage | Explicit final release, bounded idle expiry, expired execution-lease fencing, or plan drain in the reference/simulated runtime; physical equivalence remains G2 work |
 | Output/logits source buffer | Producing stage | Matching ACK |
 | Weight shard | Loaded stage manifest | Plan unload |
 | Serialization staging buffer | Channel endpoint | ACK/error and no replay reference |
 
 Reference-count or pool implementations are permitted, but observable ownership
 must match this table.
+
+### 8.1 Reference native-buffer seam
+
+The T0/T1 reference backend imports a validated logical `Tensor` into a bounded
+adapter-owned staging allocation, exports a separately validated logical tensor
+to the deterministic Python oracle, and releases staging in `finally` paths. It
+does the same at the output boundary. `StageHealth` exposes current/high-water
+staging bytes and copy operations. The default adapter deliberately copies; no
+zero-copy conclusion follows.
+
+A physical backend may replace the opaque staging handle with a MAX/runtime
+buffer. It must still validate kind, dtype, shape, layout, logical elements, byte
+count, and finite-value policy before execution and again before publishing a
+logical output. Device residency or zero-copy claims require physical evidence.
+
+### 8.2 Bounded request lifecycle
+
+Reference and simulated loaded stages use three independent bounds:
+
+- idle request state is reclaimed on the next backend operation after its
+  configured timeout;
+- an internal execution lease prevents a late T0/T1 computation from committing
+  KV or replay state after its deadline;
+- explicit/automatic release records a count- and time-bounded request-ID
+  tombstone.
+
+The tombstone persists across FNX1 channel reconnects to the same loaded worker
+and rejects reuse with `REQUEST_TOMBSTONED`. It does not persist across worker
+restart, is not replicated, and is not an indefinite exactly-once guarantee.
+Non-expired fences are not evicted to satisfy the count bound; a full table
+returns `TOMBSTONE_CAPACITY` and retains the request state until a fence expires.
+Physical backends must prove safe native cancellation/fencing separately.
 
 ## 9. Reference path and tolerances
 
@@ -160,7 +207,7 @@ Reject before execution when any of the following occurs:
 No receiver may truncate, reshape, cast, renormalize, or repair a malformed
 payload silently.
 
-## 11. Golden-vector corpus required for Phase 0.5
+## 11. Golden-vector corpus required before ragged/physical claims
 
 - BF16 activation vectors at hidden size 2048; add FP16 vectors if FP16 is
   enabled by the target contract.
@@ -175,5 +222,7 @@ payload silently.
 - Physical Linux/NVIDIA and macOS/Apple candidates captured as G2 evidence when
   those backends are available; their absence does not block Phase 0.5.
 
-The existing JSON golden manifest is retained as a small schema fixture. It is
-not sufficient by itself for Stage ABI conformance or Phase 0.5 closure.
+The existing JSON golden manifest is retained as a small logical-schema fixture.
+The FNX1 v1 corpus closes only the recorded dense T0/T1 mechanism scope; neither
+fixture is sufficient for ragged batching, physical MAX conformance, real logits,
+or G2 closure.

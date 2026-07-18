@@ -33,7 +33,7 @@ unproven until the local probe passes.** Higher rank wins.
 
 | Field | Value |
 |---|---|
-| Pinned MAX build | Current local lineage: upstream `0735fa29762a5c53d65a0456d0b53eac1472180f`, patch `957aeded5296d6638386409849b60f82c36146dd`; root pin still open (I-11). |
+| Pinned MAX build | Root manifest records upstream `0735fa29762a5c53d65a0456d0b53eac1472180f`, patch `957aeded5296d6638386409849b60f82c36146dd`, exact trees/diff, and deterministic reconstruction. Per-host clean build packets remain G2 work (I-11/R-13). |
 | Capability needed (v0) | target-model **expert-MLP** on the target Mac, within tolerance/throughput bound |
 | Adjudicated by | **rank-1 local probe** (ladder above) |
 | Last checked | 2026-07-01 |
@@ -74,6 +74,23 @@ Upstream anchors:
 - MAX custom ops:
   https://docs.modular.com/max/develop/build-custom-ops/
 
+### Commercial-rights watch — D-7
+
+Technical source availability is not the same as permission to commercialize a
+patched MAX-based product. The
+[Modular Community License](https://www.modular.com/legal/community) (last
+modified 2026-03-20) contains production, device, distribution, notice, branding,
+and supported-hardware conditions separate from source-code licensing. Modular's
+[trademark policy](https://www.modular.com/legal/trademark) requires attribution
+and prohibits implied endorsement. These links are diligence inputs, not legal
+advice.
+
+Before any product packaging or distribution claim, XG-2/I-19 requires a
+component-by-component license map, supported-device analysis, patched-build
+packaging design, NOTICE/attribution inventory, and counsel-reviewed written
+clarification or commercial terms where needed. Until then, describe MAX as the
+preferred technical dependency and do not imply Modular endorsement.
+
 All upstream anchors are rank-2/3/4 signals under the ladder above. They inform
 what to probe; they do not gate Apple's Fornax role.
 
@@ -86,11 +103,13 @@ decision, recorded as a `DEC-*` ([08](08-decision-log.md)).
 
 | Dep | Blocks | Owner | Note |
 |---|---|---|---|
-| D-4 WS-A planner | placement authority and physical phases | DIST | Phase 0.5 repairs complete; measured G2 calibration active |
+| D-4 WS-A planner | placement authority and physical phases | DIST | I-7/I-8, KV admission, structured provenance, exact capability matching, and fail-closed deployment mode are implemented; authenticated sources, A-6 physical calibration, and physical evidence still block current deployment authority |
 | D-2 Hardware procurement | G2/G3 physical evidence | PM | Does not block Engine v0 — [10](10-budget-and-procurement.md) |
 | D-3 Ignis `Engine` seam | WS-H integration | TL | Keep `generate(...)` stable |
 | WS-B format/Stage ABI | WS-C, WS-E, WS-F, WS-J | RT | The load-bearing invariant |
 | D-5 physical lab availability | G2/G3 only | PM | Engine v0 uses named assumptions until available |
+| D-6 qualified design partners and workload traces | commercial validation and frontier workload selection | PM/SP | Does not block Engine v0; missing evidence forces product NARROW/ITERATE |
+| D-7 MAX commercial and redistribution terms | product packaging, external distribution, G5 | SP/RT | Does not block T0/T1 research; XG-2 controls external claims |
 
 ## Dependency-driven sequencing rules
 
@@ -100,7 +119,13 @@ decision, recorded as a `DEC-*` ([08](08-decision-log.md)).
    RT collect physical MAX evidence opportunistically.
 3. **Assumptions are dependencies.** Each SA-* has a validation test and blocked
    gate; it is never silently promoted to fact.
-4. **Planner repairs during Engine v0.** A7/A8 are required before the planner can
-   authorize physical placement.
+4. **Planner authority remains evidence-gated.** WBS A7-A9 now implement the
+   hardware-independent admission mechanism, but authenticated measurement
+   sources and A-6 physical calibration are still required before a current
+   plan can authorize deployment.
 5. **Procure deliberately.** Hardware availability blocks G2/G3, not software
    construction; avoid premature broad-fleet purchases.
+6. **Learn before GA.** Customer/workload discovery runs alongside G2; product
+   deployment work and capability claims remain gated.
+7. **Clear rights before distribution.** A passing backend test does not waive
+   component, device, packaging, branding, or redistribution terms.

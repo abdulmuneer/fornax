@@ -14,10 +14,12 @@ throughput, on-prem, for in-house private AI. Engineering definition:
 
 ## Why now / why this program
 
-- Frontier open weights are large sparse MoE that exceed a single consumer node;
-  the 8×H100 alternative (~$250–400K) defeats the privacy/cost motive.
-- MoE's capacity-vs-compute split matches heterogeneous commodity hardware; no
-  existing system spans one model across vendors at good throughput.
+- Frontier open weights include sparse MoE models that can exceed one available
+  node; the customer cost/privacy advantage over cloud or homogeneous systems is
+  a hypothesis to prove with dated baselines and TCO, not an assumed fact.
+- MoE's capacity-vs-compute split may match heterogeneous commodity hardware;
+  physical G2/G3 evidence and a source-backed competitive study decide whether
+  Fornax's cross-vendor approach is useful and differentiated.
 - A credible path needs **evidence before investment** — hence a gated program,
   not an open-ended build.
 
@@ -25,8 +27,8 @@ throughput, on-prem, for in-house private AI. Engineering definition:
 
 | # | Objective | Measured by |
 |---|---|---|
-| O1 | Build the first executable engine without waiting for the complete hardware fleet | Phase 0.5 Engine v0 exits on the production Stage ABI |
-| O2 | Serve a model **2–3× the largest single node** | Capacity metric (§8 plan) |
+| O1 | Build the first executable engine without waiting for the complete hardware fleet | Phase 0.5 Engine v0 exits at T0/T1 on versioned experimental FNX1 v1 |
+| O2 | Serve a model that exceeds the usable memory of the largest single target node | Capacity metric (§10 plan) |
 | O3 | Preserve **aggregate throughput** at the contracted concurrency | Throughput-efficiency ≥ provisional 60% |
 | O4 | Keep the engine **honest & correct** across vendors | Reference-path logit match; no fabricated metrics |
 | O5 | Manage the **Apple/MAX external dependency** without it sinking the program | Simulated Apple-shaped worker now; physical role measured later |
@@ -45,8 +47,9 @@ The Phase 0–5 roadmap in plan v4 §8, organized into the workstreams in
 
 ## Success / failure definition
 
-- **Near-term success:** Engine v0 runs two independent workers through the real
-  Stage ABI with bounded scheduling, transport, failure, and evidence behavior.
+- **Near-term success:** Engine v0 runs two independent loopback workers through
+  experimental FNX1 v1 under a lockstep orchestrator; admission/batching bounds
+  are separately simulated with transport, failure, and evidence behavior.
 - **Program success:** G2 replaces critical assumptions with physical evidence,
   then G3 serves a real frontier-capacity MoE at contracted throughput.
 - **Acceptable failure:** G2/G3 evidence shows that a physical role or the full
@@ -76,3 +79,6 @@ The Phase 0–5 roadmap in plan v4 §8, organized into the workstreams in
    ([08-decision-log.md](08-decision-log.md)).
 4. The plan changes only by **version bump**, never silent edit.
 5. Every simulated hardware parameter cites an SA-* assumption and named scenario.
+6. Code, tests, or user-supplied intent never establish named-person
+   participation, IP ownership, commercial rights, financing approval, customer
+   traction, or market size; each follows its own evidence gate.

@@ -1,0 +1,124 @@
+{
+  "backend_high_water": {
+    "completed_result_bytes": 528,
+    "live_requests": 1,
+    "native_buffer_bytes": 0,
+    "release_tombstones": 65,
+    "transform_cache_bytes": 1152
+  },
+  "completed_at": "2026-07-17T09:00:38.677739+00:00",
+  "configuration": {
+    "configured_wall_seconds": 1800.0,
+    "defer_every": 7,
+    "execution_lease_timeout_ns": 10000000,
+    "lifecycle_clock": "deterministic_logical",
+    "logical_step_ns": 1000000,
+    "max_release_tombstones": 128,
+    "minimum_iterations": 1800,
+    "pace_ms": 10.0,
+    "release_tombstone_ttl_ns": 64000000,
+    "request_idle_timeout_ns": 3000000
+  },
+  "current_contract_authority": false,
+  "evidence_class": "t0_t1_contract_stress",
+  "final_health": {
+    "completed_result_bytes": 0,
+    "completed_results": 0,
+    "expired_execution_leases": 0,
+    "expired_requests": 16246,
+    "live_requests": 0,
+    "max_completed_result_bytes": 8192,
+    "max_native_buffer_bytes": 4096,
+    "max_release_tombstones": 128,
+    "max_transform_cache_bytes": 8192,
+    "native_buffer_bytes": 0,
+    "native_buffer_copy_operations": 454872,
+    "native_buffer_high_water_bytes": 16,
+    "release_tombstones": 60,
+    "transform_cache_bytes": 1152
+  },
+  "final_sweep": {
+    "expired_execution_leases": 0,
+    "expired_requests": 1,
+    "pruned_tombstones": 5
+  },
+  "limitations": [
+    "Reference Python execution only; no MAX, accelerator, or network path.",
+    "Backend count/byte caps are contract evidence, not a physical RSS bound.",
+    "Lifecycle expiry uses a deterministic logical clock; wall time only establishes sustained churn duration.",
+    "This artifact does not close G2 or an indefinite-service claim.",
+    "current_contract_authority is false unless the exact executed source files were committed and unchanged for the full run."
+  ],
+  "measurement_kind": "reference",
+  "ok": true,
+  "physical_evidence": false,
+  "process_diagnostics": {
+    "rss_high_water_after_bytes": 21626880,
+    "rss_high_water_before_bytes": 20037632,
+    "traced_current_delta_bytes": 245213,
+    "traced_peak_bytes": 254472,
+    "tracemalloc_enabled": true
+  },
+  "record_kind": "fornax-lifecycle-pressure",
+  "runner": {
+    "argv": [
+      "/Users/abdulmuneer/workspace/fornax/fornax/lifecycle_pressure.py",
+      "--min-iterations",
+      "1800",
+      "--wall-seconds",
+      "1800",
+      "--pace-ms",
+      "10",
+      "--out",
+      "docs/fornax/evidence/lifecycle-pressure-2026-07-17.json"
+    ],
+    "machine": "arm64",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "python_executable": "/Users/abdulmuneer/miniconda3/bin/python3",
+    "python_version": "3.11.4",
+    "working_directory": "/Users/abdulmuneer/workspace/fornax"
+  },
+  "schema_version": 1,
+  "source_identity": {
+    "after": {
+      "files": {
+        "fornax/lifecycle_pressure.py": "sha256:d37d47632d738da24328aae5e6473e5a037b3e724ec7603930798d21c8b823b5",
+        "fornax/stage_runtime.py": "sha256:82d17a0017dd0cab3f47054375311f27b9d8a3d7ebff524d0fd4828317f3c528"
+      },
+      "git_available": true,
+      "git_head": "6d6b4c10420be0d6ccbcdd9032579afe040bae4e",
+      "repository_root": "/Users/abdulmuneer/workspace/fornax",
+      "source_committed": false,
+      "source_status": [
+        " M fornax/stage_runtime.py",
+        "?? fornax/lifecycle_pressure.py"
+      ]
+    },
+    "before": {
+      "files": {
+        "fornax/lifecycle_pressure.py": "sha256:d37d47632d738da24328aae5e6473e5a037b3e724ec7603930798d21c8b823b5",
+        "fornax/stage_runtime.py": "sha256:82d17a0017dd0cab3f47054375311f27b9d8a3d7ebff524d0fd4828317f3c528"
+      },
+      "git_available": true,
+      "git_head": "6d6b4c10420be0d6ccbcdd9032579afe040bae4e",
+      "repository_root": "/Users/abdulmuneer/workspace/fornax",
+      "source_committed": false,
+      "source_status": [
+        " M fornax/stage_runtime.py",
+        "?? fornax/lifecycle_pressure.py"
+      ]
+    },
+    "unchanged_during_run": true
+  },
+  "started_at": "2026-07-17T05:34:32.115305+00:00",
+  "summary": {
+    "automatic_expiries": 16246,
+    "bounds_ok": true,
+    "deferred_for_automatic_expiry": 16246,
+    "errors": [],
+    "execution_lease_expiries": 0,
+    "explicit_releases": 97472,
+    "unique_requests_completed": 113718,
+    "wall_elapsed_ns": 1800004556833
+  }
+}

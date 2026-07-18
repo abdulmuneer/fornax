@@ -6,10 +6,12 @@ Status: Engine v0/T1 complete; physical `MaxStageBackend` and two-node execution
 
 ## Objective
 
-First prove that one deterministic request executes through two independent
-worker processes using the production Fornax Stage ABI and reference/simulated MAX
-backends. Then replay the same plan and corpus across Linux/NVIDIA and macOS/Apple
-MAX backends as hardware becomes available.
+The recorded T1 proof sends one deterministic request through two independent
+loopback workers using experimental FNX1 v1 and reference/simulated backends
+under a lockstep orchestrator. The next objective is to replay a corrected
+physical/ragged contract across Linux/NVIDIA and macOS/Apple MAX backends as
+hardware becomes available. See the
+[`ABI terminology erratum`](abi-terminology-erratum-2026-07-17.md).
 
 ## Test environment
 
@@ -26,12 +28,12 @@ plan, scenario/build, or tensor-contract identity differs from the approved run.
 | V2 | T0/T1 | ABI and malformed-frame corpus | All valid/negative cases produce specified outcomes |
 | V3 | T1 | Reference stage backend | Exact deterministic activation/logit and ownership ledger |
 | V4 | T1 | Simulated MAX stage backend with service/failure injection | Same logical outputs; scenario timings/faults attributed |
-| V5 | T1 | Two worker processes over TCP loopback | Production Stage ABI, credits, cancellation, and cleanup pass |
-| V6 | T2 | NVIDIA and Apple single-node tests as available | Operator/stage activations and logits within accepted tolerance |
-| V7 | T3 physical | Linux stage -> Apple stage | Prefill/decode and final greedy output pass |
-| V8 | T3 load | Concurrency 1, 4, 8 | Correctness retained; timings and utilization recorded |
-| V9 | T3 stability | Thirty-minute highest-supported load | No unbounded queue/memory growth or silent divergence |
-| V10 | T3 failure | Cancel, timeout, stale plan, CRC, link loss | Specified bounded outcomes and cleanup |
+| V5 | T1 | Two worker processes over TCP loopback | Experimental FNX1 v1, credits, cancellation, and recorded cleanup pass |
+| V6 | T2 | NVIDIA and Apple single-node tests as available | Preapproved reference and dtype `atol`/`rtol` pass; no non-finite value; exact top-1/routing; Apple role derived from raw criteria |
+| V7 | T3 physical | Linux stage -> Apple stage | Full correctness corpus, prefill/decode, boundary/final-logit parity, and greedy output pass |
+| V8 | T3 load | Concurrency 1, 4, 8 | Correctness corpus passes at every point; predictions match frozen plan input; timings and utilization recorded |
+| V9 | T3 stability | Thirty-minute highest-supported load | Integer cadence/load/request/lifecycle evidence, configured memory/queue bounds, post-drain zero state, and no divergence |
+| V10 | T3 failure | Cancel, timeout, stale plan, CRC, link loss | Canonical typed outcome plus exact replay, mutation, and cleanup semantics |
 
 ## Correctness corpus
 
@@ -45,6 +47,12 @@ plan, scenario/build, or tensor-contract identity differs from the approved run.
 Prompt contents may remain outside the public repository, but the corpus hash,
 token IDs, tokenizer/template hashes, and licensing/privacy classification are
 recorded.
+
+Before execution, the reviewed manifest freezes the reference implementation
+and artifact hash, tolerance approval ID, per-dtype `atol`/`rtol`, rejection of
+non-finite values, and exact top-1/routing policy. Each accepted prompt is
+compared against that identity; a physical command cannot self-approve a new
+reference or tolerance in its result file.
 
 ## Apple kernel matrix
 
@@ -76,6 +84,15 @@ For every concurrency point capture median and p95:
 Collect a single-node reference and naive two-stage baseline using the same model,
 prompt corpus, build lineage, and stage cut.
 
+The 1/4/8 planner predictions are inputs in the hash-verified plan artifact, not
+values first reported by V8. Raw observations must repeat them exactly before
+relative error is calculated. V9 uses a predeclared integer sampling interval,
+target inflight, minimum completed-request count, and drain timeout. Sample
+sequence/time, request started/completed/failed/live counts, explicit/expiry
+releases, and all resource counts are integer evidence; the final drain record
+must reconcile totals and show zero live request, queue, credit, retained state,
+native buffer, KV, and inflight work.
+
 ## Fault cases
 
 - Wrong ABI major/minor.
@@ -87,6 +104,13 @@ prompt corpus, build lineage, and stage cut.
 - Deadline expiration.
 - Kill/restart worker and disconnect cable/interface where safe.
 - Reconnect with fresh handshake; no duplicate stage execution.
+
+V10 records canonical outcome codes (`CANCELLED`, `DEADLINE_EXCEEDED`,
+`STALE_PLAN`, `CRC_MISMATCH`, and `LINK_LOSS_RECOVERED`). Each case also records
+before/after state hashes, mutation count, replay attempts, replay executions,
+replay disposition, and zero-valued cleanup counters. Non-link terminal failures
+must not mutate state; link-loss recovery permits exactly one mutation and a
+deduplicated replay with no second execution.
 
 ## Engine v0 acceptance report
 
@@ -106,3 +130,34 @@ and the recommended G2 outcome.
 
 Evidence is indexed in `evidence-register.md`; `/tmp` paths alone are not durable
 evidence.
+
+## One-command runner
+
+The executable form of V1-V10 is documented in
+[`g2-in-a-box.md`](g2-in-a-box.md):
+
+```bash
+# Readiness only: T0/T1 runs; physical V6-V10 are explicitly BLOCKED.
+python3 -m fornax program g2-validate \
+  --out-dir evidence/g2-readiness-YYYYMMDD-HHMMSS
+
+# Physical execution requires both reviewed identities/commands and explicit authorization.
+python3 -m fornax program g2-validate \
+  --out-dir /durable/fornax-evidence/g2-YYYYMMDD-HHMMSS \
+  --run-manifest /approved/fornax-g2-run.json \
+  --run-physical
+```
+
+The runner refuses to overwrite an evidence directory, verifies the current
+working tree's uncommitted MAX root-pin/reconstruction mechanism, copies and
+recomputes the actual plan/stage-manifest hashes, checks the
+model identity, contiguous stage cut, physical node bindings, and
+deployment-authoritative plan status, resolves the authority's source IDs
+through a copied evidence registry, and rehashes every registry artifact before
+admission. It blocks load/stability work behind parity,
+validates the step-specific machine result contracts, derives summaries from
+nonce-correlated raw samples, requires runner-observed wall time for V9, and
+hashes every retained artifact.
+This is consistency validation rather than cryptographic remote attestation;
+passing the technical packet still requires Sponsor/TL review of the lab wrapper
+and artifact custody.

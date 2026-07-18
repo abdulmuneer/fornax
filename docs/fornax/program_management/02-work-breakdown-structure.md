@@ -20,7 +20,8 @@ module map from plan v3 §5.3
 - A8 Replace the >6-node single-order cutoff with feasibility-preserving bounded
   search and add the reproduced false-infeasibility regression — **complete at T0**.
 - A9 Add assumption/scenario/calibration provenance and fail-closed deployment
-  authority.
+  authority — **complete at T0 for schema/admission; authenticated physical
+  sources and A-6 calibration carry into Phase 1/G2 under I-16**.
 
 ## WS-B — Runtime & MAX surgery
 - B1 `runtime-format-and-invariants.md` (closes B3): activation/KV/expert-batch format, ownership, golden vectors
@@ -28,7 +29,10 @@ module map from plan v3 §5.3
 - B3 Boundary custom ops (activation/KV handoff)
 - B4 Reference (slow-correct) execution path
 - B5 Substrate ADR `adr/0001-max-mojo-substrate.md` (closes B5)
-- B6 Production `StageExecutable` interface and manifest — **complete at T0/T1**.
+- B6 Versioned experimental `StageExecutable` interface and manifest —
+  **FNX1 complete at recorded T0/T1; candidate FNX2 ragged reference/golden and
+  integrated two-worker path complete at T0/T1; physical validation may revise
+  compatibility/rollout**.
 - B7 `ReferenceStageBackend` and `SimulatedMaxStageBackend` — **complete at T0/T1**.
 - B8 Physical `MaxStageBackend` integration when hardware is available — **active/open**.
 
@@ -67,16 +71,26 @@ module map from plan v3 §5.3
 - H2 Tokenizer/chat-template/stop-token seam; model support matrix
 - H3 `FornaxBackend` behind the `Engine` trait; standalone OpenAI endpoint
 
-## WS-I — Productization & ops (post-G3)
-- I1 Operator UX (`cluster.yaml` / `model.yaml` / `placement.json` / `fornax doctor`)
+## WS-I — Product discovery now; productization & ops remain gated
+- I0 **Parallel discovery lane:** qualified buyer interviews, anonymized workload
+  traces, concurrency fit, design-partner commitments, pilot acceptance, pricing
+  discovery, and service-repeatability evidence. This work may run before G2; it
+  does not authorize product or performance claims.
+- I0b **External-readiness lane:** principal/team provenance, entity/IP records,
+  MAX component/license and packaging disposition, bottoms-up financing,
+  pilot-security minimum, dated competition, and approved disclosure index.
+  These controls may advance in parallel but do not become true through code.
+- I1 Operator UX (`target.json` / `inventory.json` / `placement.json` / `fornax doctor`)
 - I2 Ops lifecycle (deploy/upgrade/drain/restart/rollback/node-replace)
 - I3 Onboarding tracks; glossary; benchmark methodology of record
+- I4 Installable pre-alpha package and one-command simulation tour — **complete
+  for T0/T1 onboarding; physical serving remains open**.
 
 ## WS-J — Simulation, assumptions & physical validation
 
 - J1 SA-* assumption register and named compute/link/fault scenario matrix.
-- J2 Deterministic virtual-clock simulation using production request/event schemas.
-- J3 Multi-process loopback engine using production TCP frames.
+- J2 Deterministic virtual-clock simulation using versioned request/event schemas.
+- J3 Multi-process lockstep loopback engine using experimental FNX1 v1 frames.
 - J4 Backend conformance suite shared by reference, simulated, and MAX backends.
 - J5 Physical T2/T3 replay that replaces assumptions without changing contracts.
 - J6 Evidence register with simulation/physical classification and durable hashes.
@@ -91,8 +105,8 @@ module map from plan v3 §5.3
 | Phase | Primary epics |
 |---|---|
 | 0 Evidence + planner | Historical A1–A6 and contract/proxy baseline retained |
-| **0.5 Engine v0 — complete T0/T1** | A7–A9, B6–B7, E5, F1–F2, G1–G2, J1–J4/J6, X1–X3 |
-| 1 Physical backend validation | B8, D2–D3, E2 physical, J5, H3 integrated |
+| **0.5 Engine v0 — complete T0/T1** | A7–A8, B6–B7, E5, F1–F2, G1–G2, J1–J4/J6, X1–X3; A9 schema/admission portion complete |
+| 1 Physical backend validation | A9/I-16 authenticated evidence and calibration portion, B8, D2–D3, E2 physical, J5, H3 integrated; I0 discovery in parallel |
 | 2 Continuous batching | F1–F2, G1–G2 |
 | 2.5 MoE surgery | C1–C4, H2 |
 | 3 Heterogeneous frontier-capacity target | D2–D3, E2–E4, F3, G3, H1 |

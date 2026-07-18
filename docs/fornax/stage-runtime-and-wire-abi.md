@@ -6,9 +6,9 @@ Status: Implemented and conformant at T0/T1; physical `MaxStageBackend` conforma
 
 ## 1. Scope
 
-This specification defines the stable boundary between Fornax orchestration and
-a MAX-backed stage worker, plus the v1 frame used to exchange stage-boundary
-tensors between physical hosts.
+This specification defines the experimental v1 boundary between Fornax
+orchestration and a future MAX-backed stage worker, plus the v1 frame currently
+exercised over T1 loopback. Physical-host conformance remains open.
 
 It does not define MAX internal graph APIs, remote-expert RPC, production service
 discovery, RDMA registration, or distributed KV migration.
@@ -56,13 +56,32 @@ manifest hash are attached to every execution.
 The language-neutral contract is:
 
 ```text
+capabilities() -> BackendCapabilities
 load(manifest) -> StageHandle
 health(StageHandle) -> StageHealth
 execute(StageHandle, StageRequest) -> StageResult
 cancel(StageHandle, RequestId, reason) -> CancelResult
+release(StageHandle, RequestId) -> ReleaseResult
 drain(StageHandle, deadline) -> DrainResult
 unload(StageHandle) -> UnloadResult
 ```
+
+`capabilities()` is evaluated before `load`. Its backend, build, device,
+memory, dtype, operation, quantization, ABI, and frame-limit fields originate
+from the constructed backend—not from the requested manifest. The worker stores
+requested and observed values in a capability attestation and fails startup with
+`CAPABILITY_MISMATCH` when a known requirement is not met.
+
+Worker construction uses a process-serializable backend specification. The
+reference and simulated backends are built in; a physical MAX backend must name
+an importable adapter factory. A missing or invalid factory fails closed and may
+never select the simulator implicitly.
+
+The versioned experimental Python imports, factory example, lifecycle smoke, and API-versioning
+policy are documented in
+[`stage-backend-adapters.md`](stage-backend-adapters.md).
+The incompatible ragged multi-sequence successor is an unimplemented T0 design
+in [`stage-abi-v2-ragged-design.md`](stage-abi-v2-ragged-design.md).
 
 ### StageRequest
 
@@ -102,10 +121,40 @@ UNLOADED -> LOADING -> READY -> DRAINING -> UNLOADING -> UNLOADED
 
 - A worker executes only the currently installed manifest.
 - Plan replacement requires drain, unload, and load; V1 has no in-place mutation.
-- Per-request stage execution is at-most-once unless the orchestrator supplies a
-  new replay epoch at a documented replay-safe boundary.
+- Per-request stage execution replays an exact retained result without executing
+  twice inside the backend's bounded replay window. An evicted, conflicting, or
+  older sequence fails closed. Reference/simulated backend state survives an
+  FNX1 channel reconnect to the same worker: retained results still replay and a
+  bounded release tombstone rejects a finalized request ID. FNX1 has no durable
+  replay epoch, so no guarantee survives worker restart or configured tombstone
+  expiry. Non-expired fences are never evicted: tombstone-capacity exhaustion
+  fails closed while retaining live request state.
 - Cancellation is best effort after execution starts. The result states whether
   KV mutation occurred.
+- API v2 and the implemented FNX1 control paths define explicit final
+  `release(request_id)`. Release fails with `REQUEST_INFLIGHT`; after terminal
+  work it clears request-owned KV, cancellation, execution, idempotency, wire
+  replay, and orchestrator epoch/admission state. Repeating release for absent
+  state is safe and reports `released=false`.
+- The reference/simulated runtime caps live requests, results per request,
+  retained-result bytes, transform entries/bytes, and event history. Admission
+  and old replay fail closed when those bounds are reached or evicted; live KV is
+  never evicted merely to make room for replay data.
+- A newly executed result becomes replay-visible only after backend-specific
+  finalization. The orchestrator commits its stage KV epochs only after every
+  stage succeeds, so an exact retry after a downstream failure can replay the
+  already-completed upstream stage instead of advancing it twice.
+- Once any part of final release starts, execution for that request stays fenced
+  until every stage acknowledges a release attempt. A failed partial release is
+  retried; it does not reopen execution against partially destroyed state.
+- The reference/simulated loaded stage opportunistically expires idle request
+  state, fences late results with an internal execution lease, and retains
+  explicit/automatic release tombstones within configured count and time bounds.
+  Callers should still release promptly; expiry is a bounded safety net.
+- These are T0/T1 Python mechanism guarantees, not an indefinite-service or
+  physical-memory result. There is a runnable many-unique-request pressure mode,
+  but physical native-KV/RSS stress and restart-durable replay remain open. FNX1
+  framing did not change and carries no durable replay epoch.
 
 ## 6. V1 frame format
 
@@ -162,6 +211,13 @@ Metadata is UTF-8 JSON with sorted keys and no duplicate keys. V1 requires:
 The metadata `sequence_no` must match the prelude. UUIDs use lower-case canonical
 text. Hashes use `sha256:<64 lowercase hex>`.
 
+`request_sequence_no` is an optional v1 extension used to keep a request's
+prefill/decode sequence independent of the channel sequence. A v1 sender that
+omits it remains valid; the receiver uses the frame sequence as the execution
+sequence. When present it is a non-boolean, non-negative JSON integer. New Fornax
+workers emit it. Making it mandatory or changing that fallback requires a future
+ABI major.
+
 ## 7. Tensor representation
 
 - V1 accepts only dense contiguous row-major payloads.
@@ -180,17 +236,25 @@ text. Hashes use `sha256:<64 lowercase hex>`.
 2. The receiver owns its copied/backend buffer after CRC, metadata, and manifest
    validation.
 3. An `ACK` identifies the exact request, microbatch, sequence, and payload CRC.
-4. Duplicate frames with an already-acked sequence are acknowledged but never
-   executed again.
+4. V1 advertises one input credit and retains the exact response for the newest
+   completed data frame. An immediate exact duplicate replays that response and
+   is never executed again.
 5. Duplicate frames whose identity matches but CRC differs terminate the channel.
 6. Out-of-order frames are rejected in V1; the sender reconnects and replays only
    from an orchestrator-approved boundary.
+7. Accepting a newer input sequence evicts the prior replay response and digest.
+   A retry older than the bounded window fails with `SEQUENCE`; it is never
+   re-executed. This keeps persistent-channel replay memory bounded by one tensor
+   response under the one-credit protocol.
+8. A backend-level logical `SEQUENCE` rejection returns the consumed credit and
+   keeps the negotiated channel available for final request release. A wire-level
+   conflicting duplicate/integrity failure remains channel-terminal.
 
 ## 9. Compatibility
 
-- Major mismatch: reject channel.
-- Receiver minor lower than sender minor: accept only when all unknown metadata
-  fields are optional and flags are zero; otherwise reject.
+- Major or minor mismatch: reject channel. The implemented v1 contract is exactly
+  `1.0`; optional-field negotiation must be specified and tested before any
+  minor-version bump.
 - Dtype/layout/model/plan mismatch: reject frame without graph execution.
 - A running plan is immutable. Rolling upgrade uses parallel worker/channel sets
   and a gateway drain; it is not part of Phase 0.5.
@@ -210,6 +274,12 @@ text. Hashes use `sha256:<64 lowercase hex>`.
 | `DEADLINE` | Deadline expired before execution |
 | `CANCELLED` | Request cancelled |
 | `EXECUTION` | MAX stage execution failed |
+| `CAPABILITY_MISMATCH` | Backend-observed facts do not satisfy the requested manifest |
+| `ADMISSION` | Configured live-request state capacity is exhausted or the request already has work in flight |
+| `REQUEST_INFLIGHT` | Final release was requested while stage or pipeline work is still in flight |
+| `REQUEST_TOMBSTONED` | Request ID is fenced by a bounded explicit/automatic release tombstone |
+| `TOMBSTONE_CAPACITY` | A new release/expiry fence cannot be installed; existing fences and live state are retained and the operation fails closed |
+| `LEASE_EXPIRED` | A T0/T1 execution completed after its internal lease was fenced; its result/KV state was discarded |
 
 ## 11. Required conformance corpus
 
@@ -222,7 +292,45 @@ text. Hashes use `sha256:<64 lowercase hex>`.
 - Duplicate same CRC, duplicate different CRC, and out-of-order sequence.
 - Cancellation before queue, while queued, and after execution starts.
 - Credit exhaustion and recovery.
+- Exact duplicate data frame replays the cached wire response without calling
+  the backend again.
+- Replay and sequence histories stay bounded; after the next input is accepted,
+  an older retry fails closed without backend execution.
+- A malformed optional `request_sequence_no` is rejected as `METADATA` and does
+  not terminate the worker process.
+- A valid-CRC non-finite tensor returns `TENSOR_CONTRACT`, restores credit, and
+  leaves the worker able to process the next valid frame.
+- Backend capability attestation is recorded before manifest load; requested
+  values are never reported as observed facts.
+- Final request release clears request-owned backend, wire-replay, KV-epoch, and
+  orchestrator admission state; repeat release is idempotent and in-flight
+  release fails closed.
+- Partial-pipeline exact retry reuses the upstream retained result, simulated
+  result decoration is atomic with replay visibility, logical sequence rejection
+  preserves same-channel release, and partial release fences new execution until
+  a retry finishes cleanup.
+- Live-request, completed-result, transform-cache, retained-byte, and event
+  histories stay within configured bounds, with health counters exposing the
+  current and high-water values.
+- Idle expiry reclaims request-owned state, late execution-lease completion
+  cannot resurrect it, and count/time-bounded tombstones fence request-ID reuse
+  after a data-channel reconnect to the same worker.
+- Logical/native imports validate descriptors and bytes, expose copy and
+  high-water accounting, and release every staging allocation on success and
+  failure paths.
 
 Conformance must run in T0/T1 and against the physical T3 channel before G2
 `PROCEED`. G1 authorized Engine v0 against reference/simulated backends; it did
 not close physical channel conformance.
+
+### Golden change record — 2026-07-17
+
+The Stage ABI v1 golden conformance list grew from 24 to 31 named checks for the
+optional request-sequence fallback/type rule, exact minor-version rejection,
+bounded sequence history, and backend-factory capability attestation, plus
+socketpair proof that duplicate frames do not execute twice and non-finite input
+does not kill the worker. The
+FNX1 frame bytes, manifest hashes, reference tensor payload, and ABI major/minor
+did not change. This is a stronger validation of the existing v1 contract, not a
+wire-format revision. The separate Stage Backend API moved from v1 to v2 when
+`release` and retention health became required; FNX1 remains exactly wire 1.0.

@@ -1,28 +1,25 @@
 # Fornax — heterogeneous frontier-model serving
 
-**Fornax** is building a **Mojo/MAX-native distributed inference engine** — a *custom
-surgery of MAX* — that makes a fleet of heterogeneous, commodity machines
-(consumer NVIDIA GPUs + Apple Silicon Macs + whatever else is on the LAN) serve a
-**single frontier-scale MoE model that no individual node can hold**, at high
-*aggregate* throughput, on-prem, for firms that want frontier capability in-house
-without shipping data to a provider.
+**Fornax** is building toward a **Mojo/MAX-native distributed inference engine**
+— a proposed *custom surgery of MAX* — intended to make a qualified fleet of
+heterogeneous commodity machines serve one sparse-MoE model that no individual
+node can hold. The current repository is a planner plus reference/simulated
+mechanism layer; physical cross-vendor serving is an open G2 proof.
 
-Fornax is an **engine, not a harness.** It is assembled from MAX's own
-components — graph compiler, kernel library, KV-cache primitives, the custom-op
-API — extended with the pieces MAX does not provide: heterogeneous pipeline
-execution, cross-vendor activation/KV transport, and a model-specific
-heterogeneous MoE expert runtime for Apple/NVIDIA/AMD workers (the critical path
-— see [project-plan-v4.md](project-plan-v4.md)). It plugs
-into the Ignis **harness** via the `Engine` trait as a `FornaxBackend`: Ignis
-owns the timeline/policy/replay/telemetry; **Fornax owns model execution.**
+The product boundary is **engine, not harness**. The target design composes MAX
+graph compilation, kernels, KV primitives, and custom ops with Fornax-owned
+cross-node planning, orchestration, and transport. The public Python `Engine`
+currently wraps only an explicitly supplied `str -> str` generator; no bundled
+physical generator or Ignis integration is implemented. See
+[project-plan-v4.md](project-plan-v4.md) for the target boundary.
 
 ## The one-line thesis
 
 > Frontier open models are large **sparse MoE** (capacity-bound to store,
 > compute-light per token). Heterogeneous commodity hardware is **cheap capacity
 > (Mac unified memory) + cheap compute (consumer GPUs)**. The shapes match — the
-> bottleneck is the **interconnect**, and the engineering is an engine that hides
-> it: MAX's portable kernels under a heterogeneous pipeline of our own.
+> bottleneck is the **interconnect**. The product hypothesis is that MAX kernels
+> plus a Fornax-owned heterogeneous pipeline can manage that constraint.
 
 ## What it is not
 
@@ -35,20 +32,18 @@ hidden states -> router -> local expert batches + remote expert batches
               -> weighted gather -> next layer
 ```
 
-The dense path (attention, KV, routers, shared/hot experts, sampler) stays on
-the fastest local accelerator group whenever possible. Heterogeneous workers
-extend model capacity and throughput by running pipeline stages and/or bounded
-routed-expert batches, not by pretending every device can participate in every
-operation equally.
+In the target design, the dense path stays on the fastest qualified accelerator
+group whenever possible. Pipeline stages are the baseline cross-node spine;
+routed-expert batches are deferred and unimplemented.
 
 ## The honest constraint (read first)
 
 When the model exceeds the biggest node, **every token crosses the network**.
 Even when the network is provisioned for this workload, a spanned model has a
 pipeline and synchronization floor that a single-node model does not. Fornax
-preserves **aggregate throughput and utilization** (high total tok/s, high
-$/token efficiency) via continuous batching, overlap, expert locality, and
-balanced stages — *not* single-stream latency parity. That latency cost is the
+targets aggregate throughput and utilization via future integrated batching,
+overlap, expert locality, and balanced stages; those physical benefits are not
+yet proven. It does *not* target single-stream latency parity. That latency cost is the
 irreducible price of spanning. See
 [project-plan-v4.md](project-plan-v4.md#2-product-hypothesis-and-constraints).
 
@@ -56,9 +51,15 @@ irreducible price of spanning. See
 
 | Doc | What it covers |
 |---|---|
-| [project-plan-v4.md](project-plan-v4.md) | Current plan: assumption-driven Engine v0, production Stage ABI, physical G2 validation, and frontier-capacity roadmap |
+| [project-plan-v4.md](project-plan-v4.md) | Current plan of record; its “production ABI” target is implemented today only as experimental FNX1 v1 at T0/T1 |
 | [simulation-and-assumption-contract.md](simulation-and-assumption-contract.md) | Named hardware assumptions, scenario matrix, simulator/backend contract, and physical replacement rules |
-| [stage-runtime-and-wire-abi.md](stage-runtime-and-wire-abi.md) | Stable StageExecutable interface and framed TCP tensor protocol |
+| [stage-runtime-and-wire-abi.md](stage-runtime-and-wire-abi.md) | Versioned experimental StageExecutable interface and framed TCP tensor protocol |
+| [stage-abi-v2-ragged-design.md](stage-abi-v2-ragged-design.md) | Implemented candidate FNX2 T0/T1 contract, exact-wire golden, slow oracle, integrated scheduler, and two-worker ragged loopback; physical MAX conformance remains open |
+| [abi-terminology-erratum-2026-07-17.md](abi-terminology-erratum-2026-07-17.md) | Clarifies that plan v4's “production ABI” phrase names a target role; current FNX1 is experimental T0/T1 |
+| [planner-status-erratum-2026-07-17.md](planner-status-erratum-2026-07-17.md) | Records the implemented exploratory/deployment authority split, provenance/confidence/error fields, exact capability admission, and the remaining physical-calibration boundary |
+| [founder-proxy-review-follow-up-2026-07-17.md](founder-proxy-review-follow-up-2026-07-17.md) | Dated proxy-lens disposition of the 2026-07-13 platform/DX review; records actions closed, partial, and still blocking without implying named-person participation or endorsement |
+| [g2-in-a-box.md](g2-in-a-box.md) | One-command, fail-closed G2 readiness/physical-validation runner; exact lineage/model/device/command capture and durable bundle contract |
+| [max-fork-build-reproducibility.md](max-fork-build-reproducibility.md) | Tracked MAX lineage pin, clean-build procedure, and cross-node compatibility requirements |
 | [partitioner-spec.md](partitioner-spec.md) | Throughput-optimizing heterogeneous MoE partitioner: stage/expert placement, cost model, search, and contract/golden-vector expectations |
 | [deepseek-v2-lite-max-check.md](deepseek-v2-lite-max-check.md) | 2026-07-01 source-built MAX evidence for `deepseek-ai/DeepSeek-V2-Lite-Chat` on Apple Silicon M3 Max, including MLA/MoE/gather blockers cleared and remaining caveats |
 | [max-operator-platform-support.md](max-operator-platform-support.md) | Dated MAX operator/platform support map, now annotated with the local Apple DeepSeek MLA smoke result |
@@ -69,9 +70,15 @@ irreducible price of spanning. See
 ## Status
 
 The root `fornax/` package is the Python planner plus the completed Phase 0.5
-Engine v0 simulation/contract/smoke layer. The production Stage ABI,
-reference/simulated MAX backends, two-process worker path, loopback TCP, and
-bounded scheduler are closed at T0/T1 so hardware scarcity did not stall M1.
+Engine v0 simulation/contract/smoke layer. Experimental FNX1 v1 and its
+two-process lockstep loopback remain the historical T0/T1 baseline. Candidate
+FNX2 now adds an integrated bounded ragged scheduler, unequal prefill,
+changing-subset decode, per-sequence results, lease/replay semantics, and two
+independent loopback workers at T0/T1. The reference/simulated lifecycle also
+has opportunistic expiry, internal leases, same-worker reconnect tombstones,
+and a copy-explicit bounded buffer seam. Restart-durable fencing, a current
+1,800-second evidence artifact, and physical native-KV/buffer validation remain
+open, so the engine is not evidenced as memory-bounded for indefinite service.
 The local `external/modular` checkout carries MAX backend work
 for Apple Silicon. As of 2026-07-01, the local source-built MAX tree can run a
 short `DeepSeek-V2-Lite-Chat` smoke on an M3 Max after adding Apple MLA prefill,
@@ -80,9 +87,17 @@ support. That evidence is recorded in
 [deepseek-v2-lite-max-check.md](deepseek-v2-lite-max-check.md).
 
 This does **not** close G2 or imply production Apple serving. DEC-008 closes only
-the bounded Engine v0 T0/T1 scope. The Apple run is rank-1 local probe
+the recorded Engine v0 T0/T1 scope. The Apple run is rank-1 local probe
 evidence for a single Mac, source-built MAX commit, model,
 dtype, prompt size, and short generation count. Remaining work includes
 numerical parity, optimized decode/MoE paths, serving-mode validation, longer
 contexts, batching, memory-pressure checks, and the target expert-MLP probe that
 decides Apple's v0 Fornax role.
+
+The current working tree contains an uncommitted MAX root-pin/reconstruction
+mechanism in
+[`dependencies/max-lineage.json`](../../dependencies/max-lineage.json). Run
+`python3 -m fornax program g2-validate --out-dir <new-directory>` to verify the
+pin and current T0/T1 prerequisites; without a physical run manifest it reports
+V6-V10 as blocked and does not close G2. The mechanism becomes durable
+repository lineage only after commit.

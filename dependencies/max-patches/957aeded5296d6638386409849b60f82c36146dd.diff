@@ -1,0 +1,2973 @@
+diff --git a/max/kernels/src/graph_compiler/builtin_kernels/gather_scatter.mojo b/max/kernels/src/graph_compiler/builtin_kernels/gather_scatter.mojo
+index 8ce4ea6..a3b42d2 100644
+--- a/max/kernels/src/graph_compiler/builtin_kernels/gather_scatter.mojo
++++ b/max/kernels/src/graph_compiler/builtin_kernels/gather_scatter.mojo
+@@ -19,6 +19,7 @@
+ from std.math import gcd
+ from std.sys import align_of
+ from std.sys.info import simd_width_of
++from std.gpu import block_dim, block_idx, thread_idx
+ import extensibility as compiler
+ 
+ # ===-----------------------------------------------------------------------===#
+@@ -26,11 +27,11 @@ import extensibility as compiler
+ # ===-----------------------------------------------------------------------===#
+ 
+ from std.gpu.host import DeviceContext, DeviceContextList
+-from std.gpu.host.info import is_cpu
++from std.gpu.host.info import is_cpu, is_gpu
+ from layout import IntTuple, TileTensor, UNKNOWN_VALUE, coord_to_index_list
+ from layout.int_tuple import _IntTupleToCoordLike
+ from layout.coord import DynamicCoord
+-from layout.tile_layout import Layout as TileLayout
++from layout.tile_layout import Layout as TileLayout, TensorLayout
+ from nn.concat import fused_concat, _fused_dual_concat_gpu
+ from nn.gather_scatter import (
+     Axis,
+@@ -104,6 +105,82 @@ from .kernels import (
+ )
+ 
+ 
++comptime APPLE_GATHER_AXIS0_INPUT_RANK2_BLOCK = 256
++
++
++def apple_gather_axis0_input_rank2_kernel[
++    dtype: DType,
++    indices_type: DType,
++    output_layout: TensorLayout,
++    input_layout: TensorLayout,
++    indices_layout: TensorLayout,
++](
++    output: TileTensor[dtype, output_layout, MutAnyOrigin],
++    input: TileTensor[dtype, input_layout, MutAnyOrigin],
++    indices: TileTensor[indices_type, indices_layout, MutAnyOrigin],
++    input_rows: Int,
++    indices_count: Int,
++    cols: Int,
++):
++    var linear = Int(block_idx.x) * Int(block_dim.x) + Int(thread_idx.x)
++    var total = indices_count * cols
++    if linear >= total:
++        return
++
++    var linear_u = UInt32(linear)
++    var cols_u = UInt32(cols)
++    var index_position_u = linear_u / cols_u
++    var index_position = Int(index_position_u)
++    var col = Int(linear_u - index_position_u * cols_u)
++    var src_row = Int(indices.ptr[index_position])
++    if src_row < 0:
++        src_row += input_rows
++    debug_assert(
++        0 <= src_row and src_row < input_rows,
++        "Apple rank-2 gather index out of bounds.",
++    )
++    output.ptr[linear] = input.ptr[src_row * cols + col]
++
++
++def apple_gather_axis0_input_rank2[
++    dtype: DType,
++    indices_type: DType,
++    output_layout: TensorLayout,
++    input_layout: TensorLayout,
++    indices_layout: TensorLayout,
++](
++    output: TileTensor[dtype, output_layout, MutAnyOrigin],
++    input: TileTensor[dtype, input_layout, MutAnyOrigin],
++    indices: TileTensor[indices_type, indices_layout, MutAnyOrigin],
++    ctx: DeviceContext,
++) raises:
++    var input_rows = Int(input.dim(0))
++    var indices_count = indices.num_elements()
++    var cols = Int(input.dim(1))
++    if indices_count == 0 or cols == 0:
++        return
++
++    comptime kernel = apple_gather_axis0_input_rank2_kernel[
++        dtype,
++        indices_type,
++        output_layout,
++        input_layout,
++        indices_layout,
++    ]
++    ctx.enqueue_function[kernel](
++        output,
++        input,
++        indices,
++        input_rows,
++        indices_count,
++        cols,
++        grid_dim=ceildiv(
++            indices_count * cols, APPLE_GATHER_AXIS0_INPUT_RANK2_BLOCK
++        ),
++        block_dim=APPLE_GATHER_AXIS0_INPUT_RANK2_BLOCK,
++    )
++
++
+ @always_inline
+ def check_axis_in_range[idx: Int, dim_size: Int]() raises:
+     """Indices passed to gather and scatter ops may be negative. This performs
+@@ -1458,56 +1535,76 @@ struct Gather:
+         target: StaticString,
+         _trace_name: StaticString,
+         axis: Int,
++        input_rank: Int,
++        indices_rank: Int,
+     ](
+         output: FusedOutputTensor,
+-        input: FusedInputTensor[dtype=output.dtype, ...],
+-        indices: FusedInputTensor,
++        input: FusedInputTensor[dtype=output.dtype, rank=input_rank, ...],
++        indices: FusedInputTensor[rank=indices_rank, ...],
+         ctx: DeviceContext,
+     ) capturing raises:
+-        @always_inline
+-        def input_fn[
+-            width: Int, _rank: Int, element_alignment: Int
+-        ](coords: IndexList[_rank]) {var input} -> SIMD[output.dtype, width]:
+-            return input._lambda_load[
+-                width=width, element_alignment=element_alignment
+-            ](rebind[IndexList[input.rank]](coords))
+-
+-        @always_inline
+-        def indices_fn[
+-            width: Int, _rank: Int
+-        ](coords: IndexList[_rank]) {var indices} -> SIMD[indices.dtype, width]:
+-            return indices._fused_load[width=width](
+-                rebind[IndexList[indices.rank]](coords)
++        comptime if is_gpu[target]() and axis == 0 and input_rank == 2:
++            apple_gather_axis0_input_rank2[
++                output.dtype,
++                indices.dtype,
++                type_of(output.to_tile_tensor()).LayoutType,
++                type_of(input.to_tile_tensor()).LayoutType,
++                type_of(indices.to_tile_tensor()).LayoutType,
++            ](
++                output.to_tile_tensor(),
++                input.to_tile_tensor(),
++                indices.to_tile_tensor(),
++                ctx,
+             )
++        else:
++            @always_inline
++            def input_fn[
++                width: Int, _rank: Int, element_alignment: Int
++            ](coords: IndexList[_rank]) {
++                var input
++            } -> SIMD[output.dtype, width]:
++                return input._lambda_load[
++                    width=width, element_alignment=element_alignment
++                ](rebind[IndexList[input.rank]](coords))
++
++            @always_inline
++            def indices_fn[
++                width: Int, _rank: Int
++            ](coords: IndexList[_rank]) {
++                var indices
++            } -> SIMD[indices.dtype, width]:
++                return indices._fused_load[width=width](
++                    rebind[IndexList[indices.rank]](coords)
++                )
+ 
+-        @always_inline
+-        def output_fn[
+-            width: SIMDSize, _rank: Int, element_alignment: Int
+-        ](coords: IndexList[_rank], val: SIMD[output.dtype, width]) {
+-            var output
+-        }:
+-            output._lambda_store[
+-                width=width, element_alignment=element_alignment
++            @always_inline
++            def output_fn[
++                width: SIMDSize, _rank: Int, element_alignment: Int
++            ](coords: IndexList[_rank], val: SIMD[output.dtype, width]) {
++                var output
++            }:
++                output._lambda_store[
++                    width=width, element_alignment=element_alignment
++                ](
++                    rebind[IndexList[output.rank]](coords),
++                    rebind[SIMD[output.dtype, width]](val),
++                )
++
++            gather[
++                output.dtype,
++                indices.dtype,
++                target=target,
+             ](
+-                rebind[IndexList[output.rank]](coords),
+-                rebind[SIMD[output.dtype, width]](val),
++                Axis(axis, input.rank),
++                input.shape(),
++                indices.shape(),
++                output.shape(),
++                input_fn=input_fn,
++                indices_fn=indices_fn,
++                output_fn=output_fn,
++                context=ctx,
+             )
+ 
+-        gather[
+-            output.dtype,
+-            indices.dtype,
+-            target=target,
+-        ](
+-            Axis(axis, input.rank),
+-            input.shape(),
+-            indices.shape(),
+-            output.shape(),
+-            input_fn=input_fn,
+-            indices_fn=indices_fn,
+-            output_fn=output_fn,
+-            context=ctx,
+-        )
+-
+ 
+ @compiler.register_shape_function("mo.gather")
+ def gather_shape_fn[
+diff --git a/max/kernels/src/nn/attention/gpu/apple/__init__.mojo b/max/kernels/src/nn/attention/gpu/apple/__init__.mojo
+index b4b110b..c2ff45d 100644
+--- a/max/kernels/src/nn/attention/gpu/apple/__init__.mojo
++++ b/max/kernels/src/nn/attention/gpu/apple/__init__.mojo
+@@ -20,3 +20,14 @@ from .naive_fa_decode import (
+     naive_fa_decode_apple_core,
+     naive_fa_decode_apple_stitch,
+ )
++from .mla_prefill import (
++    mla_prefill_apple,
++    mla_prefill_apple_core,
++    mla_prefill_apple_m3,
++    mla_prefill_apple_m3_core,
++)
++from .mla_decode import (
++    mla_decode_apple,
++    mla_decode_apple_core,
++    mla_decode_apple_stitch,
++)
+diff --git a/max/kernels/src/nn/attention/gpu/apple/mla_decode.mojo b/max/kernels/src/nn/attention/gpu/apple/mla_decode.mojo
+new file mode 100644
+index 0000000..dd9d267
+--- /dev/null
++++ b/max/kernels/src/nn/attention/gpu/apple/mla_decode.mojo
+@@ -0,0 +1,466 @@
++# ===----------------------------------------------------------------------=== #
++# Copyright (c) 2026, Modular Inc. All rights reserved.
++#
++# Licensed under the Apache License v2.0 with LLVM Exceptions:
++# https://llvm.org/LICENSE.txt
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++# ===----------------------------------------------------------------------=== #
++"""Apple (Metal) correctness-first MLA decode fallback.
++
++This is the MLA counterpart to `naive_fa_decode_apple`: one simdgroup owns one
++`(batch, head, split)` producer block, computes Q.K over the full MLA cache row,
++and accumulates P.V over the latent/value prefix of the same row. A stitch kernel
++combines split-K partials.
++
++It is intentionally narrow for M3 bring-up: ragged KV-cache decode, BF16/FP16
++storage, one query token per sequence, no sparse/FP8/attention-sink paths.
++"""
++
++from std.collections import OptionalReg
++from std.gpu import WARP_SIZE, block_idx, lane_id, thread_idx
++from std.gpu.host import DeviceContext
++from std.gpu.memory import AddressSpace
++from std.math import ceildiv, exp
++from std.sys import llvm_intrinsic
++from std.utils.index import Index
++from std.utils.numerics import get_accum_type
++
++from layout import TileTensor
++from layout.coord import Coord
++from layout.tile_layout import TensorLayout, row_major
++
++from nn.attention.mha_mask import MHAMask
++from nn.attention.mha_operand import MHAOperand
++from nn.attention.gpu.mha import mha_gpu_naive
++
++
++comptime MLA_DECODE_APPLE_SPLIT_SIZE = 32
++comptime MLA_DECODE_APPLE_MAX_DEPTH = 576
++comptime MLA_DECODE_APPLE_COPY_BLOCK = 128
++comptime NEG_INF = Float32(-3.0e38)
++
++
++@always_inline
++def _apple_simd_sum(val: Float32) -> Float32:
++    return llvm_intrinsic["llvm.air.simd_sum", Float32](val)
++
++
++@always_inline
++def _ml_idx(
++    b: Int, head: Int, split: Int, num_heads: Int, num_partitions: Int
++) -> Int:
++    return (b * num_heads + head) * num_partitions + split
++
++
++@always_inline
++def _o_idx(
++    b: Int,
++    head: Int,
++    d: Int,
++    split: Int,
++    num_heads: Int,
++    depth_v: Int,
++    num_partitions: Int,
++) -> Int:
++    return ((b * num_heads + head) * depth_v + d) * num_partitions + split
++
++
++def mla_decode_apple_core[
++    q_type: DType,
++    output_type: DType,
++    p_type: DType,
++    k_t: MHAOperand,
++    mask_t: MHAMask,
++    p_layout: TensorLayout,
++    q_layout: TensorLayout,
++    valid_length_layout: TensorLayout,
++    ragged: Bool = True,
++    _use_valid_length: Bool = True,
++    _is_cache_length_accurate: Bool = False,
++    *,
++    Depth: Int,
++    DepthV: Int,
++    SplitSize: Int,
++](
++    o_partial: TileTensor[p_type, p_layout, MutAnyOrigin],
++    m_partial: TileTensor[p_type, p_layout, MutAnyOrigin],
++    l_partial: TileTensor[p_type, p_layout, MutAnyOrigin],
++    q: TileTensor[q_type, q_layout, ImmutAnyOrigin],
++    k: k_t,
++    mask_functor: mask_t,
++    valid_length: TileTensor[
++        DType.uint32,
++        valid_length_layout,
++        ImmutAnyOrigin,
++    ],
++    scale: Float32,
++    batch_size: Int,
++    max_prompt_len: Int,
++    max_cache_size: Int,
++    num_heads: Int,
++    depth: Int,
++    depth_v: Int,
++    group: Int,
++    num_partitions: Int,
++):
++    comptime assert Depth % WARP_SIZE == 0, (
++        "mla_decode_apple_core requires Depth % WARP_SIZE == 0"
++    )
++    comptime assert DepthV % WARP_SIZE == 0, (
++        "mla_decode_apple_core requires DepthV % WARP_SIZE == 0"
++    )
++    comptime assert DepthV <= Depth, "MLA value depth must be a prefix of K"
++    comptime assert ragged, "Apple MLA decode fallback currently supports ragged only"
++    comptime assert (
++        not _is_cache_length_accurate
++    ), "Apple MLA decode fallback expects KV cache length before the new token"
++    comptime Q_EPL = Depth // WARP_SIZE
++    comptime O_EPL = DepthV // WARP_SIZE
++    debug_assert(depth == Depth, "runtime depth must match comptime Depth")
++    debug_assert(depth_v == DepthV, "runtime depth_v must match comptime DepthV")
++
++    var split_id = Int(block_idx.x)
++    var batch_id = Int(block_idx.y)
++    var head_id = Int(block_idx.z)
++    var kv_head = head_id // group
++    var lane = Int(lane_id())
++
++    var seq_start: Int
++    var cur_query_len: Int
++    var q_offset: Int
++    var cur_cache_len: Int
++    comptime if ragged:
++        seq_start = Int(valid_length[batch_id])
++        var seq_end = Int(valid_length[batch_id + 1])
++        cur_query_len = seq_end - seq_start
++        q_offset = Depth * (seq_start * num_heads + head_id)
++        cur_cache_len = k.cache_length(batch_id) + cur_query_len
++    elif _use_valid_length:
++        seq_start = batch_id
++        cur_query_len = Int(valid_length[batch_id])
++        q_offset = Depth * (head_id + num_heads * max_prompt_len * batch_id)
++        cur_cache_len = k.cache_length(batch_id) + cur_query_len
++    else:
++        seq_start = batch_id
++        cur_query_len = max_prompt_len
++        q_offset = Depth * (head_id + num_heads * max_prompt_len * batch_id)
++        cur_cache_len = max_cache_size
++
++    # This fallback is decode-only. The graph router should send S>1 to prefill.
++    if cur_query_len != 1:
++        return
++
++    var start = split_id * SplitSize
++    if start >= cur_cache_len:
++        return
++    var end = min(start + SplitSize, cur_cache_len)
++    var score_row = cur_cache_len - cur_query_len
++
++    var q_frag = q.load[width=Q_EPL](Coord(q_offset + lane * Q_EPL)).cast[
++        DType.float32
++    ]()
++    var k_layout = row_major(Coord(Depth))
++    var v_layout = row_major(Coord(DepthV))
++
++    var m = NEG_INF
++    var l = Float32(0.0)
++    var o_frag = SIMD[DType.float32, O_EPL](0.0)
++
++    for kv0 in range(start, end, SplitSize):
++        var partials = SIMD[DType.float32, SplitSize](0.0)
++
++        comptime for kk in range(SplitSize):
++            var j = kv0 + kk
++            if j < end:
++                var k_tile = k.block_paged_tile[1](
++                    UInt32(batch_id),
++                    UInt32(j),
++                    UInt32(kv_head),
++                    k_layout,
++                )
++                var kvec = k_tile.load[width=Q_EPL](Coord(lane * Q_EPL)).cast[
++                    DType.float32
++                ]()
++                partials[kk] = (q_frag * kvec).reduce_add()
++
++        var scores = SIMD[DType.float32, SplitSize](NEG_INF)
++        comptime for kk in range(SplitSize):
++            var j = kv0 + kk
++            if j < end:
++                var s = _apple_simd_sum(partials[kk]) * scale
++                scores[kk] = mask_functor.mask(
++                    Index(batch_id, head_id, score_row, j), s
++                )
++
++        var m_tile = scores.reduce_max()
++        var m_new = max(m, m_tile)
++        var alpha = exp(m - m_new)
++        var p = exp(scores - m_new)
++        l = l * alpha + p.reduce_add()
++        m = m_new
++        o_frag = o_frag * alpha
++
++        comptime for kk in range(SplitSize):
++            var j = kv0 + kk
++            if j < end:
++                var v_tile = k.block_paged_tile[1](
++                    UInt32(batch_id),
++                    UInt32(j),
++                    UInt32(kv_head),
++                    v_layout,
++                )
++                var vvec = v_tile.load[width=O_EPL](Coord(lane * O_EPL)).cast[
++                    DType.float32
++                ]()
++                o_frag = o_frag + p[kk] * vvec
++
++    comptime assert (
++        o_partial.flat_rank == 1
++        and m_partial.flat_rank == 1
++        and l_partial.flat_rank == 1
++    ), "partials are flat 1D TileTensors"
++    comptime for i in range(O_EPL):
++        var d = lane * O_EPL + i
++        var oi = _o_idx(
++            batch_id, head_id, d, split_id, num_heads, DepthV, num_partitions
++        )
++        o_partial[oi] = rebind[o_partial.ElementType](
++            SIMD[p_type, 1](o_frag[i].cast[p_type]())
++        )
++    if lane == 0:
++        var idx = _ml_idx(
++            batch_id, head_id, split_id, num_heads, num_partitions
++        )
++        l_partial[idx] = rebind[l_partial.ElementType](
++            SIMD[p_type, 1](l.cast[p_type]())
++        )
++        m_partial[idx] = rebind[m_partial.ElementType](
++            SIMD[p_type, 1](m.cast[p_type]())
++        )
++
++
++def mla_decode_apple_stitch[
++    output_type: DType,
++    p_type: DType,
++    k_t: MHAOperand,
++    mask_t: MHAMask,
++    output_layout: TensorLayout,
++    p_layout: TensorLayout,
++    valid_length_layout: TensorLayout,
++    ragged: Bool = True,
++    _use_valid_length: Bool = True,
++    _is_cache_length_accurate: Bool = False,
++    *,
++    SplitSize: Int,
++](
++    output: TileTensor[output_type, output_layout, MutAnyOrigin],
++    o_partial: TileTensor[p_type, p_layout, ImmutAnyOrigin],
++    m_partial: TileTensor[p_type, p_layout, ImmutAnyOrigin],
++    l_partial: TileTensor[p_type, p_layout, ImmutAnyOrigin],
++    k: k_t,
++    valid_length: TileTensor[
++        DType.uint32,
++        valid_length_layout,
++        ImmutAnyOrigin,
++    ],
++    max_prompt_len: Int,
++    max_cache_size: Int,
++    num_heads: Int,
++    depth_v: Int,
++    num_partitions: Int,
++):
++    comptime assert ragged, "Apple MLA decode fallback currently supports ragged only"
++    comptime assert (
++        not _is_cache_length_accurate
++    ), "Apple MLA decode fallback expects KV cache length before the new token"
++    var head_id = Int(block_idx.x)
++    var batch_id = Int(block_idx.y)
++    var d = Int(thread_idx.x)
++
++    if d >= depth_v:
++        return
++
++    var seq_start: Int
++    var cur_query_len: Int
++    var cur_cache_len: Int
++    comptime if ragged:
++        seq_start = Int(valid_length[batch_id])
++        var seq_end = Int(valid_length[batch_id + 1])
++        cur_query_len = seq_end - seq_start
++        cur_cache_len = k.cache_length(batch_id) + cur_query_len
++    elif _use_valid_length:
++        seq_start = batch_id
++        cur_query_len = Int(valid_length[batch_id])
++        cur_cache_len = k.cache_length(batch_id) + cur_query_len
++    else:
++        seq_start = batch_id
++        cur_query_len = max_prompt_len
++        cur_cache_len = max_cache_size
++
++    if cur_query_len != 1:
++        return
++
++    comptime assert (
++        o_partial.flat_rank == 1
++        and m_partial.flat_rank == 1
++        and l_partial.flat_rank == 1
++        and output.flat_rank == 1
++    ), "partials and output are flat 1D TileTensors"
++
++    var active_splits = ceildiv(cur_cache_len, SplitSize)
++    var m = NEG_INF
++    var l = Float32(0.0)
++    var acc = Float32(0.0)
++
++    for split in range(active_splits):
++        var ml = _ml_idx(batch_id, head_id, split, num_heads, num_partitions)
++        var m_s = rebind[Scalar[p_type]](m_partial[ml]).cast[DType.float32]()
++        var m_new = max(m, m_s)
++        var corr = exp(m - m_new)
++        var p = exp(m_s - m_new)
++        var l_s = rebind[Scalar[p_type]](l_partial[ml]).cast[DType.float32]()
++        l = l * corr + p * l_s
++        var oi = _o_idx(
++            batch_id, head_id, d, split, num_heads, depth_v, num_partitions
++        )
++        var o_s = rebind[Scalar[p_type]](o_partial[oi]).cast[DType.float32]()
++        acc = acc * corr + p * o_s
++        m = m_new
++
++    var out_off = (seq_start * num_heads + head_id) * depth_v
++    output[out_off + d] = rebind[output.ElementType](
++        SIMD[output_type, 1]((acc / l).cast[output_type]())
++    )
++
++
++def mla_decode_apple_copy_latent[
++    output_type: DType,
++    output_layout: TensorLayout,
++    temp_layout: TensorLayout,
++](
++    output: TileTensor[output_type, output_layout, MutAnyOrigin],
++    temp: TileTensor[output_type, temp_layout, ImmutAnyOrigin],
++    total_rows: Int,
++    depth: Int,
++    depth_v: Int,
++):
++    var d = Int(block_idx.x) * MLA_DECODE_APPLE_COPY_BLOCK + Int(thread_idx.x)
++    var row = Int(block_idx.y)
++    if row >= total_rows or d >= depth_v:
++        return
++    comptime assert (
++        output.flat_rank == 1 and temp.flat_rank == 1
++    ), "copy inputs are flat 1D TileTensors"
++    output[row * depth_v + d] = temp[row * depth + d]
++
++
++def mla_decode_apple[
++    q_type: DType,
++    output_type: DType,
++    k_t: MHAOperand,
++    mask_t: MHAMask,
++    *,
++    ragged: Bool = True,
++    _use_valid_length: Bool = True,
++    _is_cache_length_accurate: Bool = False,
++](
++    output: TileTensor[
++        mut=True, output_type, address_space=AddressSpace.GENERIC, ...
++    ],
++    q: TileTensor[q_type, address_space=AddressSpace.GENERIC, ...],
++    k: k_t,
++    mask_functor: mask_t,
++    valid_length: TileTensor[
++        DType.uint32, address_space=AddressSpace.GENERIC, ...
++    ],
++    scale: Float32,
++    batch_size: Int,
++    max_prompt_len: Int,
++    max_cache_size: Int,
++    num_heads: Int,
++    depth: Int,
++    depth_v: Int,
++    group: Int,
++    ctx: DeviceContext,
++) raises:
++    comptime assert q_type in (DType.bfloat16, DType.float16), (
++        "mla_decode_apple initially supports bf16/fp16 inputs only"
++    )
++    comptime assert output_type in (DType.bfloat16, DType.float16), (
++        "mla_decode_apple initially supports bf16/fp16 outputs only"
++    )
++    comptime assert k_t.dtype == q_type, (
++        "mla_decode_apple expects KV cache dtype to match Q dtype"
++    )
++    comptime assert ragged, "mla_decode_apple currently supports ragged decode only"
++    comptime assert (
++        not _is_cache_length_accurate
++    ), "mla_decode_apple expects cache_length before the new token"
++
++    if batch_size == 0 or max_prompt_len == 0:
++        return
++
++    debug_assert(max_prompt_len == 1, "mla_decode_apple is decode-only")
++    debug_assert(depth % WARP_SIZE == 0, "MLA decode depth must split by simdgroup")
++    debug_assert(
++        depth_v % WARP_SIZE == 0,
++        "MLA decode output depth must split by simdgroup",
++    )
++    debug_assert(depth <= MLA_DECODE_APPLE_MAX_DEPTH, "unsupported MLA depth")
++    debug_assert(depth_v <= depth, "MLA value depth must be a prefix of K")
++
++    var total_rows = Int(output.num_elements()) // depth_v
++    var temp_n = total_rows * depth
++    var temp_dev = ctx.enqueue_create_buffer[output_type](temp_n)
++    var temp_tt = TileTensor(temp_dev, row_major(Coord(temp_n)))
++    var latent_output_flat = TileTensor(
++        output.ptr.as_unsafe_any_origin(),
++        row_major(Coord(Int(output.num_elements()))),
++    )
++    var temp_imm = TileTensor(
++        temp_dev.unsafe_ptr().as_immutable().as_unsafe_any_origin(),
++        row_major(Coord(temp_n)),
++    )
++
++    mha_gpu_naive[
++        ragged=ragged,
++        _use_valid_length=_use_valid_length,
++        _is_cache_length_accurate=_is_cache_length_accurate,
++    ](
++        q.to_layout_tensor(),
++        k,
++        k,
++        mask_functor,
++        temp_tt.to_layout_tensor(),
++        valid_length.to_layout_tensor(),
++        scale,
++        batch_size,
++        max_prompt_len,
++        max_cache_size,
++        num_heads,
++        depth,
++        group,
++        ctx,
++    )
++
++    comptime copy_kernel = mla_decode_apple_copy_latent[
++        output_type,
++        type_of(latent_output_flat).LayoutType,
++        type_of(temp_imm).LayoutType,
++    ]
++    ctx.enqueue_function[copy_kernel](
++        latent_output_flat,
++        temp_imm,
++        total_rows,
++        depth,
++        depth_v,
++        grid_dim=(ceildiv(depth_v, MLA_DECODE_APPLE_COPY_BLOCK), total_rows),
++        block_dim=MLA_DECODE_APPLE_COPY_BLOCK,
++    )
++
++    _ = temp_dev^
+diff --git a/max/kernels/src/nn/attention/gpu/apple/mla_prefill.mojo b/max/kernels/src/nn/attention/gpu/apple/mla_prefill.mojo
+new file mode 100644
+index 0000000..d5d3af8
+--- /dev/null
++++ b/max/kernels/src/nn/attention/gpu/apple/mla_prefill.mojo
+@@ -0,0 +1,953 @@
++# ===----------------------------------------------------------------------=== #
++# Copyright (c) 2026, Modular Inc. All rights reserved.
++#
++# Licensed under the Apache License v2.0 with LLVM Exceptions:
++# https://llvm.org/LICENSE.txt
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++# ===----------------------------------------------------------------------=== #
++"""Apple (Metal) M5 MMA-based MLA prefill kernel.
++
++This is the Apple counterpart to `flare_mla_prefill`'s generic prefill path. It
++uses the same wide-threadgroup/no-SMEM style as `fa_prefill_apple`, but builds
++MLA scores from two terms:
++
++    score = Q_nope @ K_nope.T + Q_rope @ K_rope.T
++
++The first milestone is deliberately narrow: BF16/FP16 storage, FP32
++accumulation, head dimensions that are multiples of 16, no FP8 scale path, and
++MHAOperand-based paged/ragged K/V/K_rope operands.
++"""
++
++from std.collections import InlineArray, OptionalReg
++from std.gpu import WARP_SIZE, block_idx, lane_id, warp_id
++from std.gpu.compute.arch.mma_apple import (
++    _apple_frag_layout,
++    _mma_apple_8x8,
++    _mma_apple_transposable,
++)
++from std.gpu.host import DeviceContext, Dim as LaunchDim
++from std.gpu.memory import AddressSpace
++from std.gpu.primitives.warp import shuffle_xor
++from std.math import ceildiv, exp
++from std.sys.info import size_of
++from std.utils.index import Index
++from std.utils.numerics import get_accum_type
++
++from layout import UNKNOWN_VALUE, Idx, Layout, LayoutTensor, TileTensor
++from layout.coord import Coord
++from layout.tile_layout import Layout as TileLayout, TensorLayout, row_major
++
++from linalg.arch.apple.mma import MmaOpApple
++
++from nn.attention.mha_mask import CausalMask, MHAMask, TileMaskStatus
++from nn.attention.mha_operand import MHAOperand
++
++from .fa_prefill import (
++    AppleSoftmax,
++    DEFAULT_NUM_M_MMAS,
++    DEFAULT_NUM_N_MMAS,
++    FA_PREFILL_APPLE_MAX_HEAD_DIM,
++    MMA_DIM,
++    NEG_INF,
++)
++
++
++comptime MMA8_DIM = 8
++comptime DEFAULT_NUM_N_MMAS_M3 = 2
++
++
++@always_inline
++def _frag8_layout(lane: Int) -> Tuple[Int, Int]:
++    """Apple 8x8 simdgroup-matrix per-lane layout.
++
++    The lane owns `(row, col_base)` and `(row, col_base + 1)` in an 8x8
++    fragment. This is the same layout used by the M1-M4 matmul path.
++    """
++    return (
++        ((lane & 6) >> 1) + ((lane & 16) >> 2),
++        ((lane & 1) << 1) + ((lane & 8) >> 1),
++    )
++
++
++struct AppleSoftmax8[num_n_mmas: Int]:
++    """Online-softmax state for an Apple 8x8 score tile.
++
++    One simdgroup owns 8 query rows. Each lane owns one row and two columns of
++    every 8x8 score fragment, so the per-row running max/sum are scalar in each
++    lane. The lanes sharing a row differ by XOR masks `{1, 8}`.
++    """
++
++    var m: Float32
++    var l: Float32
++
++    @always_inline
++    def __init__(out self):
++        self.m = NEG_INF
++        self.l = 0
++
++    @staticmethod
++    @always_inline
++    def _row_max(
++        scores: InlineArray[SIMD[DType.float32, 2], Self.num_n_mmas],
++    ) -> Float32:
++        var r = NEG_INF
++        comptime for ni in range(Self.num_n_mmas):
++            var frag = scores[ni]
++            r = max(r, max(frag[0], frag[1]))
++        r = max(r, shuffle_xor(r, UInt32(1)))
++        r = max(r, shuffle_xor(r, UInt32(8)))
++        return r
++
++    @staticmethod
++    @always_inline
++    def _row_sum(
++        scores: InlineArray[SIMD[DType.float32, 2], Self.num_n_mmas],
++    ) -> Float32:
++        var r = Float32(0)
++        comptime for ni in range(Self.num_n_mmas):
++            var frag = scores[ni]
++            r += frag[0] + frag[1]
++        r += shuffle_xor(r, UInt32(1))
++        r += shuffle_xor(r, UInt32(8))
++        return r
++
++    @always_inline
++    def update[
++        out_num_n_mmas: Int
++    ](
++        mut self,
++        mut scores: InlineArray[SIMD[DType.float32, 2], Self.num_n_mmas],
++        mut output: InlineArray[SIMD[DType.float32, 2], out_num_n_mmas],
++    ):
++        var m_tile = Self._row_max(scores)
++        var m_new = max(self.m, m_tile)
++        var alpha = exp(self.m - m_new)
++
++        comptime for ni in range(Self.num_n_mmas):
++            scores[ni] = exp(
++                scores[ni] - SIMD[DType.float32, 2](m_new)
++            )
++
++        self.l = self.l * alpha + Self._row_sum(scores)
++        self.m = m_new
++
++        comptime for ni in range(out_num_n_mmas):
++            output[ni] = output[ni] * SIMD[DType.float32, 2](alpha)
++
++    @always_inline
++    def normalize[
++        out_num_n_mmas: Int
++    ](
++        self,
++        mut output: InlineArray[SIMD[DType.float32, 2], out_num_n_mmas],
++    ):
++        var inv = Float32(0)
++        if self.l > 0:
++            inv = Float32(1) / self.l
++        comptime for ni in range(out_num_n_mmas):
++            output[ni] = output[ni] * SIMD[DType.float32, 2](inv)
++
++
++def mla_prefill_apple_core[
++    q_type: DType,
++    output_type: DType,
++    p_type: DType,
++    k_t: MHAOperand,
++    v_t: MHAOperand,
++    k_rope_t: MHAOperand,
++    mask_t: MHAMask,
++    q_layout: TensorLayout,
++    output_layout: TensorLayout,
++    valid_length_layout: TensorLayout,
++    ragged: Bool = True,
++    *,
++    QDepth: Int,
++    Depth: Int,
++    CacheDepth: Int,
++    NumMMmas: Int,
++    NumNMmas: Int,
++    NumSimdgroups: Int = 16,
++](
++    output: TileTensor[output_type, output_layout, MutAnyOrigin],
++    q: TileTensor[q_type, q_layout, ImmutAnyOrigin],
++    k: k_t,
++    v: v_t,
++    k_rope: k_rope_t,
++    mask_functor: mask_t,
++    valid_length: TileTensor[
++        DType.uint32,
++        valid_length_layout,
++        ImmutAnyOrigin,
++    ],
++    cache_offsets: OptionalReg[
++        LayoutTensor[
++            DType.uint32, Layout.row_major(UNKNOWN_VALUE), MutAnyOrigin
++        ]
++    ],
++    scale: Float32,
++    batch_size: Int,
++    max_prompt_len: Int,
++    num_heads: Int,
++    depth: Int,
++    q_depth: Int,
++    group: Int,
++):
++    comptime assert Depth % MMA_DIM == 0, "Depth must be a multiple of 16"
++    comptime assert QDepth % MMA_DIM == 0, "QDepth must be a multiple of 16"
++    comptime assert QDepth > Depth, "MLA prefill requires rope dimensions"
++    comptime assert k_t.page_size == 0 or k_t.page_size % MMA_DIM == 0, (
++        "mla_prefill_apple_core requires contiguous K/V or page_size % 16 == 0"
++    )
++    comptime assert k_rope_t.page_size == 0 or k_rope_t.page_size % MMA_DIM == 0, (
++        "mla_prefill_apple_core requires contiguous K_rope or page_size % 16 == 0"
++    )
++
++    comptime RopeDepth = QDepth - Depth
++    comptime SQ = NumMMmas * MMA_DIM
++    comptime SK = NumNMmas * MMA_DIM
++    comptime DEPTH_MMAS = Depth // MMA_DIM
++    debug_assert(depth == Depth, "runtime depth must match comptime Depth")
++    debug_assert(q_depth == QDepth, "runtime q_depth must match comptime QDepth")
++
++    var q_tile_id = Int(block_idx.x)
++    var head_id = Int(block_idx.y)
++    var batch_id = Int(block_idx.z)
++    var kv_head = head_id // group
++    var sg = Int(warp_id())
++    var lane = Int(lane_id())
++    var rb_cb = _apple_frag_layout(lane)
++    var rb = rb_cb[0]
++    var cb = rb_cb[1]
++
++    var seq_start: Int
++    var cur_query_len: Int
++    comptime if ragged:
++        seq_start = Int(valid_length[batch_id])
++        var seq_end = Int(valid_length[batch_id + 1])
++        cur_query_len = seq_end - seq_start
++    else:
++        seq_start = batch_id * max_prompt_len
++        cur_query_len = max_prompt_len
++
++    var q_row0 = q_tile_id * (NumSimdgroups * SQ) + sg * SQ
++    if q_row0 >= cur_query_len:
++        return
++
++    var cache_start_pos: Int = 0
++    if cache_offsets:
++        cache_start_pos = Int(cache_offsets.value()[batch_id][0])
++
++    var start_pos = k_rope.cache_length(batch_id)
++    var cur_cache_len = start_pos + cur_query_len
++    var score_row_base = q_row0 + start_pos
++    var valid_q = min(SQ, cur_query_len - q_row0)
++
++    var q_row_stride = num_heads * q_depth
++    var out_row_stride = num_heads * depth
++    var q_offset = q_depth * (seq_start * num_heads + head_id)
++    var out_offset = depth * (seq_start * num_heads + head_id)
++
++    var q_nope_layout_val = TileLayout(
++        Coord(Idx[SQ], Idx[Depth]), Coord(q_row_stride, Idx[1])
++    )
++    var q_rope_layout_val = TileLayout(
++        Coord(Idx[SQ], Idx[RopeDepth]), Coord(q_row_stride, Idx[1])
++    )
++    var q_nope_tile = TileTensor[
++        q_type, type_of(q_nope_layout_val), ImmutAnyOrigin
++    ](
++        ptr=q.ptr + q_offset + q_row0 * q_row_stride,
++        layout=q_nope_layout_val,
++    )
++    var q_rope_tile = TileTensor[
++        q_type, type_of(q_rope_layout_val), ImmutAnyOrigin
++    ](
++        ptr=q.ptr + q_offset + q_row0 * q_row_stride + Depth,
++        layout=q_rope_layout_val,
++    )
++
++    var k_base0 = k.block_paged_ptr[1](
++        UInt32(batch_id), UInt32(0), UInt32(kv_head), 0
++    )
++    var k_base1 = k.block_paged_ptr[1](
++        UInt32(batch_id), UInt32(1), UInt32(kv_head), 0
++    )
++    comptime kv_elt_size = size_of[Scalar[k_t.dtype]]()
++    var kv_row_stride = (Int(k_base1) - Int(k_base0)) // kv_elt_size
++    var kv_layout_val = TileLayout(
++        Coord(Idx[MMA_DIM], Idx[Depth]), Coord(kv_row_stride, Idx[1])
++    )
++
++    comptime k_rope_offset = CacheDepth - RopeDepth
++    var kr_base0 = k_rope.block_paged_ptr[1](
++        UInt32(batch_id), UInt32(0), UInt32(kv_head), UInt32(k_rope_offset)
++    )
++    var kr_base1 = k_rope.block_paged_ptr[1](
++        UInt32(batch_id), UInt32(1), UInt32(kv_head), UInt32(k_rope_offset)
++    )
++    comptime kr_elt_size = size_of[Scalar[k_rope_t.dtype]]()
++    var kr_row_stride = (Int(kr_base1) - Int(kr_base0)) // kr_elt_size
++    var k_rope_layout_val = TileLayout(
++        Coord(Idx[MMA_DIM], Idx[RopeDepth]), Coord(kr_row_stride, Idx[1])
++    )
++
++    comptime ScoreNopeMma = MmaOpApple[
++        DType.float32,
++        q_type,
++        NumMMmas,
++        1,
++        b_type=k_t.dtype,
++        transpose_b=True,
++    ]
++    comptime ScoreRopeMma = MmaOpApple[
++        DType.float32,
++        q_type,
++        NumMMmas,
++        1,
++        b_type=k_rope_t.dtype,
++        transpose_b=True,
++    ]
++    comptime ScoreAccum = MmaOpApple[
++        DType.float32, q_type, NumMMmas, NumNMmas, transpose_b=True
++    ]
++    comptime OutMma = MmaOpApple[DType.float32, q_type, NumMMmas, DEPTH_MMAS]
++
++    var score_nope_mma = ScoreNopeMma()
++    var score_rope_mma = ScoreRopeMma()
++    var out_mma = OutMma()
++    var output_accum = OutMma.zero_accum()
++    var softmax = AppleSoftmax[NumMMmas, NumNMmas]()
++    comptime causal_monotonic = mask_t == CausalMask
++
++    var kv0 = 0
++    while kv0 < cur_cache_len:
++        var tile_status = mask_functor.status[element_type=DType.uint32](
++            UInt32(batch_id),
++            Index[dtype=DType.uint32](score_row_base, kv0 + cache_start_pos),
++            Index[dtype=DType.uint32](SQ, SK),
++        )
++        if tile_status == TileMaskStatus.FULL_MASK:
++            comptime if causal_monotonic:
++                break
++            else:
++                kv0 += SK
++                continue
++
++        var scores = ScoreAccum.zero_accum()
++        comptime for ni in range(NumNMmas):
++            var k_sub = k.block_paged_tile[1](
++                UInt32(batch_id),
++                UInt32(kv0 + ni * MMA_DIM),
++                UInt32(kv_head),
++                kv_layout_val,
++            )
++            var score_nope = ScoreNopeMma.zero_accum()
++            score_nope_mma.mma(score_nope, q_nope_tile, k_sub)
++
++            var kr_sub = k_rope.block_paged_tile[1](
++                UInt32(batch_id),
++                UInt32(kv0 + ni * MMA_DIM + cache_start_pos),
++                UInt32(kv_head),
++                k_rope_layout_val,
++                UInt32(k_rope_offset),
++            )
++            var score_rope = ScoreRopeMma.zero_accum()
++            score_rope_mma.mma(score_rope, q_rope_tile, kr_sub)
++
++            comptime for mi in range(NumMMmas):
++                scores[mi * NumNMmas + ni] = rebind[
++                    type_of(scores[mi * NumNMmas + ni])
++                ](score_nope[mi] + score_rope[mi])
++
++        comptime for mi in range(NumMMmas):
++            comptime for ni in range(NumNMmas):
++                var idx = mi * NumNMmas + ni
++                var frag = scores[idx]
++                comptime for el in range(8):
++                    var lrow = mi * MMA_DIM + rb + (8 if el > 3 else 0)
++                    var lcol = ni * MMA_DIM + cb + (el & 3)
++                    var key = kv0 + lcol
++                    var qrow = q_row0 + lrow
++                    var s = frag[el] * scale
++                    if qrow < cur_query_len and key < cur_cache_len:
++                        frag[el] = mask_functor.mask(
++                            Index(
++                                batch_id,
++                                head_id,
++                                score_row_base + lrow,
++                                key + cache_start_pos,
++                            ),
++                            s,
++                        )
++                    else:
++                        frag[el] = NEG_INF
++                scores[idx] = frag
++
++        softmax.update[DEPTH_MMAS](scores, output_accum)
++
++        var sk_tile_full = kv0 + SK <= cur_cache_len
++        if sk_tile_full:
++            comptime for ki in range(NumNMmas):
++                var p_frags = InlineArray[SIMD[q_type, 8], NumMMmas](
++                    uninitialized=True
++                )
++                comptime for mi in range(NumMMmas):
++                    p_frags[mi] = scores[mi * NumNMmas + ki].cast[q_type]()
++                var v_tile = v.block_paged_tile[1](
++                    UInt32(batch_id),
++                    UInt32(kv0 + ki * MMA_DIM),
++                    UInt32(kv_head),
++                    kv_layout_val,
++                )
++                comptime for ni in range(DEPTH_MMAS):
++                    var v_sub = v_tile.tile[MMA_DIM, MMA_DIM](0, ni)
++                    var v_frag = out_mma.load_fragment[v_t.dtype](v_sub).cast[
++                        q_type
++                    ]()
++                    comptime for mi in range(NumMMmas):
++                        var oidx = mi * DEPTH_MMAS + ni
++                        _mma_apple_transposable(
++                            output_accum[oidx],
++                            p_frags[mi],
++                            v_frag,
++                            output_accum[oidx],
++                            False,
++                            False,
++                        )
++        else:
++            comptime for ki in range(NumNMmas):
++                var p_frags = InlineArray[SIMD[q_type, 8], NumMMmas](
++                    uninitialized=True
++                )
++                comptime for mi in range(NumMMmas):
++                    p_frags[mi] = scores[mi * NumNMmas + ki].cast[q_type]()
++                var v_tile = v.block_paged_tile[1](
++                    UInt32(batch_id),
++                    UInt32(kv0 + ki * MMA_DIM),
++                    UInt32(kv_head),
++                    kv_layout_val,
++                )
++                var v_valid_rows = cur_cache_len - (kv0 + ki * MMA_DIM)
++                comptime for ni in range(DEPTH_MMAS):
++                    var v_sub = v_tile.tile[MMA_DIM, MMA_DIM](0, ni)
++                    var v_frag: SIMD[v_t.dtype, 8]
++                    if v_valid_rows >= MMA_DIM:
++                        v_frag = out_mma.load_fragment[v_t.dtype](v_sub)
++                    else:
++                        v_frag = out_mma.load_fragment[v_t.dtype, bounded=True](
++                            v_sub, v_valid_rows
++                        )
++                    var v_frag_q = v_frag.cast[q_type]()
++                    comptime for mi in range(NumMMmas):
++                        var oidx = mi * DEPTH_MMAS + ni
++                        _mma_apple_transposable(
++                            output_accum[oidx],
++                            p_frags[mi],
++                            v_frag_q,
++                            output_accum[oidx],
++                            False,
++                            False,
++                        )
++
++        kv0 += SK
++
++    softmax.normalize[DEPTH_MMAS](output_accum)
++
++    var out_layout_val = TileLayout(
++        Coord(Idx[SQ], Idx[Depth]), Coord(out_row_stride, Idx[1])
++    )
++    var out_tile = TileTensor[
++        output_type, type_of(out_layout_val), MutAnyOrigin
++    ](
++        ptr=output.ptr + out_offset + q_row0 * out_row_stride,
++        layout=out_layout_val,
++    )
++    comptime for mi in range(NumMMmas):
++        comptime for ni in range(DEPTH_MMAS):
++            var o_sub = out_tile.tile[MMA_DIM, MMA_DIM](mi, ni)
++            var frag = output_accum[mi * DEPTH_MMAS + ni]
++            comptime for el in range(8):
++                var lrow = rb + (8 if el > 3 else 0)
++                var lcol = cb + (el & 3)
++                if (
++                    mi * MMA_DIM + lrow < valid_q
++                    and ni * MMA_DIM + lcol < depth
++                ):
++                    o_sub[lrow, lcol] = rebind[o_sub.ElementType](
++                        SIMD[output_type, 1](frag[el].cast[output_type]())
++                    )
++
++
++def mla_prefill_apple_m3_core[
++    q_type: DType,
++    output_type: DType,
++    k_t: MHAOperand,
++    v_t: MHAOperand,
++    k_rope_t: MHAOperand,
++    mask_t: MHAMask,
++    q_layout: TensorLayout,
++    output_layout: TensorLayout,
++    valid_length_layout: TensorLayout,
++    ragged: Bool = True,
++    *,
++    QDepth: Int,
++    Depth: Int,
++    CacheDepth: Int,
++    NumNMmas: Int,
++](
++    output: TileTensor[output_type, output_layout, MutAnyOrigin],
++    q: TileTensor[q_type, q_layout, ImmutAnyOrigin],
++    k: k_t,
++    v: v_t,
++    k_rope: k_rope_t,
++    mask_functor: mask_t,
++    valid_length: TileTensor[
++        DType.uint32,
++        valid_length_layout,
++        ImmutAnyOrigin,
++    ],
++    cache_offsets: OptionalReg[
++        LayoutTensor[
++            DType.uint32, Layout.row_major(UNKNOWN_VALUE), MutAnyOrigin
++        ]
++    ],
++    scale: Float32,
++    batch_size: Int,
++    max_prompt_len: Int,
++    num_heads: Int,
++    depth: Int,
++    q_depth: Int,
++    group: Int,
++):
++    comptime assert Depth % MMA8_DIM == 0, "Depth must be a multiple of 8"
++    comptime assert QDepth % MMA8_DIM == 0, "QDepth must be a multiple of 8"
++    comptime assert QDepth > Depth, "MLA prefill requires rope dimensions"
++
++    comptime RopeDepth = QDepth - Depth
++    comptime SQ = MMA8_DIM
++    comptime SK = NumNMmas * MMA8_DIM
++    comptime DEPTH_MMAS = Depth // MMA8_DIM
++    debug_assert(depth == Depth, "runtime depth must match comptime Depth")
++    debug_assert(q_depth == QDepth, "runtime q_depth must match comptime QDepth")
++
++    var q_tile_id = Int(block_idx.x)
++    var head_id = Int(block_idx.y)
++    var batch_id = Int(block_idx.z)
++    var kv_head = head_id // group
++    var lane = Int(lane_id())
++    var fl = _frag8_layout(lane)
++    var frow = fl[0]
++    var fcol = fl[1]
++
++    var seq_start: Int
++    var cur_query_len: Int
++    comptime if ragged:
++        seq_start = Int(valid_length[batch_id])
++        var seq_end = Int(valid_length[batch_id + 1])
++        cur_query_len = seq_end - seq_start
++    else:
++        seq_start = batch_id * max_prompt_len
++        cur_query_len = max_prompt_len
++
++    var q_row0 = q_tile_id * SQ
++    if q_row0 >= cur_query_len:
++        return
++
++    var cache_start_pos: Int = 0
++    if cache_offsets:
++        cache_start_pos = Int(cache_offsets.value()[batch_id][0])
++
++    var start_pos = k_rope.cache_length(batch_id)
++    var cur_cache_len = start_pos + cur_query_len
++    var score_row_base = q_row0 + start_pos
++    var valid_q = min(SQ, cur_query_len - q_row0)
++
++    var q_row_stride = num_heads * q_depth
++    var out_row_stride = num_heads * depth
++    var q_offset = q_depth * (seq_start * num_heads + head_id)
++    var out_offset = depth * (seq_start * num_heads + head_id)
++    comptime k_rope_offset = CacheDepth - RopeDepth
++
++    var output_accum = InlineArray[SIMD[DType.float32, 2], DEPTH_MMAS](
++        fill=SIMD[DType.float32, 2](0)
++    )
++    var softmax = AppleSoftmax8[NumNMmas]()
++    comptime causal_monotonic = mask_t == CausalMask
++
++    var kv0 = 0
++    while kv0 < cur_cache_len:
++        var tile_status = mask_functor.status[element_type=DType.uint32](
++            UInt32(batch_id),
++            Index[dtype=DType.uint32](score_row_base, kv0 + cache_start_pos),
++            Index[dtype=DType.uint32](SQ, SK),
++        )
++        if tile_status == TileMaskStatus.FULL_MASK:
++            comptime if causal_monotonic:
++                break
++            else:
++                kv0 += SK
++                continue
++
++        var scores = InlineArray[SIMD[DType.float32, 2], NumNMmas](
++            fill=SIMD[DType.float32, 2](0)
++        )
++
++        comptime for ni in range(NumNMmas):
++            var score_nope = SIMD[DType.float32, 2](0)
++            comptime for kk in range(Depth // MMA8_DIM):
++                var q_frag = SIMD[q_type, 2](0)
++                if q_row0 + frow < cur_query_len:
++                    q_frag = (
++                        q.ptr
++                        + q_offset
++                        + (q_row0 + frow) * q_row_stride
++                        + kk * MMA8_DIM
++                        + fcol
++                    ).load[width=2]()
++                var k_frag = SIMD[k_t.dtype, 2](0)
++                comptime for s in range(2):
++                    var key = kv0 + ni * MMA8_DIM + fcol + s
++                    if key < cur_cache_len:
++                        var k_ptr = k.block_paged_ptr[1](
++                            UInt32(batch_id),
++                            UInt32(key),
++                            UInt32(kv_head),
++                            UInt32(kk * MMA8_DIM + frow),
++                        )
++                        k_frag[s] = k_ptr[0]
++                var c_frag = score_nope
++                _mma_apple_8x8(score_nope, q_frag, k_frag, c_frag)
++
++            var score_rope = SIMD[DType.float32, 2](0)
++            comptime for kk in range(RopeDepth // MMA8_DIM):
++                var q_frag = SIMD[q_type, 2](0)
++                if q_row0 + frow < cur_query_len:
++                    q_frag = (
++                        q.ptr
++                        + q_offset
++                        + (q_row0 + frow) * q_row_stride
++                        + Depth
++                        + kk * MMA8_DIM
++                        + fcol
++                    ).load[width=2]()
++                var kr_frag = SIMD[k_rope_t.dtype, 2](0)
++                comptime for s in range(2):
++                    var key = kv0 + ni * MMA8_DIM + fcol + s
++                    if key < cur_cache_len:
++                        var kr_ptr = k_rope.block_paged_ptr[1](
++                            UInt32(batch_id),
++                            UInt32(key + cache_start_pos),
++                            UInt32(kv_head),
++                            UInt32(k_rope_offset + kk * MMA8_DIM + frow),
++                        )
++                        kr_frag[s] = kr_ptr[0]
++                var c_frag = score_rope
++                _mma_apple_8x8(score_rope, q_frag, kr_frag, c_frag)
++
++            scores[ni] = score_nope + score_rope
++
++        comptime for ni in range(NumNMmas):
++            var frag = scores[ni]
++            comptime for s in range(2):
++                var lrow = frow
++                var lcol = ni * MMA8_DIM + fcol + s
++                var key = kv0 + lcol
++                var qrow = q_row0 + lrow
++                var score = frag[s] * scale
++                if qrow < cur_query_len and key < cur_cache_len:
++                    frag[s] = mask_functor.mask(
++                        Index(
++                            batch_id,
++                            head_id,
++                            score_row_base + lrow,
++                            key + cache_start_pos,
++                        ),
++                        score,
++                    )
++                else:
++                    frag[s] = NEG_INF
++            scores[ni] = frag
++
++        softmax.update[DEPTH_MMAS](scores, output_accum)
++
++        comptime for ki in range(NumNMmas):
++            var p_frag = scores[ki].cast[q_type]()
++            comptime for di in range(DEPTH_MMAS):
++                var v_frag = SIMD[v_t.dtype, 2](0)
++                comptime for s in range(2):
++                    var key = kv0 + ki * MMA8_DIM + frow
++                    var dcol = di * MMA8_DIM + fcol + s
++                    if key < cur_cache_len and dcol < Depth:
++                        var v_ptr = v.block_paged_ptr[1](
++                            UInt32(batch_id),
++                            UInt32(key),
++                            UInt32(kv_head),
++                            UInt32(dcol),
++                        )
++                        v_frag[s] = v_ptr[0]
++                var c_frag = output_accum[di]
++                _mma_apple_8x8(
++                    output_accum[di], p_frag, v_frag, c_frag
++                )
++
++        kv0 += SK
++
++    softmax.normalize[DEPTH_MMAS](output_accum)
++
++    if frow < valid_q:
++        comptime for di in range(DEPTH_MMAS):
++            var frag = output_accum[di]
++            comptime for s in range(2):
++                var dcol = di * MMA8_DIM + fcol + s
++                if dcol < depth:
++                    output.ptr[
++                        out_offset + (q_row0 + frow) * out_row_stride + dcol
++                    ] = frag[s].cast[output_type]()
++
++
++def mla_prefill_apple[
++    q_type: DType,
++    output_type: DType,
++    k_t: MHAOperand,
++    v_t: MHAOperand,
++    k_rope_t: MHAOperand,
++    mask_t: MHAMask,
++    *,
++    q_depth: Int = 192,
++    cache_depth: Int = 576,
++    ragged: Bool = True,
++    num_simdgroups: Int = 16,
++](
++    output: TileTensor[
++        mut=True, output_type, address_space=AddressSpace.GENERIC, ...
++    ],
++    q: TileTensor[q_type, address_space=AddressSpace.GENERIC, ...],
++    k: k_t,
++    v: v_t,
++    k_rope: k_rope_t,
++    mask_functor: mask_t,
++    valid_length: TileTensor[
++        DType.uint32, address_space=AddressSpace.GENERIC, ...
++    ],
++    cache_offsets: OptionalReg[
++        LayoutTensor[
++            DType.uint32, Layout.row_major(UNKNOWN_VALUE), MutAnyOrigin
++        ]
++    ],
++    max_prompt_len: Int,
++    scale: Float32,
++    batch_size: Int,
++    num_heads: Int,
++    depth: Int,
++    group: Int,
++    ctx: DeviceContext,
++) raises:
++    comptime p_type = get_accum_type[q_type]()
++    comptime assert q_type in (DType.bfloat16, DType.float16), (
++        "mla_prefill_apple initially supports bf16/fp16 inputs only"
++    )
++    comptime assert output_type in (DType.bfloat16, DType.float16), (
++        "mla_prefill_apple initially supports bf16/fp16 outputs only"
++    )
++    comptime assert k_t.dtype == q_type and v_t.dtype == q_type, (
++        "mla_prefill_apple expects K/V dtype to match Q dtype"
++    )
++    comptime assert k_rope_t.dtype == q_type, (
++        "mla_prefill_apple initially expects K_rope dtype to match Q dtype"
++    )
++    comptime assert q_depth % MMA_DIM == 0, "q_depth must be a multiple of 16"
++
++    if batch_size == 0 or max_prompt_len == 0:
++        return
++
++    debug_assert(
++        depth % MMA_DIM == 0 and depth <= FA_PREFILL_APPLE_MAX_HEAD_DIM,
++        "mla_prefill_apple requires depth %% 16 == 0 and supported Apple depth",
++    )
++    debug_assert(q_depth > depth, "mla_prefill_apple requires q_depth > depth")
++
++    comptime NumMMmas = DEFAULT_NUM_M_MMAS
++    comptime NumNMmas = DEFAULT_NUM_N_MMAS
++    comptime SQ = NumMMmas * MMA_DIM
++    var num_q_tiles = ceildiv(max_prompt_len, num_simdgroups * SQ)
++
++    var q_flat = TileTensor(
++        q.ptr.as_immutable().as_unsafe_any_origin(),
++        row_major(Coord(Int(q.num_elements()))),
++    )
++    var output_flat = TileTensor(
++        output.ptr.as_unsafe_any_origin(),
++        row_major(Coord(Int(output.num_elements()))),
++    )
++    var valid_length_flat = TileTensor(
++        valid_length.ptr.as_immutable().as_unsafe_any_origin(),
++        row_major(Coord(Int(valid_length.num_elements()))),
++    )
++
++    comptime MAX_D_STEPS = FA_PREFILL_APPLE_MAX_HEAD_DIM // MMA_DIM
++    comptime for di in range(1, MAX_D_STEPS + 1):
++        comptime D = di * MMA_DIM
++        comptime if D < q_depth:
++            if depth == D:
++                comptime core_kernel = mla_prefill_apple_core[
++                    q_type,
++                    output_type,
++                    p_type,
++                    k_t,
++                    v_t,
++                    k_rope_t,
++                    mask_t,
++                    type_of(q_flat).LayoutType,
++                    type_of(output_flat).LayoutType,
++                    type_of(valid_length_flat).LayoutType,
++                    ragged=ragged,
++                    QDepth=q_depth,
++                    Depth=D,
++                    CacheDepth=cache_depth,
++                    NumMMmas=NumMMmas,
++                    NumNMmas=NumNMmas,
++                    NumSimdgroups=num_simdgroups,
++                ]
++                ctx.enqueue_function[core_kernel](
++                    output_flat,
++                    q_flat,
++                    k,
++                    v,
++                    k_rope,
++                    mask_functor,
++                    valid_length_flat,
++                    cache_offsets,
++                    scale,
++                    batch_size,
++                    max_prompt_len,
++                    num_heads,
++                    depth,
++                    q_depth,
++                    group,
++                    grid_dim=LaunchDim(num_q_tiles, num_heads, batch_size),
++                    block_dim=(num_simdgroups * WARP_SIZE, 1, 1),
++                )
++                return
++
++    debug_assert(False, "unsupported runtime depth for mla_prefill_apple")
++
++
++def mla_prefill_apple_m3[
++    q_type: DType,
++    output_type: DType,
++    k_t: MHAOperand,
++    v_t: MHAOperand,
++    k_rope_t: MHAOperand,
++    mask_t: MHAMask,
++    *,
++    q_depth: Int = 192,
++    cache_depth: Int = 576,
++    ragged: Bool = True,
++](
++    output: TileTensor[
++        mut=True, output_type, address_space=AddressSpace.GENERIC, ...
++    ],
++    q: TileTensor[q_type, address_space=AddressSpace.GENERIC, ...],
++    k: k_t,
++    v: v_t,
++    k_rope: k_rope_t,
++    mask_functor: mask_t,
++    valid_length: TileTensor[
++        DType.uint32, address_space=AddressSpace.GENERIC, ...
++    ],
++    cache_offsets: OptionalReg[
++        LayoutTensor[
++            DType.uint32, Layout.row_major(UNKNOWN_VALUE), MutAnyOrigin
++        ]
++    ],
++    max_prompt_len: Int,
++    scale: Float32,
++    batch_size: Int,
++    num_heads: Int,
++    depth: Int,
++    group: Int,
++    ctx: DeviceContext,
++) raises:
++    comptime assert q_type in (DType.bfloat16, DType.float16), (
++        "mla_prefill_apple_m3 initially supports bf16/fp16 inputs only"
++    )
++    comptime assert output_type in (DType.bfloat16, DType.float16), (
++        "mla_prefill_apple_m3 initially supports bf16/fp16 outputs only"
++    )
++    comptime assert k_t.dtype == q_type and v_t.dtype == q_type, (
++        "mla_prefill_apple_m3 expects K/V dtype to match Q dtype"
++    )
++    comptime assert k_rope_t.dtype == q_type, (
++        "mla_prefill_apple_m3 initially expects K_rope dtype to match Q dtype"
++    )
++    comptime assert q_depth % MMA8_DIM == 0, "q_depth must be a multiple of 8"
++
++    if batch_size == 0 or max_prompt_len == 0:
++        return
++
++    debug_assert(depth % MMA8_DIM == 0, "M3 MLA prefill requires depth %% 8 == 0")
++    debug_assert(q_depth > depth, "M3 MLA prefill requires q_depth > depth")
++
++    var num_q_tiles = ceildiv(max_prompt_len, MMA8_DIM)
++
++    var q_flat = TileTensor(
++        q.ptr.as_immutable().as_unsafe_any_origin(),
++        row_major(Coord(Int(q.num_elements()))),
++    )
++    var output_flat = TileTensor(
++        output.ptr.as_unsafe_any_origin(),
++        row_major(Coord(Int(output.num_elements()))),
++    )
++    var valid_length_flat = TileTensor(
++        valid_length.ptr.as_immutable().as_unsafe_any_origin(),
++        row_major(Coord(Int(valid_length.num_elements()))),
++    )
++
++    comptime MAX_D_STEPS = FA_PREFILL_APPLE_MAX_HEAD_DIM // MMA8_DIM
++    comptime for di in range(1, MAX_D_STEPS + 1):
++        comptime D = di * MMA8_DIM
++        comptime if D < q_depth:
++            if depth == D:
++                comptime core_kernel = mla_prefill_apple_m3_core[
++                    q_type,
++                    output_type,
++                    k_t,
++                    v_t,
++                    k_rope_t,
++                    mask_t,
++                    type_of(q_flat).LayoutType,
++                    type_of(output_flat).LayoutType,
++                    type_of(valid_length_flat).LayoutType,
++                    ragged=ragged,
++                    QDepth=q_depth,
++                    Depth=D,
++                    CacheDepth=cache_depth,
++                    NumNMmas=DEFAULT_NUM_N_MMAS_M3,
++                ]
++                ctx.enqueue_function[core_kernel](
++                    output_flat,
++                    q_flat,
++                    k,
++                    v,
++                    k_rope,
++                    mask_functor,
++                    valid_length_flat,
++                    cache_offsets,
++                    scale,
++                    batch_size,
++                    max_prompt_len,
++                    num_heads,
++                    depth,
++                    q_depth,
++                    group,
++                    grid_dim=LaunchDim(num_q_tiles, num_heads, batch_size),
++                    block_dim=(WARP_SIZE, 1, 1),
++                )
++                return
++
++    debug_assert(False, "unsupported runtime depth for mla_prefill_apple_m3")
+diff --git a/max/kernels/src/nn/attention/gpu/mla.mojo b/max/kernels/src/nn/attention/gpu/mla.mojo
+index 0964f03..984ea39 100644
+--- a/max/kernels/src/nn/attention/gpu/mla.mojo
++++ b/max/kernels/src/nn/attention/gpu/mla.mojo
+@@ -18,6 +18,7 @@ from nn.attention.mha_utils import DynamicInt, MHA_PDL_LEVEL
+ from std.math.constants import log2e
+ from std.sys import (
+     align_of,
++    has_apple_gpu_accelerator,
+     has_nvidia_gpu_accelerator,
+     has_amd_gpu_accelerator,
+     get_defined_int,
+@@ -132,6 +133,8 @@ from nn.attention.gpu.nvidia.sm100.mla_decode_dispatch import (
+ from .nvidia.sm100.mla_prefill_per_token_scale import (
+     mla_sm100_prefill_per_token_scale,
+ )
++from .apple.mla_prefill import mla_prefill_apple, mla_prefill_apple_m3
++from .apple.mla_decode import mla_decode_apple
+ 
+ 
+ # ===-----------------------------------------------------------------------===#
+@@ -170,10 +173,13 @@ def mla_decode_max_seq_len[dtype: DType, num_heads: Int]() -> Int:
+     never hands the gate an S>1 batch it would reject.
+     """
+     return 1 if (
+-        has_amd_gpu_accelerator()
+-        and (
+-            not dtype.is_float8()
+-            or num_heads > AMD_MLA_DECODE_FOLD_MAX_NUM_HEADS
++        has_apple_gpu_accelerator()
++        or (
++            has_amd_gpu_accelerator()
++            and (
++                not dtype.is_float8()
++                or num_heads > AMD_MLA_DECODE_FOLD_MAX_NUM_HEADS
++            )
+         )
+     ) else MLA_DECODE_MAX_SEQ_LEN
+ 
+@@ -570,8 +576,10 @@ def flare_mla_decoding_dispatch[
+         kv_num_heads == 1
+     ), "flareMLA_decoding only supports kv_num_heads == 1."
+     comptime assert (
+-        has_nvidia_gpu_accelerator() or has_amd_gpu_accelerator()
+-    ), "flareMLA_decoding currently only supports Nvidia and AMD GPUs."
++        has_nvidia_gpu_accelerator()
++        or has_amd_gpu_accelerator()
++        or has_apple_gpu_accelerator()
++    ), "flareMLA_decoding currently only supports Nvidia, AMD, and Apple GPUs."
+ 
+     comptime assert (
+         q.dtype.is_half_float() or q.dtype == DType.float8_e4m3fn
+@@ -620,6 +628,59 @@ def flare_mla_decoding_dispatch[
+         # short sequences' pad rows are dropped. Uniform batches are
+         # byte-equivalent (seq_len == q_seq_len).
+ 
++    comptime if has_apple_gpu_accelerator():
++        comptime assert ragged, (
++            "Apple flareMLA_decoding fallback currently supports ragged KV-cache decode only."
++        )
++        comptime assert (
++            not decoding_warp_split_k
++        ), "Apple flareMLA_decoding fallback does not support warp split-k."
++        comptime assert (
++            not per_token_scale_rope_aware
++        ), "Apple flareMLA_decoding fallback does not support rope-aware FP8 cache."
++        comptime assert (
++            not sparse
++        ), "Apple flareMLA_decoding fallback does not support sparse MLA."
++        comptime assert (
++            not _is_cache_length_accurate
++        ), "Apple flareMLA_decoding fallback expects cache length before the new token."
++        comptime assert (
++            q.dtype in (DType.bfloat16, DType.float16)
++        ), "Apple flareMLA_decoding fallback supports bf16/fp16 only."
++        var apple_batch_size: Int
++        comptime if ragged:
++            apple_batch_size = Int(valid_length.dim[0]()) - 1
++        else:
++            apple_batch_size = Int(q.dim(0))
++        if apple_batch_size == 0:
++            return
++        comptime depth_v = type_of(output).static_shape[output.rank - 1]
++        mla_decode_apple[
++            q.dtype,
++            output.dtype,
++            k_t,
++            mask_t,
++            ragged=ragged,
++            _use_valid_length=_use_valid_length,
++            _is_cache_length_accurate=_is_cache_length_accurate,
++        ](
++            output,
++            q,
++            k,
++            mask_functor,
++            valid_length,
++            scale,
++            apple_batch_size,
++            max_prompt_len,
++            max_cache_valid_length,
++            num_heads,
++            depth,
++            depth_v,
++            group,
++            ctx,
++        )
++        return
++
+     # TileTensor always has static shapes for the last two dims.
+ 
+     comptime if _is_sm10x_gpu(ctx.default_device_info):
+@@ -3019,8 +3080,12 @@ def flare_mla_prefill_dispatch[
+     comptime assert q_depth == type_of(q).static_shape[rank - 1]
+     comptime assert num_heads == type_of(q).static_shape[rank - 2]
+     comptime assert (
+-        has_nvidia_gpu_accelerator() or has_amd_gpu_accelerator()
+-    ), "flareMLA_prefill currently only supports Nvidia and AMD GPUs."
++        has_nvidia_gpu_accelerator()
++        or has_amd_gpu_accelerator()
++        or has_apple_gpu_accelerator()
++    ), (
++        "flareMLA_prefill currently only supports Nvidia, AMD, and Apple GPUs."
++    )
+ 
+     var batch_size: Int = Int(valid_length.dim[0]()) - 1
+ 
+@@ -3041,7 +3106,113 @@ def flare_mla_prefill_dispatch[
+         config.dtype
+     ]() if has_nvidia_gpu_accelerator() else 0
+ 
+-    comptime if _is_sm10x_gpu(ctx.default_device_info):
++    comptime if has_apple_gpu_accelerator():
++        comptime assert not _ndbuffer_mha_operand, (
++            "Apple flareMLA_prefill does not support the ndbuffer operand path"
++        )
++        comptime assert dtype in (DType.bfloat16, DType.float16), (
++            "Apple flareMLA_prefill initially supports bf16/fp16 Q/K/V only"
++        )
++        comptime assert output_type in (DType.bfloat16, DType.float16), (
++            "Apple flareMLA_prefill initially supports bf16/fp16 output only"
++        )
++        comptime assert (
++            k_t.dtype == dtype and v_t.dtype == dtype and k_rope_t.dtype == dtype
++        ), (
++            "Apple flareMLA_prefill initially requires Q, K, V, and K_rope to"
++            " share the same dtype"
++        )
++        comptime assert q_depth > depth and (q_depth - depth) % 8 == 0, (
++            "Apple flareMLA_prefill requires an 8-aligned RoPE depth"
++        )
++        comptime assert depth % 8 == 0, (
++            "Apple flareMLA_prefill requires an 8-aligned value depth"
++        )
++        comptime use_m5_shape = depth % 16 == 0 and (q_depth - depth) % 16 == 0
++        comptime if use_m5_shape:
++            if ctx.compute_capability() >= 5:
++                mla_prefill_apple[
++                    dtype,
++                    output_type,
++                    k_t,
++                    v_t,
++                    k_rope_t,
++                    mask_t,
++                    q_depth=q_depth,
++                    cache_depth=cache_depth,
++                ](
++                    output,
++                    q,
++                    k,
++                    v,
++                    k_rope,
++                    mask_functor,
++                    valid_length.as_immut(),
++                    cache_offsets,
++                    max_prompt_len,
++                    scale,
++                    batch_size,
++                    config.num_heads,
++                    depth,
++                    group,
++                    ctx,
++                )
++            else:
++                mla_prefill_apple_m3[
++                    dtype,
++                    output_type,
++                    k_t,
++                    v_t,
++                    k_rope_t,
++                    mask_t,
++                    q_depth=q_depth,
++                    cache_depth=cache_depth,
++                ](
++                    output,
++                    q,
++                    k,
++                    v,
++                    k_rope,
++                    mask_functor,
++                    valid_length.as_immut(),
++                    cache_offsets,
++                    max_prompt_len,
++                    scale,
++                    batch_size,
++                    config.num_heads,
++                    depth,
++                    group,
++                    ctx,
++                )
++        else:
++            mla_prefill_apple_m3[
++                dtype,
++                output_type,
++                k_t,
++                v_t,
++                k_rope_t,
++                mask_t,
++                q_depth=q_depth,
++                cache_depth=cache_depth,
++            ](
++                output,
++                q,
++                k,
++                v,
++                k_rope,
++                mask_functor,
++                valid_length.as_immut(),
++                cache_offsets,
++                max_prompt_len,
++                scale,
++                batch_size,
++                config.num_heads,
++                depth,
++                group,
++                ctx,
++            )
++
++    elif _is_sm10x_gpu(ctx.default_device_info):
+         comptime assert (
+             k_rope_t.dtype == DType.bfloat16
+             or k_rope_t.dtype == DType.float8_e4m3fn
+diff --git a/max/kernels/src/nn/attention/gpu/mla_decode_dispatch_scalars.mojo b/max/kernels/src/nn/attention/gpu/mla_decode_dispatch_scalars.mojo
+index b62bb17..1ce3424 100644
+--- a/max/kernels/src/nn/attention/gpu/mla_decode_dispatch_scalars.mojo
++++ b/max/kernels/src/nn/attention/gpu/mla_decode_dispatch_scalars.mojo
+@@ -63,9 +63,11 @@ def mla_decode_dispatch_scalars(
+       adjustment.
+     - **CUDA (NVIDIA/SM100):** delegate to the SM100 runtime heuristic
+       `compute_mla_dispatch_scalars_runtime`, which reads the device SM count.
+-    - **Any other api (e.g. Metal):** raise — there is no MLA decode dispatch
+-      path for non-HIP/non-CUDA devices, so route them to a clear error rather
+-      than silently into the SM100 heuristic.
++    - **Metal (Apple):** Apple uses the non-split-K fallback decode path, so
++      preserve the requested batch/query shape and report one partition.
++    - **Any other api:** raise — there is no MLA decode dispatch path for other
++      devices, so route them to a clear error rather than silently into the
++      SM100 heuristic.
+ 
+     Args:
+         batch_size: Current decode batch size.
+@@ -101,8 +103,14 @@ def mla_decode_dispatch_scalars(
+             is_fp8_kv,
+             ctx.get_attribute(DeviceAttribute.MULTIPROCESSOR_COUNT),
+         )
++    elif ctx.api() == "metal":
++        # Apple MLA decode is a single-partition fallback. The scalar buffer is
++        # still part of the attention key/capture contract, so return a stable
++        # conservative key even though the Metal kernel does not split work by
++        # partitions.
++        return (batch_size, q_max_seq_len, 1)
+     else:
+         raise Error(
+-            "mla_decode_dispatch_scalars supports only HIP (AMD) and CUDA"
+-            " (NVIDIA/SM100) device contexts."
++            "mla_decode_dispatch_scalars supports only HIP (AMD), CUDA"
++            " (NVIDIA/SM100), and Metal (Apple) device contexts."
+         )
+diff --git a/max/kernels/src/nn/moe.mojo b/max/kernels/src/nn/moe.mojo
+index 4dc058f..0e64a50 100644
+--- a/max/kernels/src/nn/moe.mojo
++++ b/max/kernels/src/nn/moe.mojo
+@@ -38,6 +38,7 @@ from std.gpu.primitives.grid_controls import (
+     pdl_launch_attributes,
+ )
+ from std.gpu.host.info import is_gpu
++from std.sys.info import has_apple_gpu_accelerator
+ from layout import (
+     Coord,
+     Idx,
+@@ -532,6 +533,90 @@ def moe_create_indices_bucket_group_kernel[
+         _ = Atomic.max(expert_usage_stats.ptr, UInt32(total_writes))
+ 
+ 
++@__llvm_metadata(MAX_THREADS_PER_BLOCK_METADATA=StaticTuple[Int32, 1](1))
++@__name(t"moe_create_indices_bucket_group_apple_{input_type}")
++def moe_create_indices_bucket_group_apple_kernel[
++    input_type: DType,
++    TokenExpertOrderLayoutType: TensorLayout,
++    LockLayoutType: TensorLayout,
++    ExpertStartIndicesLayoutType: TensorLayout,
++    RestoreTokenOrderLayoutType: TensorLayout,
++    ExpertIdsLayoutType: TensorLayout,
++    ExpertUsageStatsLayoutType: TensorLayout,
++    TopkIdsLayoutType: TensorLayout,
++    _scale_alignment: UInt32 = 128,
++](
++    token_expert_order: TileTensor[
++        mut=True, DType.uint32, TokenExpertOrderLayoutType, MutAnyOrigin
++    ],
++    lock: TileTensor[DType.uint64, LockLayoutType, MutAnyOrigin],
++    expert_start_indices: TileTensor[
++        mut=True, DType.uint32, ExpertStartIndicesLayoutType, MutAnyOrigin
++    ],
++    restore_token_order: TileTensor[
++        mut=True, DType.uint32, RestoreTokenOrderLayoutType, MutAnyOrigin
++    ],
++    expert_ids: TileTensor[
++        mut=True, DType.int32, ExpertIdsLayoutType, MutAnyOrigin
++    ],
++    expert_usage_stats: TileTensor[
++        mut=True, DType.uint32, ExpertUsageStatsLayoutType, MutAnyOrigin
++    ],
++    topk_ids: TileTensor[input_type, TopkIdsLayoutType, ImmutAnyOrigin],
++    scales_offset_p: Optional[UnsafePointer[UInt32, MutAnyOrigin]],
++):
++    """Portable Apple fallback for MoE expert bucketing.
++
++    Apple/Metal does not currently support the warp vote primitive used by the
++    optimized bucket-group kernel above. This fallback keeps the same output
++    contract but uses one thread to serially bucket all experts. It is
++    intentionally conservative and prioritizes graph correctness over routing
++    throughput.
++    """
++
++    comptime assert token_expert_order.flat_rank == 1
++    comptime assert lock.flat_rank == 1
++    comptime assert expert_start_indices.flat_rank == 1
++    comptime assert restore_token_order.flat_rank == 1
++    comptime assert expert_ids.flat_rank == 1
++    comptime assert expert_usage_stats.flat_rank == 1
++    comptime assert topk_ids.flat_rank == 2
++
++    var topk_ids_length = Int(topk_ids.dim(1))
++    var num_experts = Int(expert_ids.dim(0))
++    var output_idx: UInt32 = 0
++    var aligned_output_idx: UInt32 = 0
++    var max_writes: UInt32 = 0
++
++    for expert in range(num_experts):
++        var expert_start = output_idx
++        expert_start_indices[Coord(expert)] = expert_start
++        expert_ids[Coord(expert)] = Int32(expert)
++
++        if scales_offset_p:
++            var _ptr = scales_offset_p.value()
++            _ptr[UInt32(expert)] = (
++                aligned_output_idx // _scale_alignment
++                - expert_start // _scale_alignment
++            )
++
++        var expert_writes: UInt32 = 0
++        for idx in range(topk_ids_length):
++            var expert_id = topk_ids[0, idx]
++            if expert_id == Scalar[input_type](expert):
++                token_expert_order[Coord(output_idx)] = UInt32(idx)
++                restore_token_order[idx] = output_idx
++                output_idx += 1
++                expert_writes += 1
++
++        expert_start_indices[Coord(expert + 1)] = output_idx
++        aligned_output_idx += align_up(expert_writes, _scale_alignment)
++        max_writes = max(max_writes, expert_writes)
++
++    expert_usage_stats[0] = max_writes
++    expert_usage_stats[1] = UInt32(num_experts)
++
++
+ @always_inline
+ def moe_create_indices[
+     input_type: DType,
+@@ -582,30 +667,55 @@ def moe_create_indices[
+ 
+         var num_experts = expert_ids.dim(0)
+ 
+-        comptime kernel = moe_create_indices_bucket_group_kernel[
+-            input_type,
+-            token_expert_order.LayoutType,
+-            lock.LayoutType,
+-            expert_start_indices.LayoutType,
+-            restore_token_order.LayoutType,
+-            expert_ids.LayoutType,
+-            expert_usage_stats.LayoutType,
+-            topk_2D.LayoutType,
+-            expected_count=expected_count,
+-        ]
+-
+-        context.enqueue_function[kernel](
+-            token_expert_order,
+-            lock,
+-            expert_start_indices,
+-            restore_token_order,
+-            expert_ids,
+-            expert_usage_stats,
+-            topk_2D,
+-            scales_offset_p,
+-            grid_dim=(num_experts),
+-            block_dim=(WARP_SIZE),
+-        )
++        comptime if has_apple_gpu_accelerator():
++            comptime kernel = moe_create_indices_bucket_group_apple_kernel[
++                input_type,
++                token_expert_order.LayoutType,
++                lock.LayoutType,
++                expert_start_indices.LayoutType,
++                restore_token_order.LayoutType,
++                expert_ids.LayoutType,
++                expert_usage_stats.LayoutType,
++                topk_2D.LayoutType,
++            ]
++
++            context.enqueue_function[kernel](
++                token_expert_order,
++                lock,
++                expert_start_indices,
++                restore_token_order,
++                expert_ids,
++                expert_usage_stats,
++                topk_2D,
++                scales_offset_p,
++                grid_dim=(1),
++                block_dim=(1),
++            )
++        else:
++            comptime kernel = moe_create_indices_bucket_group_kernel[
++                input_type,
++                token_expert_order.LayoutType,
++                lock.LayoutType,
++                expert_start_indices.LayoutType,
++                restore_token_order.LayoutType,
++                expert_ids.LayoutType,
++                expert_usage_stats.LayoutType,
++                topk_2D.LayoutType,
++                expected_count=expected_count,
++            ]
++
++            context.enqueue_function[kernel](
++                token_expert_order,
++                lock,
++                expert_start_indices,
++                restore_token_order,
++                expert_ids,
++                expert_usage_stats,
++                topk_2D,
++                scales_offset_p,
++                grid_dim=(num_experts),
++                block_dim=(WARP_SIZE),
++            )
+ 
+ 
+ # Function to perform warp-level sorting
+diff --git a/max/kernels/test/gpu/nn/BUILD.bazel b/max/kernels/test/gpu/nn/BUILD.bazel
+index 0b01608..6c83f20 100644
+--- a/max/kernels/test/gpu/nn/BUILD.bazel
++++ b/max/kernels/test/gpu/nn/BUILD.bazel
+@@ -172,7 +172,7 @@ _EXTRA_CONSTRAINTS = {
+     "test_moe_indices.mojo": select({
+         "//:apple_gpu": ["@platforms//:incompatible"],
+         "//conditions:default": [],
+-    }),  # FIXME: MOCO-2489
++    }),  # Apple uses the focused smoke below; full stress test trips Metal XPC.
+     # The FI ternary samplers now run the search on a single thread on Apple
+     # (no in-loop block collectives that desync warps on Metal).
+     # `probe_block_scan_metal` is an Apple-only regression probe asserting
+@@ -395,6 +395,18 @@ _FILECHECK_TESTS = [
+             # Exercises both prefill kernels (no-SMEM + SMEM-staged) via one
+             # `staged` harness flag.
+             "test_apple_fa_prefill_paged.mojo",
++            # Apple-only graph-builtin rank-2 gather smoke; declared explicitly
++            # below so it can depend on //max:builtin_kernels.
++            "test_apple_gather_rank2_smoke.mojo",
++            # Apple-only MLA prefill compile smoke; declared explicitly below
++            # so it can depend on //max:kv_cache and stay Apple-constrained.
++            "test_apple_mla_prefill_compile.mojo",
++            # Apple-only MLA decode fallback smoke; declared explicitly below
++            # so it can depend on //max:kv_cache and stay Apple-constrained.
++            "test_apple_mla_decode_smoke.mojo",
++            # Apple-only MoE indices fallback smoke; declared explicitly below
++            # so the broad stress test can remain off Apple.
++            "test_apple_moe_indices_smoke.mojo",
+         ],
+     )
+ ]
+@@ -462,6 +474,73 @@ mojo_test(
+     ],
+ )
+ 
++mojo_test(
++    name = "test_apple_gather_rank2_smoke.mojo.test",
++    srcs = ["test_apple_gather_rank2_smoke.mojo"],
++    tags = ["gpu"],
++    target_compatible_with = [
++        "//:has_gpu",
++        "//:apple_gpu",
++    ],
++    deps = [
++        "//max:builtin_kernels",
++        "//max:extensibility",
++        "//max:internal_utils",
++        "@mojo//:std",
++    ],
++)
++
++mojo_test(
++    name = "test_apple_mla_prefill_compile.mojo.test",
++    srcs = ["test_apple_mla_prefill_compile.mojo"],
++    tags = ["gpu"],
++    target_compatible_with = [
++        "//:has_gpu",
++        "//:apple_gpu",
++    ],
++    deps = [
++        "//max:internal_utils",
++        "//max:kv_cache",
++        "//max:linalg",
++        "//max:nn",
++        "@mojo//:std",
++    ],
++)
++
++mojo_test(
++    name = "test_apple_mla_decode_smoke.mojo.test",
++    srcs = ["test_apple_mla_decode_smoke.mojo"],
++    tags = ["gpu"],
++    target_compatible_with = [
++        "//:has_gpu",
++        "//:apple_gpu",
++    ],
++    deps = [
++        "//max:internal_utils",
++        "//max:kv_cache",
++        "//max:linalg",
++        "//max:nn",
++        "@mojo//:std",
++    ],
++)
++
++mojo_test(
++    name = "test_apple_moe_indices_smoke.mojo.test",
++    srcs = ["test_apple_moe_indices_smoke.mojo"],
++    tags = ["gpu"],
++    target_compatible_with = [
++        "//:has_gpu",
++        "//:apple_gpu",
++    ],
++    deps = [
++        "//max:internal_utils",
++        "//max:linalg",
++        "//max:nn",
++        "//max:testdata",
++        "@mojo//:std",
++    ],
++)
++
+ # Dtype-parameterized 4-wave conv correctness tests. Single source
+ # file (`test_amd_4wave_conv_dtypes.mojo`); one `mojo_test` target per
+ # dtype, each with `-D DTYPE=<dtype>`. Black-box correctness check of
+diff --git a/max/kernels/test/gpu/nn/test_apple_gather_rank2_smoke.mojo b/max/kernels/test/gpu/nn/test_apple_gather_rank2_smoke.mojo
+new file mode 100644
+index 0000000..8d22a42
+--- /dev/null
++++ b/max/kernels/test/gpu/nn/test_apple_gather_rank2_smoke.mojo
+@@ -0,0 +1,128 @@
++# ===----------------------------------------------------------------------=== #
++# Copyright (c) 2026, Modular Inc. All rights reserved.
++#
++# Licensed under the Apache License v2.0 with LLVM Exceptions:
++# https://llvm.org/LICENSE.txt
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++# ===----------------------------------------------------------------------=== #
++
++from builtin_kernels import Gather
++from extensibility import (
++    StaticTensorSpec,
++    _FusedInputTensor as FusedInputTensor,
++    _FusedOutputTensor as FusedOutputTensor,
++)
++from std.gpu.host import DeviceContext
++from std.sys import has_apple_gpu_accelerator
++from std.testing import assert_equal
++from std.utils import IndexList
++
++
++def test_apple_gather_axis0_rank2[
++    indices_type: DType
++](ctx: DeviceContext) raises:
++    print("Apple rank-2 gather indices dtype:", indices_type)
++    comptime INPUT_ROWS = 5
++    comptime COLS = 8
++    comptime NUM_INDICES = 6
++    comptime input_spec = StaticTensorSpec[
++        DType.float32, 2, ...
++    ].get_unknown()
++    comptime indices_spec = StaticTensorSpec[
++        indices_type, 1, ...
++    ].get_unknown()
++    comptime output_spec = StaticTensorSpec[
++        DType.float32, 2, ...
++    ].get_unknown()
++
++    var input_h = ctx.enqueue_create_host_buffer[DType.float32](
++        INPUT_ROWS * COLS
++    )
++    var indices_h = ctx.enqueue_create_host_buffer[indices_type](NUM_INDICES)
++    var output_h = ctx.enqueue_create_host_buffer[DType.float32](
++        NUM_INDICES * COLS
++    )
++    var input_d = ctx.enqueue_create_buffer[DType.float32](INPUT_ROWS * COLS)
++    var indices_d = ctx.enqueue_create_buffer[indices_type](NUM_INDICES)
++    var output_d = ctx.enqueue_create_buffer[DType.float32](
++        NUM_INDICES * COLS
++    )
++
++    for row in range(INPUT_ROWS):
++        for col in range(COLS):
++            input_h[row * COLS + col] = Float32(row * 100 + col)
++
++    comptime if indices_type == DType.int32:
++        indices_h[0] = -1
++    else:
++        indices_h[0] = Scalar[indices_type](INPUT_ROWS - 1)
++    indices_h[1] = 0
++    indices_h[2] = 2
++    indices_h[3] = 4
++    indices_h[4] = 1
++    indices_h[5] = 3
++
++    for i in range(NUM_INDICES * COLS):
++        output_h[i] = -777.0
++
++    ctx.enqueue_copy(input_d, input_h)
++    ctx.enqueue_copy(indices_d, indices_h)
++    ctx.enqueue_copy(output_d, output_h)
++
++    var input = FusedInputTensor[static_spec=input_spec](
++        input_d.unsafe_ptr(), IndexList[2](INPUT_ROWS, COLS)
++    )
++    var indices = FusedInputTensor[static_spec=indices_spec](
++        indices_d.unsafe_ptr(), IndexList[1](NUM_INDICES)
++    )
++    var output = FusedOutputTensor[static_spec=output_spec](
++        output_d.unsafe_ptr(), IndexList[2](NUM_INDICES, COLS)
++    )
++
++    Gather.execute[
++        target="gpu",
++        _trace_name="apple_gather_axis0_rank2_smoke",
++        axis=0,
++        input_rank=2,
++        indices_rank=1,
++    ](output, input, indices, ctx)
++
++    ctx.synchronize()
++
++    ctx.enqueue_copy(output_h, output_d)
++    ctx.synchronize()
++
++    for idx_pos in range(NUM_INDICES):
++        var expected_row = 0
++        if idx_pos == 0:
++            expected_row = INPUT_ROWS - 1
++        elif idx_pos == 2:
++            expected_row = 2
++        elif idx_pos == 3:
++            expected_row = 4
++        elif idx_pos == 4:
++            expected_row = 1
++        elif idx_pos == 5:
++            expected_row = 3
++        for col in range(COLS):
++            assert_equal(
++                output_h[idx_pos * COLS + col],
++                Float32(expected_row * 100 + col),
++                "axis-0 rank-2 gather produced the wrong element",
++            )
++
++
++def main() raises:
++    comptime if not has_apple_gpu_accelerator():
++        print("SKIP: Apple rank-2 gather smoke requires Apple GPU")
++        return
++
++    with DeviceContext() as ctx:
++        test_apple_gather_axis0_rank2[DType.int32](ctx)
++        test_apple_gather_axis0_rank2[DType.uint32](ctx)
++        print("Apple rank-2 gather smoke passed")
+diff --git a/max/kernels/test/gpu/nn/test_apple_mla_decode_smoke.mojo b/max/kernels/test/gpu/nn/test_apple_mla_decode_smoke.mojo
+new file mode 100644
+index 0000000..16cadf9
+--- /dev/null
++++ b/max/kernels/test/gpu/nn/test_apple_mla_decode_smoke.mojo
+@@ -0,0 +1,216 @@
++# ===----------------------------------------------------------------------=== #
++# Copyright (c) 2026, Modular Inc. All rights reserved.
++#
++# Licensed under the Apache License v2.0 with LLVM Exceptions:
++# https://llvm.org/LICENSE.txt
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++# ===----------------------------------------------------------------------=== #
++"""Apple-only smoke for the MLA decode fallback dispatch path."""
++
++from std.gpu.host import DeviceContext
++from std.math import ceildiv
++from std.memory import alloc
++from std.random import randn, seed
++from std.sys import has_apple_gpu_accelerator
++from std.utils.index import IndexList
++from std.utils.numerics import isinf, isnan
++
++from kv_cache.types import KVCacheStaticParams, PagedKVCacheCollection
++from layout import (
++    UNKNOWN_VALUE,
++    Idx,
++    Layout,
++    LayoutTensor,
++    RuntimeLayout,
++    TileTensor,
++    row_major,
++)
++from nn.attention.gpu.mla import flare_mla_decoding
++from nn.attention.mha_mask import NullMask
++from nn.attention.mha_utils import MHAConfig
++
++
++comptime DEPTH = 576
++comptime V_DEPTH = 512
++comptime NUM_HEADS = 16
++comptime KV_NUM_HEADS = 1
++comptime NUM_LAYERS = 1
++comptime PAGE_SIZE = 16
++
++
++def _fill_lookup_table(
++    lookup_table_host: UnsafePointer[mut=True, UInt32, _],
++    num_pages: Int,
++):
++    for p in range(num_pages):
++        lookup_table_host[p] = UInt32(p)
++
++
++def _run(ctx: DeviceContext) raises:
++    comptime qkv_type = DType.bfloat16
++    comptime output_type = DType.bfloat16
++    comptime batch_size = 1
++    comptime q_max_seq_len = 1
++    comptime cache_len = 3
++    comptime num_keys = cache_len + q_max_seq_len
++    comptime scale = Float32(0.125)
++
++    var q_size = batch_size * q_max_seq_len * NUM_HEADS * DEPTH
++    var output_size = batch_size * q_max_seq_len * NUM_HEADS * V_DEPTH
++    var num_pages = ceildiv(num_keys, PAGE_SIZE)
++    var block_elems = (
++        num_pages * NUM_LAYERS * PAGE_SIZE * KV_NUM_HEADS * DEPTH
++    )
++
++    var q_host = alloc[Scalar[qkv_type]](q_size)
++    var blocks_host = alloc[Scalar[qkv_type]](block_elems)
++    var output_host = alloc[Scalar[output_type]](output_size)
++    var row_offsets_host = alloc[UInt32](batch_size + 1)
++    var cache_lengths_host = alloc[UInt32](batch_size)
++    var lookup_table_host = alloc[UInt32](num_pages)
++
++    randn[qkv_type](q_host, q_size)
++    randn[qkv_type](blocks_host, block_elems)
++    row_offsets_host[0] = UInt32(0)
++    row_offsets_host[1] = UInt32(q_max_seq_len)
++    cache_lengths_host[0] = UInt32(cache_len)
++    _fill_lookup_table(lookup_table_host, num_pages)
++
++    var q_device = ctx.enqueue_create_buffer[qkv_type](q_size)
++    var blocks_device = ctx.enqueue_create_buffer[qkv_type](block_elems)
++    var output_device = ctx.enqueue_create_buffer[output_type](output_size)
++    var row_offsets_device = ctx.enqueue_create_buffer[DType.uint32](
++        batch_size + 1
++    )
++    var cache_lengths_device = ctx.enqueue_create_buffer[DType.uint32](
++        batch_size
++    )
++    var lookup_table_device = ctx.enqueue_create_buffer[DType.uint32](num_pages)
++    var scalar_args_device = ctx.enqueue_create_buffer[DType.int64](3)
++
++    ctx.enqueue_copy(q_device, q_host)
++    ctx.enqueue_copy(blocks_device, blocks_host)
++    ctx.enqueue_copy(row_offsets_device, row_offsets_host)
++    ctx.enqueue_copy(cache_lengths_device, cache_lengths_host)
++    ctx.enqueue_copy(lookup_table_device, lookup_table_host)
++
++    var q_tt = TileTensor(
++        q_device,
++        row_major((batch_size * q_max_seq_len, Idx[NUM_HEADS], Idx[DEPTH])),
++    )
++    var output_tt = TileTensor(
++        output_device,
++        row_major((batch_size * q_max_seq_len, Idx[NUM_HEADS], Idx[V_DEPTH])),
++    )
++    var row_offsets_tt = TileTensor(
++        row_offsets_device,
++        row_major(batch_size + 1),
++    )
++    var scalar_args_tt = TileTensor(scalar_args_device, row_major[3]())
++
++    comptime kv_params = KVCacheStaticParams(
++        num_heads=KV_NUM_HEADS, head_size=DEPTH, is_mla=True
++    )
++    var block_shape = IndexList[6](
++        num_pages,
++        1,
++        NUM_LAYERS,
++        PAGE_SIZE,
++        kv_params.num_heads,
++        kv_params.head_size,
++    )
++    var blocks_lt = LayoutTensor[qkv_type, Layout.row_major[6]()](
++        blocks_device.unsafe_ptr(),
++        RuntimeLayout[Layout.row_major[6]()].row_major(block_shape),
++    )
++
++    comptime cl_layout = Layout(UNKNOWN_VALUE)
++    var cache_lengths_lt = LayoutTensor[DType.uint32, cl_layout](
++        cache_lengths_device.unsafe_ptr(),
++        RuntimeLayout[cl_layout].row_major(IndexList[1](batch_size)),
++    )
++
++    comptime lut_layout = Layout.row_major[2]()
++    var lookup_table_lt = LayoutTensor[DType.uint32, lut_layout](
++        lookup_table_device.unsafe_ptr(),
++        RuntimeLayout[lut_layout].row_major(IndexList[2](batch_size, num_pages)),
++    )
++
++    var kv_collection = PagedKVCacheCollection[qkv_type, kv_params, PAGE_SIZE](
++        LayoutTensor[qkv_type, Layout.row_major[6](), MutAnyOrigin](
++            blocks_lt.ptr.as_unsafe_any_origin(),
++            RuntimeLayout[Layout.row_major[6]()](
++                blocks_lt.runtime_layout.shape.value,
++                blocks_lt.runtime_layout.stride.value,
++            ),
++        ),
++        LayoutTensor[DType.uint32, cl_layout, ImmutAnyOrigin](
++            cache_lengths_lt.ptr.as_unsafe_any_origin(),
++            RuntimeLayout[cl_layout](
++                cache_lengths_lt.runtime_layout.shape.value,
++                cache_lengths_lt.runtime_layout.stride.value,
++            ),
++        ),
++        LayoutTensor[DType.uint32, lut_layout, ImmutAnyOrigin](
++            lookup_table_lt.ptr.as_unsafe_any_origin(),
++            RuntimeLayout[lut_layout](
++                lookup_table_lt.runtime_layout.shape.value,
++                lookup_table_lt.runtime_layout.stride.value,
++            ),
++        ),
++        UInt32(q_max_seq_len),
++        UInt32(cache_len),
++    )
++    var kv_cache = kv_collection.get_key_cache(0)
++
++    flare_mla_decoding[
++        rank=3,
++        config=MHAConfig[qkv_type](NUM_HEADS, DEPTH),
++        ragged=True,
++    ](
++        output_tt,
++        q_tt,
++        kv_cache,
++        NullMask(),
++        row_offsets_tt,
++        scale,
++        ctx,
++        scalar_args_tt,
++        q_max_seq_len=q_max_seq_len,
++    )
++    ctx.synchronize()
++
++    ctx.enqueue_copy(output_host, output_device)
++    ctx.synchronize()
++
++    var num_nonfinite = 0
++    for i in range(output_size):
++        var val = output_host.load(i).cast[DType.float32]()
++        if isnan(val) or isinf(val):
++            num_nonfinite += 1
++    if num_nonfinite != 0:
++        raise Error("Apple MLA decode smoke produced non-finite output")
++
++    print("Apple MLA decode smoke completed; non-finite outputs:", num_nonfinite)
++
++    q_host.free()
++    blocks_host.free()
++    output_host.free()
++    row_offsets_host.free()
++    cache_lengths_host.free()
++    lookup_table_host.free()
++
++
++def main() raises:
++    comptime if not has_apple_gpu_accelerator():
++        print("SKIP: Apple MLA decode targets Apple silicon GPUs only")
++        return
++    with DeviceContext() as ctx:
++        print("Apple MLA decode smoke compute_capability:", ctx.compute_capability())
++        seed(1)
++        _run(ctx)
+diff --git a/max/kernels/test/gpu/nn/test_apple_mla_prefill_compile.mojo b/max/kernels/test/gpu/nn/test_apple_mla_prefill_compile.mojo
+new file mode 100644
+index 0000000..cc4c145
+--- /dev/null
++++ b/max/kernels/test/gpu/nn/test_apple_mla_prefill_compile.mojo
+@@ -0,0 +1,245 @@
++# ===----------------------------------------------------------------------=== #
++# Copyright (c) 2026, Modular Inc. All rights reserved.
++#
++# Licensed under the Apache License v2.0 with LLVM Exceptions:
++# https://llvm.org/LICENSE.txt
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++# ===----------------------------------------------------------------------=== #
++"""Apple-only compile smoke for the MLA prefill dispatch path."""
++
++from std.gpu.host import DeviceContext
++from std.math import ceildiv
++from std.memory import alloc
++from std.random import randn, seed
++from std.sys import has_apple_gpu_accelerator
++from std.utils.numerics import isinf, isnan
++
++from kv_cache.types import KVCacheStaticParams, PagedKVCacheCollection
++from layout import (
++    UNKNOWN_VALUE,
++    Idx,
++    Layout,
++    LayoutTensor,
++    RuntimeLayout,
++    TileTensor,
++    row_major,
++)
++from std.utils.index import IndexList
++
++from nn.attention.gpu.mla import flare_mla_prefill
++from nn.attention.mha_mask import CausalMask
++
++
++comptime CACHE_DEPTH = 576
++comptime KV_DEPTH = 128
++comptime Q_DEPTH = 192
++comptime NUM_HEADS = 16
++comptime KV_NUM_HEADS = 1
++comptime NUM_LAYERS = 1
++comptime PAGE_SIZE = 16
++
++
++def _fill_lookup_table(
++    lookup_table_host: UnsafePointer[mut=True, UInt32, _],
++    batch_size: Int,
++    num_pages_per_batch: Int,
++):
++    for b in range(batch_size):
++        for p in range(num_pages_per_batch):
++            lookup_table_host[b * num_pages_per_batch + p] = UInt32(
++                b * num_pages_per_batch + p
++            )
++
++
++def _run(ctx: DeviceContext) raises:
++    comptime qkv_type = DType.bfloat16
++    comptime output_type = DType.bfloat16
++    comptime batch_size = 1
++    comptime seq_len = 16
++    comptime num_keys = 16
++    comptime scale = Float32(0.125)
++
++    var q_size = batch_size * seq_len * NUM_HEADS * Q_DEPTH
++    var k_size = batch_size * num_keys * NUM_HEADS * KV_DEPTH
++    var v_size = k_size
++    var output_size = batch_size * seq_len * NUM_HEADS * KV_DEPTH
++
++    var q_ptr = alloc[Scalar[qkv_type]](q_size)
++    var k_ptr = alloc[Scalar[qkv_type]](k_size)
++    var v_ptr = alloc[Scalar[qkv_type]](v_size)
++    var output_ptr = alloc[Scalar[output_type]](output_size)
++
++    randn[qkv_type](q_ptr, q_size)
++    randn[qkv_type](k_ptr, k_size)
++    randn[qkv_type](v_ptr, v_size)
++
++    var input_row_offsets_host = alloc[UInt32](batch_size + 1)
++    var cache_row_offsets_host = alloc[UInt32](batch_size + 1)
++    input_row_offsets_host[0] = UInt32(0)
++    input_row_offsets_host[1] = UInt32(seq_len)
++    cache_row_offsets_host[0] = UInt32(0)
++    cache_row_offsets_host[1] = UInt32(num_keys)
++
++    var num_pages_per_batch = ceildiv(num_keys, PAGE_SIZE)
++    var total_pages = batch_size * num_pages_per_batch
++    var block_elems = (
++        total_pages * NUM_LAYERS * PAGE_SIZE * KV_NUM_HEADS * CACHE_DEPTH
++    )
++    var lut_size = batch_size * num_pages_per_batch
++
++    var blocks_host = alloc[Scalar[qkv_type]](block_elems)
++    var cache_lengths_host = alloc[UInt32](batch_size)
++    var lookup_table_host = alloc[UInt32](lut_size)
++    randn[qkv_type](blocks_host, block_elems)
++    cache_lengths_host[0] = UInt32(0)
++    _fill_lookup_table(lookup_table_host, batch_size, num_pages_per_batch)
++
++    var q_device_buf = ctx.enqueue_create_buffer[qkv_type](q_size)
++    var k_device_buf = ctx.enqueue_create_buffer[qkv_type](k_size)
++    var v_device_buf = ctx.enqueue_create_buffer[qkv_type](v_size)
++    var output_device_buf = ctx.enqueue_create_buffer[output_type](output_size)
++    var input_ro_buf = ctx.enqueue_create_buffer[DType.uint32](batch_size + 1)
++    var cache_ro_buf = ctx.enqueue_create_buffer[DType.uint32](batch_size + 1)
++    var blocks_device = ctx.enqueue_create_buffer[qkv_type](block_elems)
++    var cache_lengths_device = ctx.enqueue_create_buffer[DType.uint32](batch_size)
++    var lookup_table_device = ctx.enqueue_create_buffer[DType.uint32](lut_size)
++
++    ctx.enqueue_copy(q_device_buf, q_ptr)
++    ctx.enqueue_copy(k_device_buf, k_ptr)
++    ctx.enqueue_copy(v_device_buf, v_ptr)
++    ctx.enqueue_copy(input_ro_buf, input_row_offsets_host)
++    ctx.enqueue_copy(cache_ro_buf, cache_row_offsets_host)
++    ctx.enqueue_copy(blocks_device, blocks_host)
++    ctx.enqueue_copy(cache_lengths_device, cache_lengths_host)
++    ctx.enqueue_copy(lookup_table_device, lookup_table_host)
++
++    var q_device = TileTensor(
++        q_device_buf,
++        row_major((batch_size * seq_len, Idx[NUM_HEADS], Idx[Q_DEPTH])),
++    )
++    var k_device = TileTensor(
++        k_device_buf,
++        row_major((batch_size * num_keys, Idx[NUM_HEADS], Idx[KV_DEPTH])),
++    )
++    var v_device = TileTensor(
++        v_device_buf,
++        row_major((batch_size * num_keys, Idx[NUM_HEADS], Idx[KV_DEPTH])),
++    )
++    var output_device = TileTensor(
++        output_device_buf,
++        row_major((batch_size * seq_len, Idx[NUM_HEADS], Idx[KV_DEPTH])),
++    )
++    var input_ro_tt = TileTensor(input_ro_buf, row_major(batch_size + 1))
++    var cache_ro_tt = TileTensor(cache_ro_buf, row_major(batch_size + 1))
++
++    comptime kv_params = KVCacheStaticParams(
++        num_heads=KV_NUM_HEADS, head_size=CACHE_DEPTH, is_mla=True
++    )
++    var block_shape = IndexList[6](
++        total_pages,
++        1,
++        NUM_LAYERS,
++        PAGE_SIZE,
++        kv_params.num_heads,
++        kv_params.head_size,
++    )
++    var blocks_lt = LayoutTensor[qkv_type, Layout.row_major[6]()](
++        blocks_device.unsafe_ptr(),
++        RuntimeLayout[Layout.row_major[6]()].row_major(block_shape),
++    )
++
++    comptime cl_layout = Layout(UNKNOWN_VALUE)
++    var cache_lengths_lt = LayoutTensor[DType.uint32, cl_layout](
++        cache_lengths_device.unsafe_ptr(),
++        RuntimeLayout[cl_layout].row_major(IndexList[1](batch_size)),
++    )
++
++    comptime lt_layout_2d = Layout.row_major[2]()
++    var lookup_table_lt = LayoutTensor[DType.uint32, lt_layout_2d](
++        lookup_table_device.unsafe_ptr(),
++        RuntimeLayout[lt_layout_2d].row_major(
++            IndexList[2](batch_size, num_pages_per_batch)
++        ),
++    )
++
++    var kv_collection = PagedKVCacheCollection[qkv_type, kv_params, PAGE_SIZE](
++        LayoutTensor[qkv_type, Layout.row_major[6](), MutAnyOrigin](
++            blocks_lt.ptr.as_unsafe_any_origin(),
++            RuntimeLayout[Layout.row_major[6]()](
++                blocks_lt.runtime_layout.shape.value,
++                blocks_lt.runtime_layout.stride.value,
++            ),
++        ),
++        LayoutTensor[DType.uint32, cl_layout, ImmutAnyOrigin](
++            cache_lengths_lt.ptr.as_unsafe_any_origin(),
++            RuntimeLayout[cl_layout](
++                cache_lengths_lt.runtime_layout.shape.value,
++                cache_lengths_lt.runtime_layout.stride.value,
++            ),
++        ),
++        LayoutTensor[DType.uint32, lt_layout_2d, ImmutAnyOrigin](
++            lookup_table_lt.ptr.as_unsafe_any_origin(),
++            RuntimeLayout[lt_layout_2d](
++                lookup_table_lt.runtime_layout.shape.value,
++                lookup_table_lt.runtime_layout.stride.value,
++            ),
++        ),
++        UInt32(seq_len),
++        UInt32(num_keys),
++    )
++
++    var kv_cache = kv_collection.get_key_cache(0)
++    var k_lt = k_device.to_layout_tensor()
++    var v_lt = v_device.to_layout_tensor()
++
++    flare_mla_prefill[rank=3](
++        output_device,
++        q_device,
++        k_lt,
++        v_lt,
++        kv_cache,
++        CausalMask(),
++        input_ro_tt,
++        cache_ro_tt,
++        scale,
++        ctx,
++        q_max_seq_len=seq_len,
++    )
++    ctx.synchronize()
++
++    ctx.enqueue_copy(output_ptr, output_device_buf)
++    ctx.synchronize()
++
++    var num_nonfinite = 0
++    for i in range(output_size):
++        var val = output_ptr.load(i).cast[DType.float32]()
++        if isnan(val) or isinf(val):
++            num_nonfinite += 1
++    if num_nonfinite != 0:
++        raise Error("Apple MLA prefill smoke produced non-finite output")
++    print("Apple MLA prefill smoke completed; non-finite outputs:", num_nonfinite)
++
++    q_ptr.free()
++    k_ptr.free()
++    v_ptr.free()
++    output_ptr.free()
++    input_row_offsets_host.free()
++    cache_row_offsets_host.free()
++    blocks_host.free()
++    cache_lengths_host.free()
++    lookup_table_host.free()
++
++
++def main() raises:
++    comptime if not has_apple_gpu_accelerator():
++        print("SKIP: Apple MLA prefill targets Apple silicon GPUs only")
++        return
++    with DeviceContext() as ctx:
++        print("Apple MLA prefill smoke compute_capability:", ctx.compute_capability())
++        seed(0)
++        _run(ctx)
+diff --git a/max/kernels/test/gpu/nn/test_apple_moe_indices_smoke.mojo b/max/kernels/test/gpu/nn/test_apple_moe_indices_smoke.mojo
+new file mode 100644
+index 0000000..4f73963
+--- /dev/null
++++ b/max/kernels/test/gpu/nn/test_apple_moe_indices_smoke.mojo
+@@ -0,0 +1,116 @@
++# ===----------------------------------------------------------------------=== #
++# Copyright (c) 2026, Modular Inc. All rights reserved.
++#
++# Licensed under the Apache License v2.0 with LLVM Exceptions:
++# https://llvm.org/LICENSE.txt
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++# ===----------------------------------------------------------------------=== #
++
++from layout import Idx, TileTensor, row_major
++from nn.moe import moe_create_indices
++from std.gpu.host import DeviceContext
++from std.sys import has_apple_gpu_accelerator
++from std.testing import assert_equal
++
++
++def test_apple_moe_create_indices_smoke(ctx: DeviceContext) raises:
++    comptime NUM_ASSIGNMENTS = 24
++    comptime NUM_EXPERTS = 8
++
++    var topk_h = ctx.enqueue_create_host_buffer[DType.uint32](NUM_ASSIGNMENTS)
++    var token_order_h = ctx.enqueue_create_host_buffer[DType.uint32](
++        NUM_ASSIGNMENTS
++    )
++    var restore_order_h = ctx.enqueue_create_host_buffer[DType.uint32](
++        NUM_ASSIGNMENTS
++    )
++    var expert_start_h = ctx.enqueue_create_host_buffer[DType.uint32](
++        NUM_EXPERTS + 1
++    )
++    var expert_ids_h = ctx.enqueue_create_host_buffer[DType.int32](NUM_EXPERTS)
++    var usage_h = ctx.enqueue_create_host_buffer[DType.uint32](2)
++
++    for i in range(NUM_ASSIGNMENTS):
++        topk_h[i] = UInt32(i % NUM_EXPERTS)
++
++    var topk_d = ctx.enqueue_create_buffer[DType.uint32](NUM_ASSIGNMENTS)
++    var token_order_d = ctx.enqueue_create_buffer[DType.uint32](
++        NUM_ASSIGNMENTS
++    )
++    var restore_order_d = ctx.enqueue_create_buffer[DType.uint32](
++        NUM_ASSIGNMENTS
++    )
++    var expert_start_d = ctx.enqueue_create_buffer[DType.uint32](
++        NUM_EXPERTS + 1
++    )
++    var expert_ids_d = ctx.enqueue_create_buffer[DType.int32](NUM_EXPERTS)
++    var usage_d = ctx.enqueue_create_buffer[DType.uint32](2)
++
++    ctx.enqueue_copy(topk_d, topk_h)
++
++    var topk = TileTensor(topk_d, row_major(NUM_ASSIGNMENTS))
++    var token_order = TileTensor(token_order_d, row_major(NUM_ASSIGNMENTS))
++    var restore_order = TileTensor(restore_order_d, row_major(NUM_ASSIGNMENTS))
++    var expert_start = TileTensor(expert_start_d, row_major(NUM_EXPERTS + 1))
++    var expert_ids = TileTensor(expert_ids_d, row_major(NUM_EXPERTS))
++    var usage = TileTensor(usage_d, row_major(Idx[2]))
++
++    moe_create_indices["gpu", expected_count=32](
++        token_order,
++        expert_start,
++        restore_order,
++        expert_ids,
++        usage,
++        topk,
++        ctx,
++    )
++
++    ctx.enqueue_copy(token_order_h, token_order_d)
++    ctx.enqueue_copy(restore_order_h, restore_order_d)
++    ctx.enqueue_copy(expert_start_h, expert_start_d)
++    ctx.enqueue_copy(expert_ids_h, expert_ids_d)
++    ctx.enqueue_copy(usage_h, usage_d)
++    ctx.synchronize()
++
++    assert_equal(usage_h[0], UInt32(3), "max tokens per expert mismatch")
++    assert_equal(usage_h[1], UInt32(NUM_EXPERTS), "expert count mismatch")
++    assert_equal(
++        expert_start_h[NUM_EXPERTS],
++        UInt32(NUM_ASSIGNMENTS),
++        "total token assignment count mismatch",
++    )
++
++    for expert_slot in range(Int(usage_h[1])):
++        var start = Int(expert_start_h[expert_slot])
++        var end = Int(expert_start_h[expert_slot + 1])
++        var expert_id = expert_ids_h[expert_slot]
++        for pos in range(start, end):
++            var token_idx = Int(token_order_h[pos])
++            assert_equal(
++                expert_id,
++                Int32(topk_h[token_idx]),
++                "expert range contains a token for a different expert",
++            )
++
++    for token_idx in range(NUM_ASSIGNMENTS):
++        var restored_pos = Int(restore_order_h[token_idx])
++        assert_equal(
++            token_idx,
++            Int(token_order_h[restored_pos]),
++            "restore order does not invert token expert order",
++        )
++
++
++def main() raises:
++    comptime if not has_apple_gpu_accelerator():
++        print("SKIP: Apple MoE indices smoke requires Apple GPU")
++        return
++
++    with DeviceContext() as ctx:
++        test_apple_moe_create_indices_smoke(ctx)
++        print("Apple MoE indices smoke passed")
