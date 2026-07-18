@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import importlib.resources
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .accelerator_probe import (
     run_activation_transfer_probe,
     run_expert_mlp_probe,
@@ -28,6 +31,7 @@ from .backend_coverage import (
     render_backend_coverage_report,
     validate_backend_coverage_contract,
 )
+from .backends import StageManifest, check_stage_backend_factory
 from .benchmark import benchmark_from_plan
 from .benchmark_ledger import (
     append_benchmark_ledger_record,
@@ -41,12 +45,14 @@ from .engine_simulation import (
     simulated_engine_contract,
     validate_engine_simulation,
 )
+from .fnx2_validation import validate_stage_abi_v2_golden
 from .golden import run_golden_plans
 from .g1_evidence_packet import (
     build_g1_evidence_packet,
     validate_g1_evidence_packet_fixture,
 )
 from .g1_review import render_g1_gate_review_draft
+from .g2_validation import run_g2_validation
 from .inventory import (
     SIMULATED_CLUSTER_PROFILES,
     build_logical_cluster_inventory,
@@ -82,7 +88,7 @@ from .local_serving_smoke import (
     run_local_serving_smoke,
     validate_local_serving_smoke,
 )
-from .planner import plan_placement
+from .planner import EvidenceRegistry, plan_placement
 from .preflight import run_phase0_preflight
 from .quickstart import run_quickstart
 from .remote_expert_probe import (
@@ -193,6 +199,12 @@ from .transport import simulated_transport_contract, validate_transport_contract
 from .trust_boundary import simulate_trust_boundary, validate_trust_boundary
 from .validation import validate_target_contract
 from .workers import simulated_worker_contract, validate_worker_contract
+
+
+def _package_asset(relative_path: str) -> str:
+    """Return an installed-package asset path independent of the caller's cwd."""
+
+    return str(importlib.resources.files("fornax").joinpath(relative_path))
 
 
 def _cmd_accelerator_expert_mlp_probe(args: argparse.Namespace) -> int:
@@ -502,9 +514,23 @@ def _cmd_target_validate(args: argparse.Namespace) -> int:
 def _cmd_plan(args: argparse.Namespace) -> int:
     model, target = load_model_target(args.target)
     inventory = load_inventory(args.inventory, args.links)
-    plan = plan_placement(model, inventory, target)
+    evidence_registry = (
+        EvidenceRegistry.from_file(args.evidence_registry)
+        if args.evidence_registry is not None
+        else None
+    )
+    plan = plan_placement(
+        model,
+        inventory,
+        target,
+        authority_mode=args.authority_mode,
+        evidence_registry=evidence_registry,
+    )
     write_json(args.out, plan.to_dict())
-    print(f"wrote placement plan: {args.out}")
+    print(
+        f"wrote placement plan: {args.out} "
+        f"(authority={plan.authority.status})"
+    )
     return 0 if plan.feasible else 2
 
 
@@ -711,6 +737,38 @@ def _cmd_serving_adapter_simulate(args: argparse.Namespace) -> int:
         f"correctness={summary['correctness_passed']}"
     )
     return 0
+
+
+def _cmd_runtime_backend_conformance(args: argparse.Namespace) -> int:
+    try:
+        manifest_data = read_json(args.manifest)
+        if not isinstance(manifest_data, dict):
+            raise ValueError("manifest must be a JSON object")
+        stage_manifest = StageManifest.from_dict(manifest_data)
+        options: dict[str, Any] = {}
+        if args.options:
+            options_data = read_json(args.options)
+            if not isinstance(options_data, dict):
+                raise ValueError("backend options must be a JSON object")
+            options = options_data
+        result = check_stage_backend_factory(
+            args.factory,
+            options,
+            stage_manifest,
+            rows=args.rows,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"runtime backend-conformance: {exc}", file=sys.stderr)
+        return 2
+    if args.out:
+        write_json(args.out, result)
+    verdict = "PASS" if result["ok"] else "FAIL"
+    print(
+        f"{verdict} backend-conformance: "
+        f"checks={result['passed_count']}/{result['check_count']} "
+        f"evidence={result['evidence_class']} closes_g2=false"
+    )
+    return 0 if result["ok"] else 1
 
 
 def _cmd_serving_state_ownership_simulate(args: argparse.Namespace) -> int:
@@ -1340,7 +1398,7 @@ def _cmd_program_governance_simulate(args: argparse.Namespace) -> int:
 
 def _cmd_program_phase05_engine_v0(args: argparse.Namespace) -> int:
     try:
-        result = run_phase05_engine_v0(
+        run_phase05_engine_v0(
             args.out,
             sustained_wall_seconds=args.sustained_wall_seconds,
             sustained_min_iterations=args.sustained_min_iterations,
@@ -1359,7 +1417,8 @@ def _cmd_program_phase05_engine_v0(args: argparse.Namespace) -> int:
             f"{args.out} exit_passed={summary['phase05_exit_passed']} "
             f"workers={summary['worker_count']} scenarios={summary['scenario_row_count']} "
             f"faults={summary['fault_count']} max_abs_error={summary['max_abs_error']} "
-            f"formal_g2_passed={summary['formal_g2_passed']}"
+            f"formal_g2_passed={summary['formal_g2_passed']} "
+            f"current_contract_authority={summary['current_contract_authority']}"
             f"{suffix}"
         )
         return 0
@@ -1368,6 +1427,27 @@ def _cmd_program_phase05_engine_v0(args: argparse.Namespace) -> int:
         f"{args.out} errors=" + "; ".join(validation["errors"])
     )
     return 1
+
+
+def _cmd_program_g2_validate(args: argparse.Namespace) -> int:
+    result = run_g2_validation(
+        repo_root=args.repo_root,
+        out_dir=args.out_dir,
+        max_lineage_manifest=args.max_lineage,
+        run_manifest_path=args.run_manifest,
+        run_physical=args.run_physical,
+        prerequisite_timeout_seconds=args.prerequisite_timeout_seconds,
+    )
+    summary = result["summary"]
+    print(
+        "G2 validation: "
+        f"status={summary['status']} "
+        f"lineage={summary['max_lineage_passed']} "
+        f"t0_t1={summary['t0_t1_prerequisites_passed']} "
+        f"physical={summary['physical_steps_passed']} "
+        f"bundle={result['bundle']['root']}"
+    )
+    return 0 if summary["technical_g2_packet_passed"] else 1
 
 
 def _cmd_program_phase3_proxy_gate(args: argparse.Namespace) -> int:
@@ -2207,7 +2287,7 @@ def _cmd_test_runtime_format(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_network_contract(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/network_contract"
+    fixture = args.fixture or _package_asset("golden_vectors/network_contract")
     result = validate_network_contract(fixture, mode=args.mode)
     if result["ok"]:
         suffix = ""
@@ -2220,7 +2300,7 @@ def _cmd_test_network_contract(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_engine_seam(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/engine_seam"
+    fixture = args.fixture or _package_asset("golden_vectors/engine_seam")
     result = validate_engine_seam_contract(fixture)
     if result["ok"]:
         suffix = ""
@@ -2233,7 +2313,7 @@ def _cmd_test_engine_seam(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_stage_host(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/stage_host"
+    fixture = args.fixture or _package_asset("golden_vectors/stage_host")
     result = validate_stage_host(fixture)
     if result["ok"]:
         suffix = ""
@@ -2253,7 +2333,7 @@ def _cmd_test_stage_host(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_serving_adapter(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/serving_adapter"
+    fixture = args.fixture or _package_asset("golden_vectors/serving_adapter")
     result = validate_serving_adapter(fixture)
     if result["ok"]:
         suffix = ""
@@ -2429,7 +2509,7 @@ def _cmd_test_apple_silicon_moe_serving_smoke(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_state_ownership(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/state_ownership"
+    fixture = args.fixture or _package_asset("golden_vectors/state_ownership")
     result = validate_state_ownership(fixture)
     if result["ok"]:
         suffix = ""
@@ -2449,7 +2529,7 @@ def _cmd_test_state_ownership(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_engine_simulation(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/engine_simulation"
+    fixture = args.fixture or _package_asset("golden_vectors/engine_simulation")
     result = validate_engine_simulation(fixture)
     if result["ok"]:
         suffix = ""
@@ -2470,7 +2550,7 @@ def _cmd_test_engine_simulation(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_observability(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/observability"
+    fixture = args.fixture or _package_asset("golden_vectors/observability")
     result = validate_observability_contract(fixture)
     if result["ok"]:
         suffix = ""
@@ -2483,7 +2563,7 @@ def _cmd_test_observability(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_metrics_ledger(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/metrics_ledger"
+    fixture = args.fixture or _package_asset("golden_vectors/metrics_ledger")
     result = validate_metrics_ledger(fixture)
     if result["ok"]:
         suffix = ""
@@ -2505,7 +2585,7 @@ def _cmd_test_metrics_ledger(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_trace_ledger(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/trace_ledger"
+    fixture = args.fixture or _package_asset("golden_vectors/trace_ledger")
     result = validate_trace_ledger(fixture)
     if result["ok"]:
         suffix = ""
@@ -2526,7 +2606,7 @@ def _cmd_test_trace_ledger(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_worker_contract(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/worker_contract"
+    fixture = args.fixture or _package_asset("golden_vectors/worker_contract")
     result = validate_worker_contract(fixture)
     if result["ok"]:
         suffix = ""
@@ -2545,7 +2625,7 @@ def _cmd_test_worker_contract(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_transport_contract(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/transport_contract"
+    fixture = args.fixture or _package_asset("golden_vectors/transport_contract")
     result = validate_transport_contract(fixture)
     if result["ok"]:
         suffix = ""
@@ -2567,7 +2647,7 @@ def _cmd_test_transport_contract(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_trust_boundary(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/trust_boundary"
+    fixture = args.fixture or _package_asset("golden_vectors/trust_boundary")
     result = validate_trust_boundary(fixture)
     if result["ok"]:
         suffix = ""
@@ -2587,7 +2667,7 @@ def _cmd_test_trust_boundary(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_moe_runtime(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/moe_runtime"
+    fixture = args.fixture or _package_asset("golden_vectors/moe_runtime")
     result = validate_moe_contract(fixture)
     if result["ok"]:
         suffix = ""
@@ -2608,7 +2688,7 @@ def _cmd_test_moe_runtime(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_moe_migration(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/moe_migration"
+    fixture = args.fixture or _package_asset("golden_vectors/moe_migration")
     result = validate_moe_hot_expert_migration(fixture)
     if result["ok"]:
         suffix = ""
@@ -2628,7 +2708,7 @@ def _cmd_test_moe_migration(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_remote_expert_probe(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/remote_expert_batch"
+    fixture = args.fixture or _package_asset("golden_vectors/remote_expert_batch")
     result = validate_remote_expert_batch_probe(fixture)
     if result["ok"]:
         suffix = ""
@@ -2649,7 +2729,7 @@ def _cmd_test_remote_expert_probe(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_moe_parity_probe(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/moe_layer_parity"
+    fixture = args.fixture or _package_asset("golden_vectors/moe_layer_parity")
     result = validate_moe_layer_parity_probe(fixture)
     if result["ok"]:
         suffix = ""
@@ -2670,7 +2750,7 @@ def _cmd_test_moe_parity_probe(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_model_support(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/model_support"
+    fixture = args.fixture or _package_asset("golden_vectors/model_support")
     result = validate_model_support_matrix(fixture)
     if result["ok"]:
         suffix = ""
@@ -2691,7 +2771,7 @@ def _cmd_test_model_support(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_continuous_batching(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/continuous_batching"
+    fixture = args.fixture or _package_asset("golden_vectors/continuous_batching")
     result = validate_continuous_batching(fixture)
     if result["ok"]:
         suffix = ""
@@ -2711,7 +2791,7 @@ def _cmd_test_continuous_batching(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_scheduler_contract(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/scheduler_contract"
+    fixture = args.fixture or _package_asset("golden_vectors/scheduler_contract")
     result = validate_scheduler_contract(fixture)
     if result["ok"]:
         suffix = ""
@@ -2776,7 +2856,7 @@ def _cmd_test_activation_transfer_probe(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_stage_replication(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/stage_replication"
+    fixture = args.fixture or _package_asset("golden_vectors/stage_replication")
     result = validate_stage_replication(fixture)
     if result["ok"]:
         suffix = ""
@@ -2796,7 +2876,7 @@ def _cmd_test_stage_replication(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_resilience_replay(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/resilience_replay"
+    fixture = args.fixture or _package_asset("golden_vectors/resilience_replay")
     result = validate_resilience_replay(fixture)
     if result["ok"]:
         suffix = ""
@@ -2817,7 +2897,7 @@ def _cmd_test_resilience_replay(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_ops_lifecycle(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/ops_lifecycle"
+    fixture = args.fixture or _package_asset("golden_vectors/ops_lifecycle")
     result = validate_ops_lifecycle(fixture)
     if result["ok"]:
         suffix = ""
@@ -2839,7 +2919,7 @@ def _cmd_test_ops_lifecycle(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_program_governance(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/program_governance"
+    fixture = args.fixture or _package_asset("golden_vectors/program_governance")
     result = validate_program_governance(fixture)
     if result["ok"]:
         suffix = ""
@@ -2861,7 +2941,7 @@ def _cmd_test_program_governance(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_onboarding_methodology(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/onboarding_methodology"
+    fixture = args.fixture or _package_asset("golden_vectors/onboarding_methodology")
     result = validate_onboarding_methodology(fixture)
     if result["ok"]:
         suffix = ""
@@ -2883,7 +2963,7 @@ def _cmd_test_onboarding_methodology(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_throughput_scaling(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/throughput_scaling"
+    fixture = args.fixture or _package_asset("golden_vectors/throughput_scaling")
     result = validate_throughput_scaling(fixture)
     if result["ok"]:
         suffix = ""
@@ -2904,7 +2984,7 @@ def _cmd_test_throughput_scaling(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_pipeline_correctness_probe(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/pipeline_correctness"
+    fixture = args.fixture or _package_asset("golden_vectors/pipeline_correctness")
     result = validate_pipeline_correctness_probe(fixture)
     if result["ok"]:
         suffix = ""
@@ -2925,7 +3005,7 @@ def _cmd_test_pipeline_correctness_probe(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_benchmark_ledger(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/benchmark_ledger"
+    fixture = args.fixture or _package_asset("golden_vectors/benchmark_ledger")
     result = validate_benchmark_ledger(fixture)
     if result["ok"]:
         suffix = ""
@@ -2938,7 +3018,7 @@ def _cmd_test_benchmark_ledger(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_phase3_proxy_gate(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/phase3_proxy_gate"
+    fixture = args.fixture or _package_asset("golden_vectors/phase3_proxy_gate")
     result = validate_phase3_proxy_gate(fixture)
     if result["ok"]:
         suffix = ""
@@ -2958,7 +3038,7 @@ def _cmd_test_phase3_proxy_gate(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_phase4_resilience_gate(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/phase4_resilience_gate"
+    fixture = args.fixture or _package_asset("golden_vectors/phase4_resilience_gate")
     result = validate_phase4_resilience_gate(fixture)
     if result["ok"]:
         suffix = ""
@@ -2979,7 +3059,7 @@ def _cmd_test_phase4_resilience_gate(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_phase5_ga_gate(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/phase5_ga_gate"
+    fixture = args.fixture or _package_asset("golden_vectors/phase5_ga_gate")
     result = validate_phase5_ga_gate(fixture)
     if result["ok"]:
         suffix = ""
@@ -3000,7 +3080,7 @@ def _cmd_test_phase5_ga_gate(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_backend_coverage(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/backend_coverage"
+    fixture = args.fixture or _package_asset("golden_vectors/backend_coverage")
     result = validate_backend_coverage_contract(fixture)
     if result["ok"]:
         suffix = ""
@@ -3027,7 +3107,8 @@ def _cmd_test_phase05_engine_v0(args: argparse.Namespace) -> int:
             f"exit_passed={summary['phase05_exit_passed']} "
             f"workers={summary['worker_count']} scenarios={summary['scenario_row_count']} "
             f"faults={summary['fault_count']} max_abs_error={summary['max_abs_error']} "
-            f"formal_g2_passed={summary['formal_g2_passed']}"
+            f"formal_g2_passed={summary['formal_g2_passed']} "
+            f"current_contract_authority={summary['current_contract_authority']}"
             f"{suffix}"
         )
         return 0
@@ -3036,7 +3117,7 @@ def _cmd_test_phase05_engine_v0(args: argparse.Namespace) -> int:
 
 
 def _cmd_test_stage_abi_v1(args: argparse.Namespace) -> int:
-    fixture = args.fixture or "fornax/golden_vectors/stage_abi_v1"
+    fixture = args.fixture or _package_asset("golden_vectors/stage_abi_v1")
     result = validate_stage_abi_golden(fixture)
     if result["ok"]:
         summary = result["summary"]
@@ -3052,6 +3133,28 @@ def _cmd_test_stage_abi_v1(args: argparse.Namespace) -> int:
         )
         return 0
     print("FAIL stage-abi-v1: " + "; ".join(result["errors"]))
+    return 1
+
+
+def _cmd_test_stage_abi_v2(args: argparse.Namespace) -> int:
+    fixture = args.fixture or _package_asset("golden_vectors/stage_abi_v2")
+    result = validate_stage_abi_v2_golden(fixture)
+    if result["ok"]:
+        summary = result["summary"]
+        suffix = ""
+        if result["warnings"]:
+            suffix = "; warnings: " + "; ".join(result["warnings"])
+        print(
+            f"PASS stage-abi-v2: {result['fixture']} "
+            f"manifests={summary['manifest_count']} "
+            f"sequences={summary['sequence_count']} rows={summary['input_row_count']} "
+            f"workers={summary['worker_count']} "
+            f"checks={summary['passed_count']}/{summary['check_count']} "
+            f"physical_g2_passed={summary['physical_g2_passed']}"
+            f"{suffix}"
+        )
+        return 0
+    print("FAIL stage-abi-v2: " + "; ".join(result["errors"]))
     return 1
 
 
@@ -3140,6 +3243,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_phase05_engine_v0(args)
     if args.test_name == "stage-abi-v1":
         return _cmd_test_stage_abi_v1(args)
+    if args.test_name == "stage-abi-v2":
+        return _cmd_test_stage_abi_v2(args)
     raise ValueError(args.test_name)
 
 
@@ -3155,6 +3260,7 @@ def build_parser() -> argparse.ArgumentParser:
             "artifacts are measurements."
         ),
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(
         dest="command", required=True, title="workflows", metavar="COMMAND"
     )
@@ -3336,6 +3442,22 @@ def build_parser() -> argparse.ArgumentParser:
     phase05_engine.add_argument("--sustained-wall-seconds", type=int, default=1800)
     phase05_engine.add_argument("--sustained-min-iterations", type=int, default=1800)
     phase05_engine.set_defaults(func=_cmd_program_phase05_engine_v0)
+
+    g2_validate = program_sub.add_parser(
+        "g2-validate",
+        help="build a fail-closed G2 readiness or physical-validation bundle",
+    )
+    g2_validate.add_argument("--out-dir", required=True)
+    g2_validate.add_argument("--repo-root", default=".")
+    g2_validate.add_argument(
+        "--max-lineage", default="dependencies/max-lineage.json"
+    )
+    g2_validate.add_argument("--run-manifest")
+    g2_validate.add_argument("--run-physical", action="store_true")
+    g2_validate.add_argument(
+        "--prerequisite-timeout-seconds", type=float, default=300.0
+    )
+    g2_validate.set_defaults(func=_cmd_program_g2_validate)
 
     phase3_proxy = program_sub.add_parser("phase3-proxy-gate")
     phase3_proxy.add_argument("--endpoint-artifact", required=True)
@@ -3696,6 +3818,21 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--inventory", required=True)
     plan.add_argument("--links")
     plan.add_argument("--out", required=True)
+    plan.add_argument(
+        "--evidence-registry",
+        help=(
+            "separate SHA-bound evidence registry; required for deployment "
+            "authority and ignored as an authorization signal in exploratory mode"
+        ),
+    )
+    plan.add_argument(
+        "--authority-mode",
+        choices=["exploratory", "deployment", "authoritative"],
+        help=(
+            "override target authority mode; deployment/authoritative fails closed "
+            "on missing capability/measurement evidence or an unresolved registry"
+        ),
+    )
     plan.set_defaults(func=_cmd_plan)
 
     simulate = sub.add_parser("simulate", help="predict performance from a placement plan")
@@ -3761,6 +3898,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     stage_host.add_argument("--tolerance", type=float, default=0.0)
     stage_host.set_defaults(func=_cmd_runtime_stage_host_simulate)
+
+    backend_conformance = runtime_sub.add_parser(
+        "backend-conformance",
+        help="smoke-test an importable Stage Backend factory without claiming G2",
+    )
+    backend_conformance.add_argument("--factory", required=True, help="module:factory")
+    backend_conformance.add_argument("--manifest", required=True)
+    backend_conformance.add_argument("--options")
+    backend_conformance.add_argument("--rows", type=int, default=2)
+    backend_conformance.add_argument("--out")
+    backend_conformance.set_defaults(func=_cmd_runtime_backend_conformance)
 
     serving = sub.add_parser("serving", help="exercise serving and state-ownership contracts")
     serving_sub = serving.add_subparsers(dest="serving_command", required=True)
@@ -3966,7 +4114,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     model_support_simulate.add_argument(
         "--target-contract",
-        default="fornax/golden_plans/v0_target_contract_fixture.md",
+        default=_package_asset("golden_plans/v0_target_contract_fixture.md"),
     )
     model_support_simulate.set_defaults(func=_cmd_model_support_simulate)
 
@@ -4075,25 +4223,25 @@ def build_parser() -> argparse.ArgumentParser:
     spec = sub.add_parser("spec", help="render or validate executable specifications")
     spec_sub = spec.add_subparsers(dest="spec_command", required=True)
     spec_runtime = spec_sub.add_parser("runtime-format")
-    spec_runtime.add_argument("--golden", default="fornax/golden_vectors/runtime_format")
+    spec_runtime.add_argument("--golden", default=_package_asset("golden_vectors/runtime_format"))
     spec_runtime.add_argument("--out", required=True)
     spec_runtime.set_defaults(func=_cmd_spec_runtime_format)
 
     spec_network = spec_sub.add_parser("network-security")
-    spec_network.add_argument("--fixture", default="fornax/golden_vectors/network_contract")
+    spec_network.add_argument("--fixture", default=_package_asset("golden_vectors/network_contract"))
     spec_network.add_argument("--out", required=True)
     spec_network.set_defaults(func=_cmd_spec_network_security)
 
     spec_model_support = spec_sub.add_parser("model-support")
     spec_model_support.add_argument(
-        "--fixture", default="fornax/golden_vectors/model_support"
+        "--fixture", default=_package_asset("golden_vectors/model_support")
     )
     spec_model_support.add_argument("--out", required=True)
     spec_model_support.set_defaults(func=_cmd_spec_model_support)
 
     spec_backend = spec_sub.add_parser("backend-coverage")
     spec_backend.add_argument(
-        "--fixture", default="fornax/golden_vectors/backend_coverage"
+        "--fixture", default=_package_asset("golden_vectors/backend_coverage")
     )
     spec_backend.add_argument("--out", required=True)
     spec_backend.set_defaults(func=_cmd_spec_backend_coverage)
@@ -4154,9 +4302,10 @@ def build_parser() -> argparse.ArgumentParser:
             "phase5-ga-gate",
             "phase05-engine-v0",
             "stage-abi-v1",
+            "stage-abi-v2",
         ],
     )
-    tests.add_argument("--golden", default="fornax/golden_vectors/runtime_format")
+    tests.add_argument("--golden", default=_package_asset("golden_vectors/runtime_format"))
     tests.add_argument("--mode", default="simulated")
     tests.add_argument("--fixture")
     tests.add_argument("--out")
@@ -4173,8 +4322,8 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     except FileNotFoundError as exc:
         missing = exc.filename or str(exc)
-        print(f"fornax: input not found: {missing}")
+        print(f"fornax: input not found: {missing}", file=sys.stderr)
         return 2
     except (KeyError, ValueError) as exc:
-        print(f"fornax: invalid input: {exc}")
+        print(f"fornax: invalid input: {exc}", file=sys.stderr)
         return 2

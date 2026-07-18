@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import threading
 import time
 import unittest
 import uuid
+from pathlib import Path
 
 from fornax.stage_abi import (
     ABI_MAJOR,
@@ -18,17 +21,22 @@ from fornax.stage_abi import (
     crc32c,
     decode_frame,
     encode_frame,
+    read_frame,
+    send_frame,
     validate_frame_identity,
 )
 from fornax.engine_v0 import (
     AdmissionScheduler,
+    EngineV0Orchestrator,
     EngineV0Error,
     StageChannel,
     WorkerControlClient,
+    _serve_connection,
     start_two_worker_engine,
     stop_two_worker_engine,
 )
 from fornax.stage_runtime import (
+    StageBackendSpec,
     MaxStageBackend,
     ReferenceStageBackend,
     SimulationProfile,
@@ -37,6 +45,8 @@ from fornax.stage_runtime import (
     StageRequest,
     StageRuntimeError,
     Tensor,
+    attest_backend_capabilities,
+    create_stage_backend,
 )
 from fornax.phase05 import (
     phase05_manifests,
@@ -142,6 +152,7 @@ def frame_metadata(stage: StageManifest, *, sequence_no: int = 0) -> dict[str, o
         "deadline_ns": time.monotonic_ns() + 10_000_000_000,
         "trace_id": "trace-0",
         "span_id": "span-0",
+        "request_sequence_no": 0,
     }
 
 
@@ -248,6 +259,11 @@ class Phase05StageRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(StageRuntimeError, "unavailable"):
             backend.load(manifest(0))
 
+        disguised_reference = MaxStageBackend(ReferenceStageBackend())
+        self.assertTrue(disguised_reference.available)
+        with self.assertRaisesRegex(StageRuntimeError, "backend requested"):
+            attest_backend_capabilities(disguised_reference, manifest(0))
+
 
 class Phase05StageAbiTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -265,7 +281,7 @@ class Phase05StageAbiTest(unittest.TestCase):
     def test_stage_abi_golden_passes(self) -> None:
         result = validate_stage_abi_golden("fornax/golden_vectors/stage_abi_v1")
         self.assertTrue(result["ok"], result["errors"])
-        self.assertEqual(24, result["summary"]["conformance_check_count"])
+        self.assertEqual(31, result["summary"]["conformance_check_count"])
 
     def test_phase05_validator_rejects_toy_shape_manifests(self) -> None:
         toy_manifests = [
@@ -286,6 +302,19 @@ class Phase05StageAbiTest(unittest.TestCase):
         )
         self.assertFalse(result["ok"])
         self.assertIn("mechanism target", " ".join(result["errors"]))
+
+    def test_historical_phase05_artifact_is_not_current_contract_authority(
+        self,
+    ) -> None:
+        fixture = (
+            Path(__file__).resolve().parents[1]
+            / "docs/fornax/evidence/phase05-engine-v0-2026-07-10.json"
+        )
+        data = json.loads(fixture.read_text(encoding="utf-8"))
+        result = validate_phase05_engine_v0_fixture(data)
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertFalse(result["summary"]["current_contract_authority"])
+        self.assertIn("not current-contract authority", " ".join(result["warnings"]))
 
     def test_activation_frame_round_trip_and_identity(self) -> None:
         frame = Frame.from_tensor(
@@ -313,6 +342,240 @@ class Phase05StageAbiTest(unittest.TestCase):
                 manifest_hash=self.manifest.manifest_hash,
                 destination_stage="stage-9",
             )
+
+    def test_missing_request_sequence_extension_remains_v1_compatible(self) -> None:
+        metadata = frame_metadata(self.manifest)
+        del metadata["request_sequence_no"]
+        decoded = decode_frame(
+            encode_frame(
+                Frame.from_tensor(self.tensor, sequence_no=0, metadata=metadata)
+            )
+        )
+        self.assertNotIn("request_sequence_no", decoded.metadata)
+
+    def test_channel_negotiation_rejects_future_minor(self) -> None:
+        backend = ReferenceStageBackend()
+        handle = backend.load(self.manifest)
+        server, client = socket.socketpair()
+
+        def serve() -> None:
+            with server:
+                _serve_connection(
+                    server,
+                    backend=backend,
+                    handle=handle,
+                    manifest=self.manifest,
+                    max_payload_bytes=256 * 1024 * 1024,
+                )
+
+        worker = threading.Thread(target=serve, daemon=True)
+        worker.start()
+        try:
+            send_frame(
+                client,
+                Frame(
+                    MessageKind.HEARTBEAT,
+                    0,
+                    {
+                        "sequence_no": 0,
+                        "control": "negotiate",
+                        "abi_major": 1,
+                        "abi_minor": 1,
+                        "plan_id": self.manifest.plan_id,
+                        "plan_hash": self.manifest.plan_hash,
+                        "manifest_hash": self.manifest.manifest_hash,
+                        "destination_stage": self.manifest.stage_id,
+                    },
+                ),
+            )
+            response = read_frame(client)
+            self.assertEqual(MessageKind.ERROR, response.kind)
+            self.assertEqual("ABI_VERSION", response.metadata["code"])
+        finally:
+            client.close()
+            worker.join(timeout=2.0)
+        self.assertFalse(worker.is_alive())
+
+    def test_request_sequence_extension_requires_nonnegative_integer(self) -> None:
+        for invalid in (None, True, -1, "0"):
+            with self.subTest(invalid=invalid):
+                metadata = frame_metadata(self.manifest)
+                metadata["request_sequence_no"] = invalid
+                with self.assertRaisesRegex(
+                    FrameError, "request_sequence_no must be a non-negative integer"
+                ):
+                    encode_frame(
+                        Frame.from_tensor(
+                            self.tensor, sequence_no=0, metadata=metadata
+                        )
+                    )
+
+    def _connected_reference_worker(
+        self, backend: ReferenceStageBackend
+    ) -> tuple[socket.socket, threading.Thread]:
+        handle = backend.load(self.manifest)
+        server, client = socket.socketpair()
+        def serve() -> None:
+            with server:
+                _serve_connection(
+                    server,
+                    backend=backend,
+                    handle=handle,
+                    manifest=self.manifest,
+                    max_payload_bytes=256 * 1024 * 1024,
+                )
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        negotiate = Frame(
+            kind=MessageKind.HEARTBEAT,
+            sequence_no=0,
+            metadata={
+                "sequence_no": 0,
+                "control": "negotiate",
+                "plan_id": self.manifest.plan_id,
+                "plan_hash": self.manifest.plan_hash,
+                "manifest_hash": self.manifest.manifest_hash,
+                "destination_stage": self.manifest.stage_id,
+                "abi_major": 1,
+                "abi_minor": 0,
+            },
+        )
+        send_frame(client, negotiate)
+        self.assertEqual("ready", read_frame(client).metadata["control"])
+        self.assertEqual(MessageKind.CREDIT, read_frame(client).kind)
+        return client, thread
+
+    def _shutdown_reference_worker(
+        self, client: socket.socket, thread: threading.Thread, sequence_no: int
+    ) -> None:
+        send_frame(
+            client,
+            Frame(
+                kind=MessageKind.HEARTBEAT,
+                sequence_no=sequence_no,
+                metadata={"sequence_no": sequence_no, "control": "shutdown"},
+            ),
+        )
+        self.assertEqual("shutdown-complete", read_frame(client).metadata["control"])
+        client.close()
+        thread.join(timeout=2.0)
+        self.assertFalse(thread.is_alive())
+
+    def test_duplicate_data_frame_replays_wire_response_without_execution(self) -> None:
+        class CountingBackend(ReferenceStageBackend):
+            def __init__(self) -> None:
+                super().__init__()
+                self.execute_calls = 0
+
+            def execute(self, handle, stage_request):  # type: ignore[no-untyped-def]
+                self.execute_calls += 1
+                return super().execute(handle, stage_request)
+
+        backend = CountingBackend()
+        client, thread = self._connected_reference_worker(backend)
+        frame = Frame.from_tensor(
+            self.tensor,
+            sequence_no=1,
+            metadata=frame_metadata(self.manifest, sequence_no=1),
+        )
+        try:
+            for _ in range(2):
+                send_frame(client, frame)
+                responses = tuple(read_frame(client) for _ in range(3))
+                self.assertEqual(
+                    (MessageKind.ACK, MessageKind.ACTIVATION, MessageKind.CREDIT),
+                    tuple(response.kind for response in responses),
+                )
+            self.assertEqual(1, backend.execute_calls)
+            self._shutdown_reference_worker(client, thread, 2)
+        finally:
+            if thread.is_alive():
+                client.close()
+
+    def test_duplicate_replay_window_evicts_old_tensor_response(self) -> None:
+        class CountingBackend(ReferenceStageBackend):
+            def __init__(self) -> None:
+                super().__init__()
+                self.execute_calls = 0
+
+            def execute(self, handle, stage_request):  # type: ignore[no-untyped-def]
+                self.execute_calls += 1
+                return super().execute(handle, stage_request)
+
+        backend = CountingBackend()
+        client, thread = self._connected_reference_worker(backend)
+        first = Frame.from_tensor(
+            self.tensor,
+            sequence_no=1,
+            metadata=frame_metadata(self.manifest, sequence_no=1),
+        )
+        second_metadata = frame_metadata(self.manifest, sequence_no=2)
+        second_metadata["request_id"] = "33333333-3333-4333-8333-333333333333"
+        second = Frame.from_tensor(
+            self.tensor,
+            sequence_no=2,
+            metadata=second_metadata,
+        )
+        try:
+            for frame in (first, second):
+                send_frame(client, frame)
+                self.assertEqual(
+                    (MessageKind.ACK, MessageKind.ACTIVATION, MessageKind.CREDIT),
+                    tuple(read_frame(client).kind for _ in range(3)),
+                )
+            send_frame(client, first)
+            rejected = read_frame(client)
+            self.assertEqual(MessageKind.ERROR, rejected.kind)
+            self.assertEqual("SEQUENCE", rejected.metadata["code"])
+            self.assertEqual(2, backend.execute_calls)
+            client.close()
+            thread.join(timeout=2.0)
+            self.assertFalse(thread.is_alive())
+        finally:
+            if thread.is_alive():
+                client.close()
+
+    def test_non_finite_tensor_is_rejected_without_killing_worker(self) -> None:
+        class CountingBackend(ReferenceStageBackend):
+            def __init__(self) -> None:
+                super().__init__()
+                self.execute_calls = 0
+
+            def execute(self, handle, stage_request):  # type: ignore[no-untyped-def]
+                self.execute_calls += 1
+                return super().execute(handle, stage_request)
+
+        backend = CountingBackend()
+        client, thread = self._connected_reference_worker(backend)
+        metadata = frame_metadata(self.manifest, sequence_no=1)
+        metadata["tensor"] = self.tensor.descriptor.to_dict()
+        non_finite = Frame(
+            kind=MessageKind.ACTIVATION,
+            sequence_no=1,
+            metadata=metadata,
+            payload=b"\xc0\x7f" + self.tensor.payload[2:],
+        )
+        try:
+            send_frame(client, non_finite)
+            error = read_frame(client)
+            self.assertEqual(MessageKind.ERROR, error.kind)
+            self.assertEqual("TENSOR_CONTRACT", error.metadata["code"])
+            self.assertEqual(MessageKind.CREDIT, read_frame(client).kind)
+
+            valid = Frame.from_tensor(
+                self.tensor,
+                sequence_no=2,
+                metadata=frame_metadata(self.manifest, sequence_no=2),
+            )
+            send_frame(client, valid)
+            responses = tuple(read_frame(client) for _ in range(3))
+            self.assertEqual(MessageKind.ACK, responses[0].kind)
+            self.assertEqual(1, backend.execute_calls)
+            self._shutdown_reference_worker(client, thread, 3)
+        finally:
+            if thread.is_alive():
+                client.close()
 
     def test_frame_rejects_crc_truncation_reserved_kind_and_control_payload(self) -> None:
         frame = Frame.from_tensor(
@@ -391,6 +654,32 @@ class Phase05StageAbiTest(unittest.TestCase):
         with self.assertRaisesRegex(FrameError, "conflicting duplicate"):
             tracker.accept(altered)
 
+    def test_sequence_tracker_history_is_bounded(self) -> None:
+        first = decode_frame(
+            encode_frame(
+                Frame.from_tensor(
+                    self.tensor,
+                    sequence_no=0,
+                    metadata=frame_metadata(self.manifest, sequence_no=0),
+                )
+            )
+        )
+        second = decode_frame(
+            encode_frame(
+                Frame.from_tensor(
+                    self.tensor,
+                    sequence_no=1,
+                    metadata=frame_metadata(self.manifest, sequence_no=1),
+                )
+            )
+        )
+        tracker = SequenceTracker(max_entries=1)
+        tracker.accept(first)
+        tracker.accept(second)
+        self.assertEqual({1}, set(tracker.acknowledged or {}))
+        with self.assertRaisesRegex(FrameError, "expected sequence 2, got 0"):
+            tracker.accept(first)
+
 
 class Phase05EngineV0Test(unittest.TestCase):
     def setUp(self) -> None:
@@ -400,11 +689,13 @@ class Phase05EngineV0Test(unittest.TestCase):
                 scenario_id="S-DESKTOP-stage-0",
                 stage_service_ns=500_000,
                 seed=1,
+                device_identity="sim-device-0",
             ),
             SimulationProfile(
                 scenario_id="S-DESKTOP-stage-1",
                 stage_service_ns=750_000,
                 seed=2,
+                device_identity="sim-device-1",
             ),
         )
         self.tensor = Tensor.from_values(
@@ -431,7 +722,17 @@ class Phase05EngineV0Test(unittest.TestCase):
                     int(endpoint["control_port"]),
                 )
                 self.assertEqual("READY", control.health()["state"])
-                self.assertEqual("simulated-max", control.capabilities()["backend"])
+                capabilities = control.capabilities()
+                self.assertEqual("simulated-max", capabilities["backend"])
+                self.assertEqual("backend", capabilities["capability_source"])
+                self.assertTrue(capabilities["attestation"]["compatible"])
+                self.assertTrue(
+                    capabilities["attestation"]["checked_before_load"]
+                )
+                self.assertEqual(
+                    f"sim-device-{stage_manifest.stage_index}",
+                    capabilities["node_id"],
+                )
                 status = control.status()
                 self.assertEqual(stage_manifest.manifest_hash, status["manifest_hash"])
                 self.assertGreater(status["process_max_rss_bytes"], 0)
@@ -458,8 +759,69 @@ class Phase05EngineV0Test(unittest.TestCase):
             self.assertEqual((1, 2), (decode.kv_epoch_before, decode.kv_epoch_after))
             self.assertTrue(all(channel.message_credit == 1 for channel in channels))
             self.assertEqual(4, len(orchestrator.events))
+            releases = orchestrator.release_request(request_id)
+            self.assertEqual(2, len(releases))
+            self.assertTrue(all(item["released"] for item in releases))
+            self.assertTrue(
+                all(item["idempotency_results_released"] == 2 for item in releases)
+            )
+            self.assertFalse(
+                any(key[0] == request_id for key in orchestrator.kv_epochs)
+            )
+            self.assertTrue(all(channel.message_credit == 1 for channel in channels))
+            self.assertEqual("request_released", orchestrator.events[-1]["kind"])
         finally:
             stop_two_worker_engine(workers, channels)
+
+    def test_serializable_backend_factory_and_attestation_fail_closed(self) -> None:
+        profile = SimulationProfile(
+            scenario_id="factory-test",
+            build_id="simulated-max-v1",
+            device_identity="sim-device-0",
+            memory_limit_bytes=4096,
+        )
+        spec = StageBackendSpec.simulated(profile)
+        restored = StageBackendSpec.from_dict(spec.to_dict())
+        backend = create_stage_backend(restored)
+        attestation = attest_backend_capabilities(backend, self.manifests[0])
+        self.assertTrue(attestation["compatible"])
+        self.assertEqual(
+            "sim-device-0", attestation["observed"]["device_identity"]
+        )
+
+        incompatible = manifest(0).to_dict()
+        incompatible["max_build_id"] = "different-build"
+        with self.assertRaisesRegex(StageRuntimeError, "build_id requested"):
+            attest_backend_capabilities(
+                backend, StageManifest.from_dict(incompatible)
+            )
+
+    def test_orchestrator_rejects_cross_plan_and_noncontiguous_stages(self) -> None:
+        first, second = self.manifests
+        first_channel = StageChannel(first, "127.0.0.1", 1)
+
+        cross_plan_data = second.to_dict()
+        cross_plan_data["plan_id"] = "99999999-9999-4999-8999-999999999999"
+        cross_plan = StageManifest.from_dict(cross_plan_data)
+        with self.assertRaisesRegex(ValueError, "plan_id"):
+            EngineV0Orchestrator(
+                [
+                    (first, first_channel),
+                    (cross_plan, StageChannel(cross_plan, "127.0.0.1", 2)),
+                ]
+            )
+
+        gap_data = second.to_dict()
+        gap_data["layer_start"] = 999
+        gap_data["layer_end"] = 1000
+        gap = StageManifest.from_dict(gap_data)
+        with self.assertRaisesRegex(ValueError, "layer ranges"):
+            EngineV0Orchestrator(
+                [
+                    (first, first_channel),
+                    (gap, StageChannel(gap, "127.0.0.1", 2)),
+                ]
+            )
 
     def test_channel_credit_cancel_and_reconnect(self) -> None:
         workers, channels, _ = start_two_worker_engine(self.manifests, self.profiles)

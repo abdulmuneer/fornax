@@ -5,14 +5,42 @@ engineering plan; it makes the plan *executable and governable*. The technical
 source of truth is [`../project-plan-v4.md`](../project-plan-v4.md) and its
 [accepted review disposition](../platform-review-action-plan-2026-07-10.md).
 
-> **V4 authorization (2026-07-10):** G1 `PROCEED` authorizes a bounded Engine v0
-> using the production Stage ABI, reference/simulated MAX backends, multi-process
-> loopback transport, and explicit hardware assumptions. Physical heterogeneous
-> proof remains open and gates G2/G3 and supported-platform claims.
+> **V4 authorization (2026-07-10):** G1 `PROCEED` authorizes the Engine v0
+> T0/T1 scope using experimental FNX1 v1 and candidate FNX2 2.0,
+> reference/simulated backends, multi-process loopback transport, and bounded
+> admission/lifecycle state. Candidate FNX2 adds integrated ragged scheduling
+> at T1; it is not physical conformance. Physical heterogeneous proof and a
+> production-grade lifecycle remain open and gate production claims. Release,
+> idle expiry, execution leases, same-worker tombstones, and bounded retention
+> are implemented; restart durability, reviewed sustained evidence, and
+> physical-backend validation remain open under I-22.
 >
 > **M1 closure (2026-07-10):** Phase 0.5 is complete at T0/T1. The active lane
 > is Phase 1 physical backend integration and G2 evidence acquisition; hardware
 > scarcity may delay G2 but does not invalidate the Engine v0 contract baseline.
+>
+> **Terminology clarification (2026-07-17):** historical “production ABI” wording
+> names the intended role. Current maturity is experimental FNX1 v1 at T0/T1;
+> candidate FNX2 is also T0/T1-only; see the
+> [erratum](../abi-terminology-erratum-2026-07-17.md).
+>
+> **Proxy-review follow-up (2026-07-17):** the current closure/partial/open
+> disposition for the 2026-07-13 platform and developer-experience review is
+> recorded [here](../founder-proxy-review-follow-up-2026-07-17.md). It is not
+> evidence of participation or endorsement by any named person.
+>
+> **Planner authority clarification (2026-07-17):** provenance/confidence/error,
+> exact capability admission, exploratory labels, and fail-closed deployment
+> mode are now implemented. Repository fixtures still lack authenticated
+> physical calibration and therefore remain exploratory under I-16; see the
+> [planner erratum](../planner-status-erratum-2026-07-17.md).
+>
+> **G2 packet automation (2026-07-17):** the current working tree contains and
+> verifies an uncommitted MAX root-pin/reconstruction mechanism, and
+> `fornax program g2-validate` builds a hashed, fail-closed V1-V10 packet. The
+> lineage mechanism becomes durable repository state only after commit. Without
+> authorized hardware results the packet records `BLOCKED`; see
+> [G2-in-a-box](../g2-in-a-box.md).
 
 ## Operating principle
 
@@ -38,6 +66,12 @@ ceremony.
   [Phase 1 physical validation](sprints/phase-1-worker-contract-transport-sprint.md),
   paced by backend/fleet availability.
 - The next formal evidence gate is **G2 physical distributed correctness**.
+- A parallel product-discovery lane is active for buyer/workload/concurrency and
+  design-partner evidence; it does not authorize serving or performance claims.
+- External fundraising materials remain internal and `ITERATE` under
+  [external-readiness gates](../fundraising/external-readiness-gates.md); team,
+  rights, financing, customer, market, and package claims are not inferred from
+  technical progress.
 - Later Phase 3-5 proxy scope is frozen; existing fixtures remain regression
   evidence without closing physical/product gates.
 

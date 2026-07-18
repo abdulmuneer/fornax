@@ -7,9 +7,16 @@ standard-library Python. An optional four-GPU smoke section is included for CUDA
 machines with PyTorch.
 
 Plan v4 Phase 0.5 has delivered Engine v0 with two independent worker processes,
-the production Stage ABI, persistent loopback TCP, and reference/simulated MAX
-backends. This remains T0/T1 evidence; the physical MAX backend and G2 packet are
-the active next lane.
+versioned experimental FNX1 v1 framing, persistent loopback TCP, and
+reference/simulated backends. FNX1 remains the frozen lockstep historical
+contract. Candidate FNX2 2.0 now adds a slow-correct ragged oracle, unequal
+prefill, independent per-sequence decode/failure state, an integrated scheduler,
+and two separately spawned loopback workers. This remains T0/T1 evidence; a
+physical MAX backend and physical G2 results are open. Explicit release, idle
+expiry, internal execution leases, same-worker tombstones, bounded reference
+retention, and a pressure runner are implemented. Restart-durable fencing,
+authoritative uninterrupted sustained evidence, and physical native-memory proof
+remain open; EV-016 is explicitly a non-authoritative pressure candidate.
 
 Read [Concepts](concepts.md) first if you want the model and fleet vocabulary.
 
@@ -44,6 +51,7 @@ same CLI as a `fornax` shell command:
 python3 -m venv .venv
 .venv/bin/pip install -e .
 .venv/bin/fornax --help
+.venv/bin/fornax --version
 ```
 
 ## 3. Verify the repo
@@ -79,22 +87,45 @@ Verify the Phase 0.5 contract and saved closure bundle directly:
 
 ```bash
 python3 -m fornax test stage-abi-v1
+python3 -m fornax test stage-abi-v2
 python3 -m fornax test phase05-engine-v0 \
   --fixture docs/fornax/evidence/phase05-engine-v0-2026-07-10.json
 ```
 
-The second command validates a 30-minute T1 loopback artifact; it does not rerun
-the 30-minute workload. To reproduce that workload and replace the artifact:
+The second command validates the immutable 2026-07-10 historical T1 artifact; it
+does not rerun the workload and now reports
+`current_contract_authority=false`. Never replace EV-009. To generate a new
+candidate artifact under the current contract, use a new path:
 
 ```bash
 python3 -m fornax program phase05-engine-v0 \
-  --out docs/fornax/evidence/phase05-engine-v0-2026-07-10.json \
+  --out /tmp/phase05-engine-v0-current-candidate.json \
   --sustained-wall-seconds 1800 \
   --sustained-min-iterations 1800
 ```
 
 These engine commands bind localhost ports. The artifact is simulation/loopback
-evidence and cannot close G2.
+evidence and cannot close G2. Before retaining it, assign a new evidence ID and
+dated filename, record its SHA-256 and limitations, and review it under the
+[evidence-register rules](fornax/evidence-register.md#record-requirements).
+
+Backend implementers should continue with the
+[Stage Backend adapter guide](fornax/stage-backend-adapters.md). The public
+`fornax.backends` SDK and `fornax runtime backend-conformance` command fail
+closed when a physical factory is unavailable or incompatible; they never
+substitute simulation.
+
+To prepare the physical proof without pretending hardware exists, generate a
+fail-closed readiness bundle:
+
+```bash
+python3 -m fornax program g2-validate --out-dir /tmp/fornax-g2-readiness
+```
+
+On a hardware-free machine the command is expected to exit non-zero and record
+V6-V10 as `BLOCKED`/`NOT_RUN`; that is a valid readiness result, not a failed
+simulation. See [G2-in-a-box](fornax/g2-in-a-box.md) before supplying an
+authorized physical run manifest.
 
 ## 4. Run the first plan and simulation
 

@@ -13,6 +13,8 @@ Thin process: enough to surface risk and reach decisions, no more.
 | External watch check | per MAX nightly/release | KER | update [06](06-dependencies-and-external-watch.md) |
 | Assumption burn-down | weekly | WS-J + PM | SA-* validated/invalidated/open; scenario delta |
 | Engine v0 demo | each sprint review | RT + DIST | executable request/trace, not slideware |
+| Customer evidence review | weekly during discovery | PM + SP | interviews/traces/commitments, privacy-safe summary, NARROW trigger |
+| External-claims review | before every external package/update | PM + SP; counsel for XG-1/XG-2/XG-6 | claims ledger, disclosure index, XG-1…XG-8 disposition |
 
 The **architecture review** reuses the existing review-lens rubric
 ([review rubric](internal/reviews/review_lenses_by_skill_for_fornax.md)) as the standing rubric — the same
@@ -55,4 +57,5 @@ the Sponsor.
 |---|---|---|
 | Sponsor | gate posture, risk burn, spend | weekly + gates |
 | Ignis maintainers | `Engine` seam changes | as they arise |
-| Design partner | validated capability only | from Phase 3 |
+| Design partner | discovery and workload fit now; validated capability only in product claims | from Phase 1 discovery |
+| Investor/accelerator | only gate-compatible claims with current evidence class; no inferred team, rights, financing, traction, or TAM | after required XG dispositions |

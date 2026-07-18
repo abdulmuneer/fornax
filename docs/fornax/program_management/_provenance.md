@@ -8,15 +8,15 @@ changes, re-run the skill to refresh it (IDs are preserved, human edits merged).
 |---|---|
 | Generated from | `../project-plan-v4.md` |
 | Plan version | v4 |
-| Review basis | `../platform-review-action-plan-2026-07-10.md`, `../fornax_plan_review_reconciled.md` |
+| Review basis | `../platform-review-action-plan-2026-07-10.md`, `../fornax_plan_review_reconciled.md`, `../founder-review-action-plan-2026-07-13.md` |
 | Generated on | 2026-06-20 |
-| Skill | `.claude/skills/fornax-program-manager` |
-| Last refresh | 2026-07-10 (Phase 0.5 / M1 closure and G2-entry rebaseline) |
+| Skill | `.agents/skills/fornax-program-manager` |
+| Last refresh | 2026-07-17 (hardware-independent G2 readiness, FNX2, planner-authority, and lifecycle status reconciliation; no plan architecture or gate change) |
 
 ## Stable IDs in use (do not renumber on refresh)
 
 - Workstreams: WS-A … WS-J, WS-X
-- Risks/Assumptions/Issues/Deps: R-1…R-13, A-1…A-10, I-1…I-12, D-1…D-5
+- Risks/Assumptions/Issues/Deps: R-1…R-18, A-1…A-13, I-1…I-22, D-1…D-7
 - Decisions: DEC-001…DEC-008 · Gates: G0…G5
 
 ## Refresh history
@@ -29,3 +29,10 @@ changes, re-run the skill to refresh it (IDs are preserved, human edits merged).
 | 2026-07-10 | v4 | Rebased around assumption-driven Engine v0: G1 PROCEED within simulation scope; added WS-J simulation/validation, Phase 0.5 active sprint, production Stage ABI, planner-defect work, MAX dependency pinning, physical G2 criteria, new risks/assumptions/issues, ADR set, and evidence classifications. Stable pre-v4 IDs preserved. |
 | 2026-07-10 | v4 | Closed Phase 0.5 / M1 from the validated T0/T1 Engine v0 bundle; updated sprint, roadmap, G2-entry posture, RAID, evidence register, decision log, and active Phase 1 physical-validation lane. No plan or physical-gate decision changed. |
 | 2026-07-10 | v4 | Organized raw reviews, research inputs, journal, and superseded status under `program_management/internal/` as a release-disposable portability bundle; normative plans/contracts/ADRs/evidence remain outside. Stable IDs and decisions unchanged. |
+| 2026-07-13 | v4 | Refreshed from the simulated founder/platform/DX review without changing plan architecture: added R-14…R-16, A-11…A-12, I-13…I-17, and D-6; corrected the active G2 sprint for ragged batching/capability discovery; opened parallel customer-discovery evidence while product deployment remains gated. Existing IDs preserved. |
+| 2026-07-17 | v4 | Refreshed after independent architecture, DX, and commercial-diligence passes. Closed I-14 at T0/T1 with a serializable fail-closed backend factory and backend-originated capability attestation; added R-17…R-18, A-13, I-18…I-22, and D-7 for named-person provenance, MAX commercial rights, financing, external-package readiness, and the missing request/KV release lifecycle. Physical G2, ragged ABI, root MAX pin, customer, and product gates remain open. Existing IDs preserved. |
+| 2026-07-17 | v4 | Recorded the I-22 T0/T1 mitigation: Stage Backend API v2 final release, bounded live/idempotency/transform/event retention, byte limits, high-water health, and loopback release propagation. Automatic expiry/leases/tombstones, long sustained current evidence, physical/native-KV lifecycle proof, and G2 remain open. No gate decision or stable ID changed. |
+| 2026-07-17 | v4 | Added a status erratum for the plan's planner-authority wording: the reproduced feasibility defects and KV admission are fixed, but I-16 provenance/confidence/error and runtime/build/operation/quantization admission remain open. Current plans are governance-treated as exploratory; no gate decision changed. |
+| 2026-07-17 | v4 | Reconciled the hardware-independent implementation pass: exact MAX root pin/reconstruction and fail-closed G2 packet automation; candidate FNX2 reference/golden/integrated two-worker execution; provenance-aware planner deployment admission; and expiry/lease/tombstone lifecycle mechanisms. Updated I-11/I-13/I-16/I-17/I-22 and R-13/R-14 in place. Physical MAX conformance, authenticated calibration, restart durability, long-duration current evidence, and G2 remain open; no plan architecture or gate decision changed. |
+| 2026-07-18 | v4 | Registered EV-016 as non-authoritative T0/T1 lifecycle pressure: 113,718 bounded requests and 1,800.004556833 monotonic seconds, with uncommitted-source authority false and an explicit 12,366.56-second civil-span interruption caveat. Added continuity-gap enforcement for future sustained runs. Updated I-22 and metrics without changing any physical gate decision. |
+| 2026-07-18 | v4 | Corrected I-11/G2-entry durability wording: MAX lineage/reconstruction is verified in the current working tree but remains untracked, so repository closure requires a commit plus clean per-platform rebuild evidence. No gate decision changed. |

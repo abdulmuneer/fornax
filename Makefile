@@ -34,7 +34,8 @@ GOLDEN_TESTS := \
 	benchmark-ledger \
 	pipeline-correctness-probe \
 	throughput-scaling \
-	stage-abi-v1
+	stage-abi-v1 \
+	stage-abi-v2
 
 .PHONY: test golden unittest doctor help
 
@@ -49,7 +50,7 @@ golden:
 	done
 
 unittest:
-	$(PYTHON) -m unittest discover -s tests -p 'test_fornax*.py'
+	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 
 doctor:
 	@if [ -z "$(BUNDLE)" ]; then \

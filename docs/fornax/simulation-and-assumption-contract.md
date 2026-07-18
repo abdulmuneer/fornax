@@ -7,7 +7,9 @@ Status: Phase 0.5 closure baseline; physical assumptions remain binding until re
 ## 1. Purpose
 
 Hardware scarcity must not stall the first engine. Simulation is therefore a
-first-class backend for the production Stage ABI, not a separate architecture.
+first-class backend for the versioned experimental Stage ABI, not a separate
+architecture. Plan v4's older “production ABI” target wording is clarified by
+[`abi-terminology-erratum-2026-07-17.md`](abi-terminology-erratum-2026-07-17.md).
 Every simulated capability and timing value is named, bounded, and linked to the
 physical test that will replace it.
 

@@ -27,7 +27,7 @@ Use these commands to turn a model and fleet into a placement and prediction. Se
 | Command | Purpose |
 |---|---|
 | `quickstart [--out-dir D]` | Create a tiny synthetic NVIDIA/Apple target and fleet, force a two-stage plan, validate and simulate it, and write an honest summary. |
-| `plan --target T --inventory INV [--links L] --out P` | Place the model across the fleet and write plan `P`. Exit `2` if infeasible. |
+| `plan --target T --inventory INV [--links L] --out P [--authority-mode exploratory\|deployment] [--evidence-registry R]` | Place the model across the fleet and write plan `P`. The default is explicitly exploratory; `deployment` requires complete capability/measurement provenance plus a separate SHA-bound evidence registry and fails closed when `R` is absent or unresolved. Exit `2` if infeasible or authority is rejected. |
 | `simulate --plan P [--requests R] [--out O]` | Predict throughput, latency, and pipeline bubble for a plan. Optionally project request-trace decode wall time. |
 | `target validate TARGET --inventory INV [--links L] [--out O]` | Plan, then check the placement against target-contract thresholds. Exit `2` if any check fails. |
 | `target draft --source S --inventory INV [--links L] --out O` | Render a target-contract draft from a model and inventory, then report whether it is already valid. |
@@ -65,6 +65,7 @@ matching golden vector under `fornax/golden_vectors/**` and a `test` target.
 | `engine simulate` | Engine request, queue, and microbatch contract. |
 | `serving {adapter-simulate,state-ownership-simulate}` | Serving adapter and state ownership. |
 | `runtime stage-host-simulate` | Pipeline stage host. |
+| `runtime backend-conformance --factory module:create --manifest M [--options O] [--out R]` | Run the public Stage Backend lifecycle smoke. A pass is functional-contract evidence only and sets `closes_g2=false`. |
 | `workers simulate` | Worker lifecycle contract. |
 | `transport {simulate,trust-boundary-simulate}` | Cross-vendor activation/KV transport and trust boundary. |
 | `replication simulate` | Stage replication. |
@@ -77,6 +78,8 @@ matching golden vector under `fornax/golden_vectors/**` and a `test` target.
 | `observability {metrics-simulate,trace-simulate}` | Metrics and trace ledgers. |
 | `ops {lifecycle-simulate,onboarding-simulate}` | Operational lifecycle and onboarding. |
 | `program phase05-engine-v0 --out O [--sustained-wall-seconds 1800] [--sustained-min-iterations 1800]` | Run the two-process Engine v0 closure workload, full scenario/fault/scheduler matrix, and real wall-clock sustained loopback; writes T1 evidence only. |
+| `python3 -m fornax.lifecycle_pressure --out O [--wall-seconds 1800] [--min-iterations 1800]` | Exercise unique-request release, expiry, lease/tombstone fencing, and bounded state under pressure. Short runs are smoke evidence; a production claim still needs a reviewed sustained and physical/native-memory artifact. |
+| `program g2-validate --out-dir D [--run-manifest M --run-physical]` | Verify the root MAX lineage, run and record V1-V5 prerequisites, and emit fail-closed V6-V10 physical statuses plus hashed machine/human evidence. Without authorized physical inputs it exits non-zero with `BLOCKED`; exit `0` means only that the technical packet passed, not that Sponsor/TL closed G2. |
 
 ## Specs and program management
 
@@ -94,10 +97,15 @@ matching golden vector under `fornax/golden_vectors/**` and a `test` target.
 python3 -m fornax test golden-plans        # planner golden plans
 python3 -m fornax test engine-seam         # string-in/string-out engine interface
 python3 -m fornax test stage-abi-v1        # FNX1/backend conformance
+python3 -m fornax test stage-abi-v2        # candidate FNX2 ragged reference + two workers
 python3 -m fornax test phase05-engine-v0 \
   --fixture docs/fornax/evidence/phase05-engine-v0-2026-07-10.json
 python3 -m fornax test --help              # full suite list
 ```
+
+The Phase 0.5 fixture command validates immutable historical EV-009 and reports
+`current_contract_authority=false`; it is not current physical or product
+evidence. New sustained runs must use a new dated artifact and evidence ID.
 
 Available suites include `golden-plans`, `runtime-format`, `network-contract`,
 `engine-seam`, `stage-host`, `serving-adapter`, `local-4gpu-moe-serving-smoke`,
@@ -110,7 +118,7 @@ Available suites include `golden-plans`, `runtime-format`, `network-contract`,
 `onboarding-methodology`, `program-governance`, `backend-coverage`,
 `phase3-proxy-gate`, `phase4-resilience-gate`, `phase5-ga-gate`,
 `benchmark-ledger`, `pipeline-correctness-probe`, `throughput-scaling`,
-`stage-abi-v1`, `phase05-engine-v0`, and more.
+`stage-abi-v1`, `stage-abi-v2`, `phase05-engine-v0`, and more.
 Run `python3 -m fornax test --help` for the current list.
 
 `make golden` runs the deterministic no-hardware contract and golden suites.
@@ -124,4 +132,5 @@ no-hardware golden run.
 | Code | Meaning |
 |---|---|
 | `0` | Success, feasible, valid, or all gates passed. |
+| `1` | Contract smoke failed, or `g2-validate` is blocked/failed and therefore not a passing technical packet. |
 | `2` | Infeasible plan, failed validation, failed gate, or usage error. |

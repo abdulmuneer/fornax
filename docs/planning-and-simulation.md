@@ -9,6 +9,7 @@ preflight evidence bundle. If you have not run the small example yet, start with
   target contract ----+
                        +--> plan --> plan.json --> simulate --> prediction
   inventory ----------+
+  evidence registry --+    (required only for deployment authority)
                        +--> target validate --> valid / invalid
 ```
 
@@ -92,8 +93,8 @@ Exit behavior:
 
 | Exit | Meaning |
 |---|---|
-| `0` | The model fits. `plan.json` contains the placement. |
-| `2` | The model is infeasible. `plan.json` contains `"feasible": false` and an `infeasible_reason`. |
+| `0` | Modeled feasible under the supplied inputs and current capability checks; `plan.json` contains the placement. This is not deployment authority. |
+| `2` | Modeled infeasible; `plan.json` contains `"feasible": false` and an `infeasible_reason`. |
 
 Important plan fields:
 
@@ -104,9 +105,37 @@ Important plan fields:
 | `expert_placement` | Routed MoE expert placement. Empty for dense models. |
 | `predicted` | Cost-model profile: `throughput_tok_s`, `per_request_latency_s`, `bubble_fraction`, and `bottleneck_stage`. |
 | `explanations` | Per-stage placement reason and supporting metrics. |
+| `authority` | `exploratory`, `rejected`, or `deployment_authoritative`, with source IDs, evidence-registry digest, error bounds, and reasons. |
 
 Read `explanations` when a plan surprises you. It records the selected node,
-mode, and effective time that drove each stage decision.
+mode, and effective time that drove each stage decision. The default plan is
+always `exploratory`, even when input declarations contain source IDs.
+
+### Deployment-authority admission
+
+Deployment mode is a fail-closed admission check, not the default planning
+workflow:
+
+```bash
+python3 -m fornax plan \
+    --target measured_target.json \
+    --inventory measured_fleet.json \
+    --authority-mode deployment \
+    --evidence-registry planner-evidence-registry.json \
+    --out deployment-plan.json
+```
+
+The model, target, nodes, and links declare source IDs and measurement status.
+Those declarations alone cannot authorize a plan. The separate registry must
+resolve every source used by deployment search to an active record and a local
+artifact whose bytes match the record's SHA-256. Missing, expired, revoked,
+wrong-type, missing-file, or hash-mismatched records produce an infeasible plan
+with `authority.status="rejected"`. Omitting `--evidence-registry` has the same
+fail-closed result.
+
+This verifies local artifact identity, not the truth or physical origin of the
+artifact. See [Cost model and calibration contract](fornax/cost-model-and-calibration.md#71-separate-evidence-registry)
+for the registry schema and remaining evidence-governance boundary.
 
 ## Step 4: simulate performance
 
@@ -152,9 +181,10 @@ python3 -m fornax target validate my_target.md --inventory my_fleet.json
 # invalid: <failed checks>
 ```
 
-Use this in CI when a target has required thresholds. Exit `0` means every check
-passed. Exit `2` means one or more checks failed. Add `--out result.json` to
-write the per-check breakdown.
+Use this in CI when a target has required **modeled** thresholds. Exit `0` means
+every calculation passed against the supplied inputs; it does not certify the
+inputs or runtime. Exit `2` means one or more checks failed. Add
+`--out result.json` to write the per-check breakdown.
 
 `python3 -m fornax target draft` can render a starting target-contract draft from
 a model and inventory and report whether the draft is already valid.

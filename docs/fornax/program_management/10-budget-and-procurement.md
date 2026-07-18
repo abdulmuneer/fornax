@@ -15,6 +15,24 @@ tied to replacing high-impact assumptions, not to keeping implementation moving.
 The later business metric remains cost per token/capacity versus a defined
 datacenter baseline. It is not calculated until the capacity target is bound.
 
+## Financing model inputs — open
+
+Do not insert a fundraise amount or runway by analogy. Before an investor ask is
+approved, build a bottoms-up model covering named hiring sequence and fully
+loaded cost, G2/G3 hardware and fabric, legal/IP and licensing, security/release,
+customer success, contingency for MAX/Apple narrowing, and milestone-based
+capital release. The Sponsor supplies the actual currency amounts, dates, and
+founder/company facts.
+
+The financing milestones are G2 physical proof, qualified design-partner and
+paid-pilot evidence, G3 frontier economics, and repeatable install/operations.
+Any existing USD 1.5M/18-month allocation is an illustrative sensitivity until
+XG-3 closes; it is not an approved ask, runway, or procurement authority.
+
+Budget a counsel-reviewed entity/IP and dependency-rights workstream before
+external circulation or product packaging. No hardware purchase or passing
+technical test resolves XG-1/XG-2 by itself.
+
 ## Hardware bundles
 
 | Bundle | Contents | Needed by | Status |

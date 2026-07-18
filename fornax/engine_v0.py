@@ -10,13 +10,14 @@ import socket
 import sys
 import threading
 import time
-import uuid
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from multiprocessing.connection import Connection
 from typing import Any
 
 from .stage_abi import (
+    ABI_MAJOR,
+    ABI_MINOR,
     DEFAULT_MAX_PAYLOAD_BYTES,
     Frame,
     FrameError,
@@ -28,13 +29,34 @@ from .stage_abi import (
 )
 from .stage_runtime import (
     SimulationProfile,
-    SimulatedMaxStageBackend,
+    StageBackendSpec,
+    StageExecutable,
     StageManifest,
     StageRequest,
     StageResult,
     StageRuntimeError,
     Tensor,
+    attest_backend_capabilities,
+    create_stage_backend,
 )
+
+
+class BoundedEventHistory(deque[dict[str, Any]]):
+    """A bounded deque with the list slicing used by Phase 0.5 evidence code."""
+
+    def __init__(self, max_entries: int = 16_384) -> None:
+        if (
+            isinstance(max_entries, bool)
+            or not isinstance(max_entries, int)
+            or max_entries <= 0
+        ):
+            raise ValueError("max event entries must be a positive integer")
+        super().__init__(maxlen=max_entries)
+
+    def __getitem__(self, index: int | slice) -> Any:
+        if isinstance(index, slice):
+            return list(self)[index]
+        return super().__getitem__(index)
 
 
 class EngineV0Error(RuntimeError):
@@ -76,19 +98,24 @@ def _result_error_frame(result: StageResult, sequence_no: int) -> Frame:
 def _serve_connection(
     connection: socket.socket,
     *,
-    backend: SimulatedMaxStageBackend,
+    backend: StageExecutable,
     handle: Any,
     manifest: StageManifest,
     max_payload_bytes: int,
 ) -> bool:
-    incoming = SequenceTracker()
+    # One message credit means receipt of the next input proves the preceding
+    # response/credit was observed.  Retaining only the newest input digest and
+    # response therefore supports immediate retry without unbounded connection
+    # memory.  Older retries fail closed instead of re-executing a stage.
+    incoming = SequenceTracker(max_entries=1)
     outgoing_sequence = 0
     negotiated = False
+    completed_responses: dict[int, tuple[Frame, ...]] = {}
     connection.settimeout(10.0)
     while True:
         try:
             frame = read_frame(connection, max_payload_bytes=max_payload_bytes)
-            incoming.accept(frame)
+            acceptance = incoming.accept(frame)
         except (FrameError, OSError, socket.timeout) as exc:
             if isinstance(exc, FrameError):
                 try:
@@ -102,6 +129,7 @@ def _serve_connection(
                             status="failed",
                             code=exc.code,
                             message=exc.message,
+                            channel_terminal=True,
                         ),
                         max_payload_bytes=max_payload_bytes,
                     )
@@ -109,16 +137,65 @@ def _serve_connection(
                     pass
             return True
 
+        if acceptance == "duplicate":
+            cached = completed_responses.get(frame.sequence_no)
+            if cached is None:
+                try:
+                    send_frame(
+                        connection,
+                        _control_frame(
+                            MessageKind.ERROR,
+                            outgoing_sequence,
+                            request_id=str(
+                                frame.metadata.get("request_id", "channel")
+                            ),
+                            microbatch_id=str(
+                                frame.metadata.get("microbatch_id", "channel")
+                            ),
+                            status="rejected",
+                            code="SEQUENCE",
+                            message="duplicate frame has no replayable response",
+                        ),
+                        max_payload_bytes=max_payload_bytes,
+                    )
+                except (FrameError, OSError):
+                    pass
+                return True
+            for response_frame in cached:
+                send_frame(
+                    connection,
+                    response_frame,
+                    max_payload_bytes=max_payload_bytes,
+                )
+            continue
+
         control = frame.metadata.get("control")
         if not negotiated:
             if frame.kind != MessageKind.HEARTBEAT or control != "negotiate":
+                return True
+            if (
+                frame.metadata.get("abi_major") != ABI_MAJOR
+                or frame.metadata.get("abi_minor") != ABI_MINOR
+            ):
+                send_frame(
+                    connection,
+                    _control_frame(
+                        MessageKind.ERROR,
+                        outgoing_sequence,
+                        request_id="channel",
+                        microbatch_id="channel",
+                        status="rejected",
+                        code="ABI_VERSION",
+                        message="channel negotiation ABI version mismatch",
+                    ),
+                    max_payload_bytes=max_payload_bytes,
+                )
                 return True
             if (
                 frame.metadata.get("plan_id") != manifest.plan_id
                 or frame.metadata.get("plan_hash") != manifest.plan_hash
                 or frame.metadata.get("manifest_hash") != manifest.manifest_hash
                 or frame.metadata.get("destination_stage") != manifest.stage_id
-                or frame.metadata.get("abi_major") != 1
             ):
                 send_frame(
                     connection,
@@ -173,6 +250,52 @@ def _serve_connection(
                         state=health.state,
                         inflight=health.inflight,
                         stage_id=health.stage_id,
+                        live_requests=health.live_requests,
+                        release_tombstones=health.release_tombstones,
+                        expired_requests=health.expired_requests,
+                        expired_execution_leases=(
+                            health.expired_execution_leases
+                        ),
+                        native_buffer_bytes=health.native_buffer_bytes,
+                    ),
+                    max_payload_bytes=max_payload_bytes,
+                )
+                outgoing_sequence += 1
+                continue
+            if control == "release-request":
+                request_id = str(frame.metadata.get("request_id", ""))
+                try:
+                    result = backend.release(handle, request_id)
+                except (StageRuntimeError, ValueError) as exc:
+                    send_frame(
+                        connection,
+                        _control_frame(
+                            MessageKind.ERROR,
+                            outgoing_sequence,
+                            request_id=request_id or "channel",
+                            microbatch_id="release",
+                            status="rejected",
+                            code=getattr(exc, "code", "METADATA"),
+                            message=str(exc),
+                        ),
+                        max_payload_bytes=max_payload_bytes,
+                    )
+                    outgoing_sequence += 1
+                    continue
+                completed_responses.clear()
+                send_frame(
+                    connection,
+                    _control_frame(
+                        MessageKind.ACK,
+                        outgoing_sequence,
+                        request_id=request_id,
+                        microbatch_id="release",
+                        ack_sequence=frame.sequence_no,
+                        **{
+                            key: value
+                            for key, value in asdict(result).items()
+                            if key != "request_id"
+                        },
                     ),
                     max_payload_bytes=max_payload_bytes,
                 )
@@ -195,9 +318,28 @@ def _serve_connection(
 
         if frame.kind == MessageKind.CANCEL:
             request_id = str(frame.metadata["request_id"])
-            result = backend.cancel(
-                handle, request_id, str(frame.metadata.get("reason", "remote cancel"))
-            )
+            try:
+                result = backend.cancel(
+                    handle,
+                    request_id,
+                    str(frame.metadata.get("reason", "remote cancel")),
+                )
+            except (StageRuntimeError, ValueError) as exc:
+                send_frame(
+                    connection,
+                    _control_frame(
+                        MessageKind.ERROR,
+                        outgoing_sequence,
+                        request_id=request_id,
+                        microbatch_id=str(frame.metadata["microbatch_id"]),
+                        status="rejected",
+                        code=getattr(exc, "code", "METADATA"),
+                        message=str(exc),
+                    ),
+                    max_payload_bytes=max_payload_bytes,
+                )
+                outgoing_sequence += 1
+                continue
             send_frame(
                 connection,
                 _control_frame(
@@ -246,7 +388,9 @@ def _serve_connection(
                 plan_hash=str(frame.metadata["plan_hash"]),
                 request_id=str(frame.metadata["request_id"]),
                 microbatch_id=str(frame.metadata["microbatch_id"]),
-                sequence_no=int(frame.metadata["request_sequence_no"]),
+                sequence_no=int(
+                    frame.metadata.get("request_sequence_no", frame.sequence_no)
+                ),
                 phase=str(frame.metadata["phase"]),
                 token_start=int(frame.metadata["token_start"]),
                 token_count=int(frame.metadata["token_count"]),
@@ -259,7 +403,8 @@ def _serve_connection(
                 },
             )
             result = backend.execute(handle, request)
-        except FrameError as exc:
+        except (FrameError, TypeError, ValueError) as exc:
+            code = exc.code if isinstance(exc, FrameError) else "TENSOR_CONTRACT"
             send_frame(
                 connection,
                 _control_frame(
@@ -268,8 +413,8 @@ def _serve_connection(
                     request_id=str(frame.metadata.get("request_id", "channel")),
                     microbatch_id=str(frame.metadata.get("microbatch_id", "channel")),
                     status="rejected",
-                    code=exc.code,
-                    message=exc.message,
+                    code=code,
+                    message=(exc.message if isinstance(exc, FrameError) else str(exc)),
                 ),
                 max_payload_bytes=max_payload_bytes,
             )
@@ -287,6 +432,7 @@ def _serve_connection(
             outgoing_sequence += 1
             continue
         except StageRuntimeError as exc:
+            sequence_rejection = exc.code == "SEQUENCE"
             send_frame(
                 connection,
                 _control_frame(
@@ -297,13 +443,27 @@ def _serve_connection(
                     status="failed",
                     code=exc.code,
                     message=exc.message,
+                    channel_terminal=not sequence_rejection,
                 ),
                 max_payload_bytes=max_payload_bytes,
             )
+            outgoing_sequence += 1
+            if sequence_rejection:
+                send_frame(
+                    connection,
+                    _control_frame(
+                        MessageKind.CREDIT,
+                        outgoing_sequence,
+                        messages=1,
+                        bytes=len(frame.payload),
+                    ),
+                    max_payload_bytes=max_payload_bytes,
+                )
+                outgoing_sequence += 1
+                continue
             return True
 
-        send_frame(
-            connection,
+        response_frames = [
             _control_frame(
                 MessageKind.ACK,
                 outgoing_sequence,
@@ -311,16 +471,11 @@ def _serve_connection(
                 microbatch_id=result.microbatch_id,
                 ack_sequence=frame.sequence_no,
                 payload_crc=int(frame.crc or 0),
-            ),
-            max_payload_bytes=max_payload_bytes,
-        )
+            )
+        ]
         outgoing_sequence += 1
         if result.status != "ok" or result.output_tensor is None:
-            send_frame(
-                connection,
-                _result_error_frame(result, outgoing_sequence),
-                max_payload_bytes=max_payload_bytes,
-            )
+            response_frames.append(_result_error_frame(result, outgoing_sequence))
             outgoing_sequence += 1
         else:
             metadata = {
@@ -344,33 +499,38 @@ def _serve_connection(
                 "kv_epoch_after": result.kv_epoch_after,
                 "timings_ns": result.timings_ns,
             }
-            send_frame(
-                connection,
+            response_frames.append(
                 Frame.from_tensor(
                     result.output_tensor,
                     sequence_no=outgoing_sequence,
                     metadata=metadata,
-                ),
-                max_payload_bytes=max_payload_bytes,
+                )
             )
             outgoing_sequence += 1
-        send_frame(
-            connection,
+        response_frames.append(
             _control_frame(
                 MessageKind.CREDIT,
                 outgoing_sequence,
                 messages=1,
                 bytes=len(frame.payload),
-            ),
-            max_payload_bytes=max_payload_bytes,
+            )
         )
         outgoing_sequence += 1
+        completed_responses.clear()
+        completed_responses[frame.sequence_no] = tuple(response_frames)
+        for response_frame in response_frames:
+            send_frame(
+                connection,
+                response_frame,
+                max_payload_bytes=max_payload_bytes,
+            )
 
 
 def _control_handler(
-    backend: SimulatedMaxStageBackend,
+    backend: StageExecutable,
     handle: Any,
     manifest: StageManifest,
+    capability_attestation: dict[str, Any],
 ) -> type[http.server.BaseHTTPRequestHandler]:
     class ControlHandler(http.server.BaseHTTPRequestHandler):
         server_version = "FornaxEngineV0/1"
@@ -426,22 +586,70 @@ def _control_handler(
                         "manifest_hash": health.manifest_hash,
                         "inflight": health.inflight,
                         "degraded": health.degraded,
+                        "live_requests": health.live_requests,
+                        "completed_results": health.completed_results,
+                        "transform_cache_entries": health.transform_cache_entries,
+                        "max_live_requests": health.max_live_requests,
+                        "max_completed_results_per_request": (
+                            health.max_completed_results_per_request
+                        ),
+                        "max_transform_cache_entries": (
+                            health.max_transform_cache_entries
+                        ),
+                        "completed_result_bytes": health.completed_result_bytes,
+                        "completed_result_high_water_bytes": (
+                            health.completed_result_high_water_bytes
+                        ),
+                        "transform_cache_bytes": health.transform_cache_bytes,
+                        "transform_cache_high_water_bytes": (
+                            health.transform_cache_high_water_bytes
+                        ),
+                        "max_completed_result_bytes": (
+                            health.max_completed_result_bytes
+                        ),
+                        "max_transform_cache_bytes": (
+                            health.max_transform_cache_bytes
+                        ),
+                        "release_tombstones": health.release_tombstones,
+                        "max_release_tombstones": health.max_release_tombstones,
+                        "request_idle_timeout_ns": health.request_idle_timeout_ns,
+                        "execution_lease_timeout_ns": (
+                            health.execution_lease_timeout_ns
+                        ),
+                        "release_tombstone_ttl_ns": (
+                            health.release_tombstone_ttl_ns
+                        ),
+                        "expired_requests": health.expired_requests,
+                        "expired_execution_leases": (
+                            health.expired_execution_leases
+                        ),
+                        "native_buffer_imports": health.native_buffer_imports,
+                        "native_buffer_bytes": health.native_buffer_bytes,
+                        "native_buffer_high_water_bytes": (
+                            health.native_buffer_high_water_bytes
+                        ),
+                        "max_native_buffer_bytes": health.max_native_buffer_bytes,
+                        "native_buffer_copy_operations": (
+                            health.native_buffer_copy_operations
+                        ),
                     },
                 )
                 return
             if self.path == "/capabilities":
+                observed = dict(capability_attestation["observed"])
                 self._write(
                     200,
                     {
                         "ok": True,
-                        "node_id": manifest.device_requirement.get("device_identity"),
+                        "node_id": observed["device_identity"],
                         "stage_id": manifest.stage_id,
-                        "backend": backend.backend_name,
-                        "build_id": manifest.max_build_id,
-                        "abi_major": manifest.fornax_abi_major,
-                        "abi_minor": manifest.fornax_abi_minor,
-                        "dtypes": manifest.device_requirement.get("dtypes", []),
-                        "max_frame_bytes": DEFAULT_MAX_PAYLOAD_BYTES,
+                        "backend": observed["backend"],
+                        "build_id": observed["build_id"],
+                        "abi_versions": observed["abi_versions"],
+                        "dtypes": observed["supported_dtypes"],
+                        "max_frame_bytes": observed["max_frame_bytes"],
+                        "capability_source": observed["source"],
+                        "attestation": capability_attestation,
                     },
                 )
                 return
@@ -487,6 +695,13 @@ def _control_handler(
                     )
                     self._write(200, {"ok": True, **asdict(result)})
                     return
+                if self.path == "/release":
+                    result = backend.release(
+                        handle,
+                        str(body.get("request_id", "")),
+                    )
+                    self._write(200, {"ok": True, **asdict(result)})
+                    return
                 if self.path == "/drain":
                     result = backend.drain(
                         handle, int(body.get("deadline_ns", time.monotonic_ns()))
@@ -510,7 +725,7 @@ def _control_handler(
 
 def _worker_main(
     manifest_data: dict[str, Any],
-    profile_data: dict[str, Any],
+    backend_spec_data: dict[str, Any],
     ready: Connection,
     host: str,
     max_payload_bytes: int,
@@ -520,11 +735,18 @@ def _worker_main(
     control_thread: threading.Thread | None = None
     try:
         manifest = StageManifest.from_dict(manifest_data)
-        profile = SimulationProfile(**profile_data)
-        backend = SimulatedMaxStageBackend(profile)
+        backend_spec = StageBackendSpec.from_dict(backend_spec_data)
+        backend = create_stage_backend(backend_spec)
+        capability_attestation = attest_backend_capabilities(backend, manifest)
         handle = backend.load(manifest)
         control_server = http.server.ThreadingHTTPServer(
-            (host, 0), _control_handler(backend, handle, manifest)
+            (host, 0),
+            _control_handler(
+                backend,
+                handle,
+                manifest,
+                capability_attestation,
+            ),
         )
         control_thread = threading.Thread(
             target=control_server.serve_forever,
@@ -547,6 +769,7 @@ def _worker_main(
                 "pid": os.getpid(),
                 "stage_id": manifest.stage_id,
                 "manifest_hash": manifest.manifest_hash,
+                "capability_attestation": capability_attestation,
             }
         )
         keep_running = True
@@ -583,11 +806,19 @@ def _worker_main(
 @dataclass
 class WorkerProcess:
     manifest: StageManifest
-    profile: SimulationProfile
+    profile: SimulationProfile | None = None
+    backend_spec: StageBackendSpec | None = None
     host: str = "127.0.0.1"
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
     process: multiprocessing.Process | None = field(init=False, default=None)
     endpoint: dict[str, Any] | None = field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        if (self.profile is None) == (self.backend_spec is None):
+            raise ValueError("worker requires exactly one profile or backend_spec")
+        if self.backend_spec is None:
+            assert self.profile is not None
+            self.backend_spec = StageBackendSpec.simulated(self.profile)
 
     def start(self, *, timeout_s: float = 10.0) -> dict[str, Any]:
         if self.process is not None:
@@ -598,7 +829,7 @@ class WorkerProcess:
             target=_worker_main,
             args=(
                 self.manifest.to_dict(),
-                asdict(self.profile),
+                self.backend_spec.to_dict(),
                 child,
                 self.host,
                 self.max_payload_bytes,
@@ -641,13 +872,17 @@ class StageChannel:
     port: int
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
     timeout_s: float = 10.0
+    max_event_entries: int = 16_384
     channel: socket.socket | None = field(init=False, default=None)
     outgoing_sequence: int = field(init=False, default=0)
     incoming: SequenceTracker = field(init=False, default_factory=SequenceTracker)
     message_credit: int = field(init=False, default=0)
     byte_credit: int = field(init=False, default=0)
-    events: list[dict[str, Any]] = field(init=False, default_factory=list)
+    events: BoundedEventHistory = field(init=False)
     _lock: threading.Lock = field(init=False, default_factory=threading.Lock)
+
+    def __post_init__(self) -> None:
+        self.events = BoundedEventHistory(self.max_event_entries)
 
     def _record(self, kind: str, **fields: Any) -> None:
         event = {"kind": kind, "timestamp_ns": time.monotonic_ns()}
@@ -662,29 +897,44 @@ class StageChannel:
         self.channel = channel
         self.outgoing_sequence = 0
         self.incoming = SequenceTracker()
-        negotiate = _control_frame(
-            MessageKind.HEARTBEAT,
-            self.outgoing_sequence,
-            control="negotiate",
-            abi_major=1,
-            abi_minor=0,
-            plan_id=self.manifest.plan_id,
-            plan_hash=self.manifest.plan_hash,
-            manifest_hash=self.manifest.manifest_hash,
-            destination_stage=self.manifest.stage_id,
-            node_id="orchestrator",
-            build_id="fornax-python-engine-v0",
-        )
-        send_frame(channel, negotiate, max_payload_bytes=self.max_payload_bytes)
-        self.outgoing_sequence += 1
-        ready = self._read()
-        if ready.kind == MessageKind.ERROR:
-            raise EngineV0Error(str(ready.metadata.get("code")), str(ready.metadata.get("message")))
-        if ready.kind != MessageKind.HEARTBEAT or ready.metadata.get("control") != "ready":
-            raise EngineV0Error("NEGOTIATION", "worker did not enter READY")
-        credit = self._read()
-        self._apply_credit(credit)
-        self._record("channel_ready", stage_id=self.manifest.stage_id)
+        self.message_credit = 0
+        self.byte_credit = 0
+        try:
+            negotiate = _control_frame(
+                MessageKind.HEARTBEAT,
+                self.outgoing_sequence,
+                control="negotiate",
+                abi_major=ABI_MAJOR,
+                abi_minor=ABI_MINOR,
+                plan_id=self.manifest.plan_id,
+                plan_hash=self.manifest.plan_hash,
+                manifest_hash=self.manifest.manifest_hash,
+                destination_stage=self.manifest.stage_id,
+                node_id="orchestrator",
+                build_id="fornax-python-engine-v0",
+            )
+            send_frame(channel, negotiate, max_payload_bytes=self.max_payload_bytes)
+            self.outgoing_sequence += 1
+            ready = self._read()
+            if ready.kind == MessageKind.ERROR:
+                raise EngineV0Error(
+                    str(ready.metadata.get("code")),
+                    str(ready.metadata.get("message")),
+                )
+            if (
+                ready.kind != MessageKind.HEARTBEAT
+                or ready.metadata.get("control") != "ready"
+            ):
+                raise EngineV0Error("NEGOTIATION", "worker did not enter READY")
+            credit = self._read()
+            self._apply_credit(credit)
+            self._record("channel_ready", stage_id=self.manifest.stage_id)
+        except Exception:
+            channel.close()
+            self.channel = None
+            self.message_credit = 0
+            self.byte_credit = 0
+            raise
 
     def _require_channel(self) -> socket.socket:
         if self.channel is None:
@@ -776,8 +1026,20 @@ class StageChannel:
                         "message": str(ack.metadata.get("message", "worker error")),
                     },
                 )
-                if result.error["code"] in {"STALE_PLAN", "TENSOR_CONTRACT", "METADATA"}:
+                if ack.metadata.get("channel_terminal"):
+                    self.disconnect()
+                elif result.error["code"] in {
+                    "STALE_PLAN",
+                    "TENSOR_CONTRACT",
+                    "METADATA",
+                    "SEQUENCE",
+                }:
                     self._apply_credit(self._read())
+                else:
+                    # Older FNX1 workers close after backend exceptions without
+                    # an explicit terminal marker.  Do not leave a dead socket
+                    # looking connected or strand final release on it.
+                    self.disconnect()
                 return result
             if ack.kind != MessageKind.ACK or ack.metadata.get("ack_sequence") != frame.sequence_no:
                 raise EngineV0Error("SEQUENCE", "worker did not ACK exact input frame")
@@ -840,8 +1102,48 @@ class StageChannel:
             send_frame(self._require_channel(), frame, max_payload_bytes=self.max_payload_bytes)
             self.outgoing_sequence += 1
             response = self._read()
+            if response.kind == MessageKind.ERROR:
+                raise EngineV0Error(
+                    str(response.metadata.get("code", "CANCELLED")),
+                    str(response.metadata.get("message", "cancellation failed")),
+                    retryable=response.metadata.get("code") == "ADMISSION",
+                )
             if response.kind != MessageKind.ACK:
                 raise EngineV0Error("CANCELLED", "worker did not acknowledge cancellation")
+            return dict(response.metadata)
+
+    def release_request(self, request_id: str) -> dict[str, Any]:
+        """Release request-owned backend state after the final decode/cancel."""
+
+        with self._lock:
+            if self.channel is None:
+                self.connect()
+            frame = _control_frame(
+                MessageKind.HEARTBEAT,
+                self.outgoing_sequence,
+                control="release-request",
+                request_id=request_id,
+            )
+            send_frame(
+                self._require_channel(),
+                frame,
+                max_payload_bytes=self.max_payload_bytes,
+            )
+            self.outgoing_sequence += 1
+            response = self._read()
+            if response.kind == MessageKind.ERROR:
+                raise EngineV0Error(
+                    str(response.metadata.get("code", "EXECUTION")),
+                    str(response.metadata.get("message", "request release failed")),
+                    retryable=response.metadata.get("code") == "REQUEST_INFLIGHT",
+                )
+            if (
+                response.kind != MessageKind.ACK
+                or response.metadata.get("ack_sequence") != frame.sequence_no
+            ):
+                raise EngineV0Error(
+                    "SEQUENCE", "worker did not ACK exact release frame"
+                )
             return dict(response.metadata)
 
     def shutdown(self) -> None:
@@ -941,6 +1243,14 @@ class WorkerControlClient:
             raise EngineV0Error(str(value.get("code")), "cancel request failed")
         return value
 
+    def release_request(self, request_id: str) -> dict[str, Any]:
+        status, value = self._request(
+            "POST", "/release", {"request_id": request_id}
+        )
+        if status != 200:
+            raise EngineV0Error(str(value.get("code")), "release request failed")
+        return value
+
     def drain(self, deadline_ns: int) -> dict[str, Any]:
         status, value = self._request(
             "POST", "/drain", {"deadline_ns": deadline_ns}
@@ -959,7 +1269,14 @@ class ScheduledRequest:
 
 
 class AdmissionScheduler:
-    def __init__(self, *, max_inflight: int, max_queued: int, microbatch_size: int) -> None:
+    def __init__(
+        self,
+        *,
+        max_inflight: int,
+        max_queued: int,
+        microbatch_size: int,
+        max_event_entries: int = 16_384,
+    ) -> None:
         if min(max_inflight, max_queued, microbatch_size) <= 0:
             raise ValueError("scheduler limits must be positive")
         self.max_inflight = max_inflight
@@ -968,7 +1285,7 @@ class AdmissionScheduler:
         self._queue: deque[ScheduledRequest] = deque()
         self._inflight: set[str] = set()
         self._order = 0
-        self.events: list[dict[str, Any]] = []
+        self.events = BoundedEventHistory(max_event_entries)
 
     def submit(self, request_id: str, payload: Any, deadline_ns: int) -> bool:
         if request_id in self._inflight or any(item.request_id == request_id for item in self._queue):
@@ -1022,17 +1339,138 @@ class AdmissionScheduler:
 
 
 class EngineV0Orchestrator:
-    def __init__(self, stages: list[tuple[StageManifest, StageChannel]]) -> None:
+    def __init__(
+        self,
+        stages: list[tuple[StageManifest, StageChannel]],
+        *,
+        max_event_entries: int = 16_384,
+        max_live_requests: int = 4096,
+    ) -> None:
         if len(stages) < 2:
             raise ValueError("Engine v0 requires at least two stages")
-        indices = [manifest.stage_index for manifest, _ in stages]
+        manifests = [manifest for manifest, _ in stages]
+        indices = [manifest.stage_index for manifest in manifests]
         if indices != list(range(len(stages))):
             raise ValueError("stages must be contiguous and ordered from zero")
+        if manifests[0].layer_start != 0 or any(
+            right.layer_start != left.layer_end + 1
+            for left, right in zip(manifests, manifests[1:])
+        ):
+            raise ValueError("stage layer ranges must be contiguous and start at zero")
+        if len({manifest.stage_id for manifest in manifests}) != len(manifests):
+            raise ValueError("stage IDs must be unique")
+        identity_fields = (
+            "plan_id",
+            "plan_hash",
+            "model_id",
+            "model_snapshot",
+            "model_config_hash",
+            "tokenizer_hash",
+            "template_hash",
+            "fornax_abi_major",
+        )
+        first = manifests[0]
+        for manifest in manifests[1:]:
+            for field_name in identity_fields:
+                if getattr(manifest, field_name) != getattr(first, field_name):
+                    raise ValueError(
+                        f"stage {field_name} values must identify one installed plan"
+                    )
+        for left, right in zip(manifests, manifests[1:]):
+            left_output = left.output_contract
+            right_input = right.input_contract
+            if left_output.get("kind") != "activation":
+                raise ValueError("non-final stages must output activations")
+            for field_name in ("dtype", "layout", "hidden_size"):
+                if left_output.get(field_name) != right_input.get(field_name):
+                    raise ValueError(
+                        f"adjacent stage {field_name} contracts must match"
+                    )
+        for manifest, channel in stages:
+            if channel.manifest.manifest_hash != manifest.manifest_hash:
+                raise ValueError("stage channel manifest does not match route manifest")
+        if (
+            isinstance(max_live_requests, bool)
+            or not isinstance(max_live_requests, int)
+            or max_live_requests <= 0
+        ):
+            raise ValueError("max_live_requests must be a positive integer")
         self.stages = stages
+        self.max_live_requests = max_live_requests
         self.kv_epochs: dict[tuple[str, str], int] = {}
-        self.events: list[dict[str, Any]] = []
+        self._active_requests: set[str] = set()
+        self._inflight_requests: set[str] = set()
+        self._releasing_requests: set[str] = set()
+        self._release_pending_requests: set[str] = set()
+        self._state_lock = threading.RLock()
+        self.events = BoundedEventHistory(max_event_entries)
 
     def execute(
+        self,
+        tensor: Tensor,
+        *,
+        request_id: str,
+        phase: str,
+        request_sequence_no: int,
+        deadline_ns: int,
+        microbatch_id: str = "microbatch-0",
+    ) -> StageResult:
+        # Validate all caller-controlled request fields before consuming one of
+        # the bounded orchestrator admission slots.  The real per-stage request
+        # is reconstructed with its owned KV epoch below.
+        first_manifest = self.stages[0][0]
+        StageRequest(
+            plan_id=first_manifest.plan_id,
+            plan_hash=first_manifest.plan_hash,
+            request_id=request_id,
+            microbatch_id=microbatch_id,
+            sequence_no=request_sequence_no,
+            phase=phase,
+            token_start=0,
+            token_count=tensor.descriptor.shape[0],
+            input_activation=tensor,
+            kv_epoch=0,
+            deadline_ns=deadline_ns,
+            trace_context={
+                "trace_id": f"trace-{request_id}",
+                "span_id": f"span-preflight-{request_sequence_no}",
+            },
+        )
+        with self._state_lock:
+            if (
+                request_id in self._releasing_requests
+                or request_id in self._release_pending_requests
+            ):
+                raise EngineV0Error(
+                    "REQUEST_INFLIGHT",
+                    "request release is in progress",
+                    retryable=True,
+                )
+            if request_id in self._inflight_requests:
+                raise EngineV0Error(
+                    "ADMISSION", "request already has inflight pipeline work"
+                )
+            if request_id not in self._active_requests:
+                if len(self._active_requests) >= self.max_live_requests:
+                    raise EngineV0Error(
+                        "ADMISSION", "orchestrator live request capacity is exhausted"
+                    )
+                self._active_requests.add(request_id)
+            self._inflight_requests.add(request_id)
+        try:
+            return self._execute_stages(
+                tensor,
+                request_id=request_id,
+                phase=phase,
+                request_sequence_no=request_sequence_no,
+                deadline_ns=deadline_ns,
+                microbatch_id=microbatch_id,
+            )
+        finally:
+            with self._state_lock:
+                self._inflight_requests.discard(request_id)
+
+    def _execute_stages(
         self,
         tensor: Tensor,
         *,
@@ -1045,6 +1483,7 @@ class EngineV0Orchestrator:
         current = tensor
         last_result: StageResult | None = None
         source_stage = "gateway"
+        pending_epochs: dict[tuple[str, str], int] = {}
         for manifest, channel in self.stages:
             epoch_key = (request_id, manifest.stage_id)
             request = StageRequest(
@@ -1057,7 +1496,7 @@ class EngineV0Orchestrator:
                 token_start=0,
                 token_count=current.descriptor.shape[0],
                 input_activation=current,
-                kv_epoch=self.kv_epochs.get(epoch_key, 0),
+                kv_epoch=self._kv_epoch(epoch_key),
                 deadline_ns=deadline_ns,
                 trace_context={
                     "trace_id": f"trace-{request_id}",
@@ -1085,7 +1524,7 @@ class EngineV0Orchestrator:
             )
             if result.status != "ok" or result.output_tensor is None:
                 return result
-            self.kv_epochs[epoch_key] = result.kv_epoch_after
+            pending_epochs[epoch_key] = result.kv_epoch_after
             current = result.output_tensor
             source_stage = manifest.stage_id
             if current.descriptor.kind == "logits" and manifest.stage_index != len(self.stages) - 1:
@@ -1095,21 +1534,87 @@ class EngineV0Orchestrator:
             else:
                 last_result = result
         assert last_result is not None
+        with self._state_lock:
+            self.kv_epochs.update(pending_epochs)
         return last_result
 
+    def _kv_epoch(self, key: tuple[str, str]) -> int:
+        with self._state_lock:
+            return self.kv_epochs.get(key, 0)
 
-def start_two_worker_engine(
-    manifests: tuple[StageManifest, StageManifest],
-    profiles: tuple[SimulationProfile, SimulationProfile],
+    @property
+    def active_request_count(self) -> int:
+        with self._state_lock:
+            return len(self._active_requests)
+
+    def release_request(self, request_id: str) -> tuple[dict[str, Any], ...]:
+        """Release request state on every stage, then forget owned KV epochs.
+
+        The operation is safely retryable: a stage that already released the
+        request reports ``released=False`` while the remaining stages finish.
+        Orchestrator KV ownership is cleared only after all stages acknowledge.
+        """
+
+        with self._state_lock:
+            if (
+                request_id in self._inflight_requests
+                or request_id in self._releasing_requests
+            ):
+                raise EngineV0Error(
+                    "REQUEST_INFLIGHT",
+                    "cannot release request while pipeline work or release is inflight",
+                    retryable=True,
+                )
+            self._releasing_requests.add(request_id)
+            if request_id in self._active_requests:
+                self._release_pending_requests.add(request_id)
+        results: list[dict[str, Any]] = []
+        try:
+            for _, channel in self.stages:
+                results.append(channel.release_request(request_id))
+            with self._state_lock:
+                for manifest, _ in self.stages:
+                    self.kv_epochs.pop((request_id, manifest.stage_id), None)
+                self._active_requests.discard(request_id)
+                self._release_pending_requests.discard(request_id)
+            self.events.append(
+                {
+                    "kind": "request_released",
+                    "request_id": request_id,
+                    "timestamp_ns": time.monotonic_ns(),
+                    "stage_count": len(results),
+                    "released_stage_count": sum(
+                        bool(result.get("released")) for result in results
+                    ),
+                }
+            )
+            return tuple(results)
+        finally:
+            with self._state_lock:
+                self._releasing_requests.discard(request_id)
+
+
+def start_stage_engine(
+    manifests: tuple[StageManifest, ...],
+    backend_specs: tuple[StageBackendSpec, ...],
 ) -> tuple[list[WorkerProcess], list[StageChannel], EngineV0Orchestrator]:
+    """Start an explicitly configured multi-stage engine.
+
+    Every worker receives a serializable backend spec.  A physical factory that
+    cannot import, attest, or load fails startup; this function never replaces it
+    with simulation.
+    """
+
+    if len(manifests) < 2 or len(manifests) != len(backend_specs):
+        raise ValueError("engine requires matching manifests/backend specs for at least two stages")
     workers = [
-        WorkerProcess(manifest=stage_manifest, profile=profile)
-        for stage_manifest, profile in zip(manifests, profiles)
+        WorkerProcess(manifest=stage_manifest, backend_spec=backend_spec)
+        for stage_manifest, backend_spec in zip(manifests, backend_specs)
     ]
     channels: list[StageChannel] = []
     try:
         endpoints = [worker.start() for worker in workers]
-        if len({endpoint["pid"] for endpoint in endpoints}) != 2:
+        if len({endpoint["pid"] for endpoint in endpoints}) != len(manifests):
             raise EngineV0Error("WORKER_START", "workers are not independent processes")
         for stage_manifest, endpoint in zip(manifests, endpoints):
             channel = StageChannel(
@@ -1127,6 +1632,29 @@ def start_two_worker_engine(
         for worker in workers:
             worker.join()
         raise
+
+
+def start_two_worker_engine(
+    manifests: tuple[StageManifest, StageManifest],
+    profiles: tuple[SimulationProfile, SimulationProfile] | None = None,
+    *,
+    backend_specs: tuple[StageBackendSpec, StageBackendSpec] | None = None,
+) -> tuple[list[WorkerProcess], list[StageChannel], EngineV0Orchestrator]:
+    """Compatibility wrapper for the two-stage Engine v0 path.
+
+    Existing simulations pass ``profiles``.  Physical or external adapters pass
+    ``backend_specs`` explicitly.  Exactly one configuration form is required.
+    """
+
+    if (profiles is None) == (backend_specs is None):
+        raise ValueError("pass exactly one of profiles or backend_specs")
+    specs = (
+        tuple(StageBackendSpec.simulated(profile) for profile in profiles)
+        if profiles is not None
+        else backend_specs
+    )
+    assert specs is not None
+    return start_stage_engine(manifests, specs)
 
 
 def stop_two_worker_engine(workers: list[WorkerProcess], channels: list[StageChannel]) -> None:

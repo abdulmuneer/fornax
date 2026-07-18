@@ -4,7 +4,15 @@ import itertools
 import math
 from dataclasses import dataclass
 
+from .authority import (
+    assess_plan_authority,
+    evidence_registry_deployment_issues,
+    global_deployment_issues,
+    link_admission_issues,
+    node_admission_issues,
+)
 from .cost import StageCost, boundary_transfer_s, estimate_stage_cost
+from .evidence import EvidenceRegistry
 from .model import (
     BoundaryLink,
     ExpertPlacement,
@@ -16,6 +24,7 @@ from .model import (
     Predicted,
     Stage,
     Target,
+    normalize_authority_mode,
 )
 
 
@@ -43,6 +52,14 @@ class _StageCandidate:
 class _CandidatePlan:
     stages: tuple[_StageCandidate, ...]
     boundary_links: tuple[BoundaryLink, ...]
+
+
+def _json_safe_metric(value: object) -> object:
+    """Keep rejection diagnostics serializable when defending tampered objects."""
+
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 def _candidate_node_orders(nodes: list[Node], depth: int) -> list[tuple[Node, ...]]:
@@ -122,7 +139,11 @@ def _resource_capacity_ok(inventory: Inventory, stages: tuple[_StageCandidate, .
 
 
 def _partition_for_order(
-    model: ModelSpec, inventory: Inventory, target: Target, order: tuple[Node, ...]
+    model: ModelSpec,
+    inventory: Inventory,
+    target: Target,
+    order: tuple[Node, ...],
+    authority_mode: str,
 ) -> tuple[tuple[int, int, StageCost], ...] | None:
     n_layers = len(model.layers)
     depth = len(order)
@@ -140,13 +161,24 @@ def _partition_for_order(
                 if previous is None:
                     continue
                 layers = tuple(range(start, end))
-                cost = estimate_stage_cost(model, inventory, node, layers, target)
+                cost = estimate_stage_cost(
+                    model,
+                    inventory,
+                    node,
+                    layers,
+                    target,
+                    authority_mode=authority_mode,
+                )
                 if cost is None:
                     continue
                 transfer_in = 0.0
                 if stage_idx > 1:
                     link = inventory.best_link(order[stage_idx - 2].id, node.id)
                     if link is None:
+                        continue
+                    if link_admission_issues(
+                        link, target, deployment=authority_mode == "deployment"
+                    ):
                         continue
                     transfer_in = boundary_transfer_s(model, target, link)
                 stage_load = (
@@ -168,6 +200,7 @@ def _build_candidate(
     target: Target,
     order: tuple[Node, ...],
     cuts: tuple[tuple[int, int, StageCost], ...],
+    authority_mode: str,
 ) -> _CandidatePlan | None:
     stages: list[_StageCandidate] = []
     boundary_links: list[BoundaryLink] = []
@@ -176,6 +209,10 @@ def _build_candidate(
         if idx > 0:
             link = inventory.best_link(order[idx - 1].id, order[idx].id)
             if link is None:
+                return None
+            if link_admission_issues(
+                link, target, deployment=authority_mode == "deployment"
+            ):
                 return None
             boundary_links.append(BoundaryLink(idx - 1, idx, link))
             transfer_in = boundary_transfer_s(model, target, link)
@@ -196,8 +233,17 @@ def _build_candidate(
 
 
 def _with_replicas(
-    model: ModelSpec, inventory: Inventory, target: Target, plan: _CandidatePlan
+    model: ModelSpec,
+    inventory: Inventory,
+    target: Target,
+    plan: _CandidatePlan,
+    authority_mode: str,
 ) -> _CandidatePlan:
+    # Replica paths are still modeled with the primary's inbound route.  Keep
+    # that useful exploratory optimization out of deployment-authoritative
+    # planning until independent replica-route calibration is implemented.
+    if authority_mode == "deployment":
+        return plan
     used = {stage.node.id for stage in plan.stages}
     spare = [
         node
@@ -213,7 +259,14 @@ def _with_replicas(
         bottleneck = stages[bottleneck_idx]
         best: tuple[int, float, StageCost, float] | None = None
         for node_idx, node in enumerate(spare):
-            cost = estimate_stage_cost(model, inventory, node, bottleneck.layers, target)
+            cost = estimate_stage_cost(
+                model,
+                inventory,
+                node,
+                bottleneck.layers,
+                target,
+                authority_mode=authority_mode,
+            )
             if cost is None:
                 continue
             replica_time = (
@@ -304,6 +357,7 @@ def _predict(
         bottleneck_stage=bottleneck_idx,
         bubble_fraction=bubble,
         stage_effective_times_s=effective,
+        prediction_provenance=target.prediction_calibration,
     )
 
 
@@ -322,16 +376,32 @@ def _score(plan: PlacementPlan, objective: str) -> tuple[float, float, float]:
 
 
 def _single_layer_stage_possible(
-    model: ModelSpec, inventory: Inventory, node: Node, target: Target
+    model: ModelSpec,
+    inventory: Inventory,
+    node: Node,
+    target: Target,
+    authority_mode: str,
 ) -> bool:
     return any(
-        estimate_stage_cost(model, inventory, node, (layer_id,), target) is not None
+        estimate_stage_cost(
+            model,
+            inventory,
+            node,
+            (layer_id,),
+            target,
+            authority_mode=authority_mode,
+        )
+        is not None
         for layer_id in range(len(model.layers))
     )
 
 
 def _node_exclusion_reason(
-    model: ModelSpec, inventory: Inventory, target: Target, node: Node
+    model: ModelSpec,
+    inventory: Inventory,
+    target: Target,
+    node: Node,
+    authority_mode: str,
 ) -> str:
     if not node.supports_stage:
         return "excluded: node is not stage-capable"
@@ -340,12 +410,22 @@ def _node_exclusion_reason(
             "excluded: node does not support activation dtype "
             f"{model.dtype_activation}"
         )
+    authority_issues = node_admission_issues(
+        node,
+        model,
+        target,
+        deployment=authority_mode == "deployment",
+    )
+    if authority_issues:
+        return f"excluded: {authority_issues[0]}"
     if not node.supports_kv and all(
         layer.kind == "attention" or layer.kv_bytes_per_token > 0
         for layer in model.layers
     ):
         return "excluded: node does not support KV-bearing attention stages"
-    if not _single_layer_stage_possible(model, inventory, node, target):
+    if not _single_layer_stage_possible(
+        model, inventory, node, target, authority_mode
+    ):
         return (
             "excluded: insufficient memory, missing expert host/link, or remote "
             "expert wait SLO for even one layer"
@@ -358,6 +438,7 @@ def _placement_explanations(
     inventory: Inventory,
     target: Target,
     candidate: _CandidatePlan,
+    authority_mode: str,
 ) -> tuple[PlacementExplanation, ...]:
     explanations: list[PlacementExplanation] = []
     selected_ids = {node_id for stage in candidate.stages for node_id, _ in stage.replica_times_s}
@@ -412,10 +493,12 @@ def _placement_explanations(
                 PlacementExplanation(
                     node_id=node.id,
                     decision="excluded",
-                    reason=_node_exclusion_reason(model, inventory, target, node),
+                    reason=_node_exclusion_reason(
+                        model, inventory, target, node, authority_mode
+                    ),
                     metrics={
-                        "compute_class": node.compute_class,
-                        "mem_free_bytes": node.mem_free_bytes,
+                        "compute_class": _json_safe_metric(node.compute_class),
+                        "mem_free_bytes": _json_safe_metric(node.mem_free_bytes),
                         "supports_stage": node.supports_stage,
                         "supported_dtypes": list(node.supported_dtypes),
                     },
@@ -433,9 +516,11 @@ def _placement_explanations(
                         "primary layer ownership or uses replica role"
                     ),
                     metrics={
-                        "compute_class": node.compute_class,
-                        "fastest_compute_class": fastest_compute,
-                        "relative_compute": node.compute_class / fastest_compute,
+                        "compute_class": _json_safe_metric(node.compute_class),
+                        "fastest_compute_class": _json_safe_metric(fastest_compute),
+                        "relative_compute": _json_safe_metric(
+                            node.compute_class / fastest_compute
+                        ),
                         "primary_layer_count": assigned_layers,
                     },
                 )
@@ -444,16 +529,21 @@ def _placement_explanations(
 
 
 def _infeasible_explanations(
-    model: ModelSpec, inventory: Inventory, target: Target
+    model: ModelSpec,
+    inventory: Inventory,
+    target: Target,
+    authority_mode: str,
 ) -> tuple[PlacementExplanation, ...]:
     return tuple(
         PlacementExplanation(
             node_id=node.id,
             decision="excluded",
-            reason=_node_exclusion_reason(model, inventory, target, node),
+            reason=_node_exclusion_reason(
+                model, inventory, target, node, authority_mode
+            ),
             metrics={
-                "compute_class": node.compute_class,
-                "mem_free_bytes": node.mem_free_bytes,
+                "compute_class": _json_safe_metric(node.compute_class),
+                "mem_free_bytes": _json_safe_metric(node.mem_free_bytes),
                 "supports_stage": node.supports_stage,
                 "supported_dtypes": list(node.supported_dtypes),
             },
@@ -462,7 +552,14 @@ def _infeasible_explanations(
     )
 
 
-def _materialize(model: ModelSpec, candidate: _CandidatePlan, target: Target, inventory: Inventory) -> PlacementPlan:
+def _materialize(
+    model: ModelSpec,
+    candidate: _CandidatePlan,
+    target: Target,
+    inventory: Inventory,
+    authority_mode: str,
+    evidence_registry: EvidenceRegistry | None,
+) -> PlacementPlan:
     predicted = _predict(target, candidate.stages)
     stages = tuple(
         Stage(
@@ -474,6 +571,15 @@ def _materialize(model: ModelSpec, candidate: _CandidatePlan, target: Target, in
         )
         for idx, stage in enumerate(candidate.stages)
     )
+    authority = assess_plan_authority(
+        model,
+        inventory,
+        target,
+        stages,
+        candidate.boundary_links,
+        requested_mode=authority_mode,
+        evidence_registry=evidence_registry,
+    )
     return PlacementPlan(
         stages=stages,
         boundary_links=candidate.boundary_links,
@@ -481,23 +587,48 @@ def _materialize(model: ModelSpec, candidate: _CandidatePlan, target: Target, in
         predicted=predicted,
         feasible=True,
         infeasible_reason=None,
-        explanations=_placement_explanations(model, inventory, target, candidate),
+        explanations=_placement_explanations(
+            model, inventory, target, candidate, authority_mode
+        ),
+        authority=authority,
     )
 
 
-def _infeasible(model: ModelSpec, inventory: Inventory, target: Target) -> PlacementPlan:
+def _infeasible(
+    model: ModelSpec,
+    inventory: Inventory,
+    target: Target,
+    authority_mode: str,
+    *,
+    evidence_registry: EvidenceRegistry | None = None,
+    reason: str | None = None,
+) -> PlacementPlan:
     total_mem = sum(node.mem_free_bytes for node in inventory.nodes if node.supports_stage)
+    infeasible_reason = reason or (
+        f"no feasible contiguous stage placement; model resident bytes "
+        f"{model.resident_weight_bytes} vs total stage memory {total_mem}"
+    )
+    authority = assess_plan_authority(
+        model,
+        inventory,
+        target,
+        (),
+        (),
+        requested_mode=authority_mode,
+        evidence_registry=evidence_registry,
+        additional_reasons=(infeasible_reason,),
+    )
     return PlacementPlan(
         stages=(),
         boundary_links=(),
         expert_placement=(),
         predicted=None,
         feasible=False,
-        infeasible_reason=(
-            f"no feasible contiguous stage placement; model resident bytes "
-            f"{model.resident_weight_bytes} vs total stage memory {total_mem}"
+        infeasible_reason=infeasible_reason,
+        explanations=_infeasible_explanations(
+            model, inventory, target, authority_mode
         ),
-        explanations=_infeasible_explanations(model, inventory, target),
+        authority=authority,
     )
 
 
@@ -508,45 +639,117 @@ def plan_placement(
     *,
     min_stages: int | None = None,
     max_stages: int | None = None,
+    authority_mode: str | None = None,
+    evidence_registry: EvidenceRegistry | None = None,
 ) -> PlacementPlan:
+    resolved_authority_mode = normalize_authority_mode(
+        authority_mode or target.authority_mode
+    )
+    if resolved_authority_mode == "deployment":
+        input_issues = (
+            *global_deployment_issues(model, target),
+            *evidence_registry_deployment_issues(
+                model,
+                inventory,
+                target,
+                evidence_registry,
+            ),
+        )
+        if input_issues:
+            return _infeasible(
+                model,
+                inventory,
+                target,
+                resolved_authority_mode,
+                evidence_registry=evidence_registry,
+                reason="deployment authority rejected: " + "; ".join(input_issues),
+            )
     stage_nodes = [
         node
         for node in inventory.nodes
         if node.supports_stage and model.dtype_activation in node.supported_dtypes
     ]
     if not stage_nodes:
-        return PlacementPlan(
-            stages=(),
-            boundary_links=(),
-            expert_placement=(),
-            predicted=None,
-            feasible=False,
-            infeasible_reason=(
-                f"no stage-capable nodes support activation dtype {model.dtype_activation}"
+        return _infeasible(
+            model,
+            inventory,
+            target,
+            resolved_authority_mode,
+            evidence_registry=evidence_registry,
+            reason=(
+                f"no stage-capable nodes support activation dtype "
+                f"{model.dtype_activation}"
             ),
-            explanations=_infeasible_explanations(model, inventory, target),
         )
 
     lower = max(1, min_stages or 1)
     upper = max_stages or min(len(stage_nodes), len(model.layers))
     upper = min(max(1, upper), len(stage_nodes), len(model.layers))
     if lower > upper:
-        return _infeasible(model, inventory, target)
+        return _infeasible(
+            model,
+            inventory,
+            target,
+            resolved_authority_mode,
+            evidence_registry=evidence_registry,
+        )
 
     best: PlacementPlan | None = None
     best_score: tuple[float, float, float] | None = None
     for depth in range(lower, upper + 1):
         for order in _candidate_node_orders(stage_nodes, depth):
-            cuts = _partition_for_order(model, inventory, target, order)
+            cuts = _partition_for_order(
+                model, inventory, target, order, resolved_authority_mode
+            )
             if cuts is None:
                 continue
-            candidate = _build_candidate(model, inventory, target, order, cuts)
+            candidate = _build_candidate(
+                model,
+                inventory,
+                target,
+                order,
+                cuts,
+                resolved_authority_mode,
+            )
             if candidate is None:
                 continue
-            candidate = _with_replicas(model, inventory, target, candidate)
-            plan = _materialize(model, candidate, target, inventory)
+            candidate = _with_replicas(
+                model,
+                inventory,
+                target,
+                candidate,
+                resolved_authority_mode,
+            )
+            plan = _materialize(
+                model,
+                candidate,
+                target,
+                inventory,
+                resolved_authority_mode,
+                evidence_registry,
+            )
+            if (
+                resolved_authority_mode == "deployment"
+                and not plan.authority.deployment_authorized
+            ):
+                continue
             score = _score(plan, target.objective)
             if best is None or best_score is None or score > best_score:
                 best = plan
                 best_score = score
-    return best if best is not None else _infeasible(model, inventory, target)
+    if best is not None:
+        return best
+    reason = None
+    if resolved_authority_mode == "deployment":
+        reason = (
+            "deployment authority rejected: no placement satisfies exact "
+            "capability, provenance, and calibration admission"
+        )
+    return _infeasible(
+        model,
+        inventory,
+        target,
+        resolved_authority_mode,
+        evidence_registry=evidence_registry,
+        reason=reason,
+    )

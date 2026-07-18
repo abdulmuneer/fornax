@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
@@ -418,9 +418,10 @@ class FornaxPlannerTest(unittest.TestCase):
                 self.assertTrue(Path(artifact).is_file())
 
     def test_cli_missing_input_is_actionable_without_traceback(self) -> None:
-        output = StringIO()
+        stdout = StringIO()
+        stderr = StringIO()
 
-        with redirect_stdout(output):
+        with redirect_stdout(stdout), redirect_stderr(stderr):
             exit_code = cli_main(
                 [
                     "plan",
@@ -436,8 +437,9 @@ class FornaxPlannerTest(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertIn(
             "fornax: input not found: /missing/fornax-target.json",
-            output.getvalue(),
+            stderr.getvalue(),
         )
+        self.assertEqual("", stdout.getvalue())
 
 
     def test_local_calibration_records_measured_cpu_probe(self) -> None:

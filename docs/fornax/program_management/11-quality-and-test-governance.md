@@ -28,8 +28,12 @@ T3.
 
 - Remote expert host with insufficient memory must be infeasible.
 - A feasible high-memory node remains searchable on fleets larger than six nodes.
-- KV/runtime/dtype/backend capability exclusions are enforced.
-- All exploratory/unmeasured plans are labeled and fail closed for deployment.
+- Memory/resource and KV-capable-node exclusions are enforced. Runtime/build,
+  operation, dtype/quantization, structured provenance/confidence/error, and
+  fail-closed deployment admission are implemented at T0 under I-16.
+- Deployment authority still requires authentic physical source IDs and a
+  measured calibration result within the current gate bound. Repository
+  fixtures remain exploratory; copying `measured` into JSON is not evidence.
 
 ### Stage ABI conformance
 
@@ -38,11 +42,32 @@ T3.
   credit negatives.
 - Duplicate/idempotency and cleanup semantics.
 - Shared suite against reference, simulated, and eventually MAX backends.
+- Candidate FNX2 T0/T1 conformance includes unequal prefill, row offsets,
+  per-sequence position/KV/error state, independent decode, strict result
+  correlation, generation-bound leases, bounded replay bytes, cancellation,
+  and cleanup. The same corpus is mandatory on physical adapters before a
+  throughput claim.
+
+### Governance and onboarding freshness
+
+- The current governance golden must match the plan-of-record version, accepted
+  decisions, authorized phase, and next open gate; historical fixtures are
+  labeled and cannot satisfy this lane.
+- Onboarding fixtures must reference repository files and runnable Make/CLI
+  commands. A missing document or stale command fails validation.
+- Golden updates record the contract reason in the relevant review/spec.
 
 ### Engine lifecycle
 
 - Admission, batching, queue/byte bounds, cancellation, timeout, disconnect,
   stale plan, and drain.
+- Implemented T0/T1 mechanism: explicit final request/KV release, in-flight
+  release rejection, idempotent repeat release, idle expiry, internal execution
+  leases, same-worker tombstones, bounded idempotency/transform count/time/bytes,
+  bounded event history, and health high-water counters.
+- Before production memory/stability claims: restart-durable fencing, a reviewed
+  long-duration many-unique-request artifact, physical/native-KV validation, and
+  current evidence.
 - Deterministic trace/metric/resource ledger.
 - Thirty-minute simulation/loopback sustained run.
 - Full named scenario matrix with seeds and SA-* provenance.
@@ -60,7 +85,7 @@ Finite output or non-empty generated text is a smoke condition, not correctness.
 
 | Deliverable | Done when |
 |---|---|
-| Engine code | Appropriate T0/T1 suites pass; bounds and traces observable |
+| Engine code | Appropriate T0/T1 suites pass; scheduler/wire bounds and traces observable; final release and reference-retention bounds pass, while the remaining I-22 production criteria stay explicit |
 | Assumption | Named, bounded, owned, and mapped to a physical replacement test |
 | Simulation result | Scenario/seed/assumption IDs recorded; never labeled measured |
 | Physical result | Exact hardware/build/model/command and correctness evidence recorded |
@@ -84,13 +109,15 @@ Finite output or non-empty generated text is a smoke condition, not correctness.
 - `engine-loopback`: multi-process socket suite on every supported CI host.
 - `max-nvidia`, `max-apple`, `max-amd`: opportunistic/pinned T2 hardware lanes.
 - `physical-multinode`: scheduled T3 evidence lane.
+- `docs-smoke`: quickstart, referenced onboarding files, CLI help/error exits,
+  and documented no-hardware commands.
 
 Hardware lane absence is reported as `not run`, never `pass` or a reason to stop
 the CPU/loopback lanes.
 
 ## Phase 0.5 closure baseline
 
-DEC-008 fixes the T0/T1 regression floor at:
+DEC-008 fixed the historical T0/T1 closure floor at:
 
 - exact DeepSeek-shaped Stage ABI manifests and 24 conformance checks;
 - two independent workers completing prefill/decode over loopback TCP;
@@ -101,5 +128,9 @@ DEC-008 fixes the T0/T1 regression floor at:
 - the I-7/I-8 planner regressions; and
 - `make test` passing all golden/contract suites plus 275 unit tests.
 
-The closure artifact is EV-009. Future changes that regress this baseline reopen
-Phase 0.5/M1 and DEC-008; physical evidence may extend but not weaken it.
+The immutable closure artifact is EV-009. The current Stage ABI v1 corpus has 31
+checks, adding exact minor-version rejection, backend attestation, and bounded
+wire replay. EV-009 remains valid
+for its recorded scope but reports `current_contract_authority=false`; a fresh
+sustained artifact is required for later gates. Regressing either the historical
+floor or the current 31-check contract reopens the corresponding claim.

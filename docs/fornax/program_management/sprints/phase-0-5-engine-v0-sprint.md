@@ -7,17 +7,17 @@ Status: **Complete at T0/T1 scope; closed by DEC-008 on 2026-07-10**
 
 ## Goal
 
-Build the first real Fornax engine without waiting for the complete heterogeneous
-fleet. Two independent workers execute through the production Stage ABI using
-reference/simulated MAX backends, real TCP framing over loopback, bounded
-scheduling/backpressure, and the same traces/evidence schemas intended for
-physical backends.
+Build the first executable Fornax engine without waiting for the complete
+heterogeneous fleet. Two independent workers execute through experimental FNX1
+v1 using reference/simulated backends and real TCP framing over loopback under a
+lockstep orchestrator. Admission/batching bounds are tested separately with the
+same trace/evidence schemas intended for later physical validation.
 
 ## Deliverables
 
 | ID | Deliverable | Owner | Definition of done | Status |
 |---|---|---|---|---|
-| S05-1 | Stage manifest, request/result types, v1 frame codec | RT + NET | Positive/negative conformance corpus passes | Complete — 24-check golden corpus |
+| S05-1 | Stage manifest, request/result types, v1 frame codec | RT + NET | Positive/negative conformance corpus passes | Complete — 24 at closure; current corpus 31 |
 | S05-2 | `ReferenceStageBackend` | RT + LLM | Deterministic prefill/decode transform, KV epochs, activation/logit oracle | Complete |
 | S05-3 | `SimulatedMaxStageBackend` | RT + DIST | Reference-equivalent output plus scenario service/memory/fault injection | Complete |
 | S05-4 | Worker process and lifecycle | RT | load/health/execute/cancel/drain/unload state machine passes | Complete |
@@ -48,13 +48,15 @@ S05-1 -> S05-2/S05-3 -> S05-4/S05-5 -> S05-6 -> S05-7 -> S05-10/S05-11
 
 ## Exit criteria
 
-- Two independent worker processes complete one deterministic request for prefill
-  and decode through the production ABI.
+- Two independent loopback worker processes complete one deterministic request
+  for prefill and decode through experimental FNX1 v1 under a lockstep
+  orchestrator.
 - Reference and simulated backends pass the same conformance suite.
 - Planner I-7/I-8 regressions pass.
 - Queue, byte-credit, resource, cancellation, timeout, and cleanup invariants pass.
 - Named scenarios produce deterministic artifacts with SA-* provenance.
-- Sustained run remains bounded.
+- Sustained run stays within configured channel-credit, scheduler-queue, and RSS
+  bounds; this does not establish bounded request/KV lifecycle state.
 - Every unvalidated physical claim is still mapped to G2 evidence.
 
 ## Guardrails

@@ -29,7 +29,7 @@ size — see [07-resourcing-and-skills.md](07-resourcing-and-skills.md)).
 | WS-F | Scheduler & continuous batching | v4 §4, §8 Phase 2 |
 | WS-G | Observability & telemetry | v4 §4, §10 |
 | WS-H | Serving surface & Ignis integration | v4 §4 |
-| WS-I | Productization & ops | v4 §8 Phase 5 |
+| WS-I | Product discovery now; productization & ops remain gated | v4 §2 target operator, §8 Phase 5 |
 | WS-J | **Simulation, assumptions & physical validation** | v4 §3, §8; simulation contract |
 | WS-X | Program governance | this folder |
 
@@ -57,8 +57,9 @@ size — see [07-resourcing-and-skills.md](07-resourcing-and-skills.md)).
 |---|---|---|
 | Sponsor | Go/no-go, spend, thesis | Gate reviews + weekly |
 | Modular / MAX (external) | Apple/MoE capability we depend on | Dated watch (passive) — [06](06-dependencies-and-external-watch.md) |
-| Early operator/design partner | Validates persona & concurrency (B2) | From Phase 3 |
+| Early operator/design partner | Validates persona, workload, concurrency, buying path, and pilot acceptance without implying product readiness | Discovery starts in Phase 1; product deployment remains gated |
 | Ignis maintainers | `Engine`-trait seam stability | Phase 1 + as the seam changes |
+| Legal/IP/commercial counsel | Adjudicates entity/IP assignments, dependency and patched-runtime rights, device/redistribution terms, branding, and customer contracts | Before named external pitch or product distribution; XG-1/XG-2 |
 
 > **Gap flagged:** WS-D (KER, Apple Metal + Mojo) is the rarest skill and on the
 > G2/G3 physical-validation critical path. It does not block Phase 0.5 Engine v0 —

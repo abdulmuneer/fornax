@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import json
 import hashlib
 import math
 import platform
 import resource
+import socket
 import struct
 import sys
 import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -21,6 +20,7 @@ from .engine_v0 import (
     EngineV0Error,
     StageChannel,
     WorkerControlClient,
+    _serve_connection,
     start_two_worker_engine,
     stop_two_worker_engine,
 )
@@ -37,6 +37,8 @@ from .stage_abi import (
     crc32c,
     decode_frame,
     encode_frame,
+    read_frame,
+    send_frame,
     validate_frame_identity,
 )
 from .stage_runtime import (
@@ -44,10 +46,14 @@ from .stage_runtime import (
     ReferenceStageBackend,
     SimulationProfile,
     SimulatedMaxStageBackend,
+    StageBackendSpec,
     StageManifest,
     StageRequest,
+    StageResult,
     StageRuntimeError,
     Tensor,
+    attest_backend_capabilities,
+    create_stage_backend,
 )
 
 
@@ -61,6 +67,17 @@ TEMPLATE_HASH = "sha256:" + "3" * 64
 CONTEXT_POINTS = (16, 128, 512, 4096)
 CONCURRENCY_POINTS = (1, 4, 8)
 FAULTS = ("none", "slow_stage", "disconnect", "corruption", "timeout", "cancel", "stale_plan")
+CURRENT_STAGE_CONFORMANCE_CHECKS = frozenset(
+    {
+        "optional-request-sequence-omitted",
+        "malformed-request-sequence-rejected",
+        "minor-version-rejected",
+        "sequence-history-bounded",
+        "backend-factory-capability-attestation",
+        "duplicate-wire-response-no-reexecution",
+        "nonfinite-rejection-worker-liveness",
+    }
+)
 SCENARIOS: dict[str, dict[str, float]] = {
     "S-WORST-DESKTOP": {
         "link_gbit_s": 1.0,
@@ -274,6 +291,25 @@ def run_stage_conformance() -> dict[str, Any]:
         decoded.tensor().values() == tensor.values(),
         "FNX1 encode/decode round trip",
     )
+    check(
+        "optional-request-sequence-omitted",
+        "request_sequence_no" not in decoded.metadata,
+        "FNX1 v1 falls back to the frame sequence",
+    )
+    malformed_extension = _frame_metadata(manifests[0])
+    malformed_extension["request_sequence_no"] = None
+    check(
+        "malformed-request-sequence-rejected",
+        _expect_error(
+            "METADATA",
+            lambda: encode_frame(
+                Frame.from_tensor(
+                    tensor, sequence_no=0, metadata=malformed_extension
+                )
+            ),
+        ),
+        "optional request sequence must be a non-negative integer",
+    )
     logits = Tensor.from_values(
         tensor.values(), kind="logits", dtype="bf16", shape=tensor.descriptor.shape
     )
@@ -354,6 +390,13 @@ def run_stage_conformance() -> dict[str, Any]:
         _expect_error("ABI_VERSION", lambda: decode_frame(bytes(bad_version))),
         "ABI major 2",
     )
+    bad_minor = bytearray(encoded)
+    bad_minor[6:8] = struct.pack("!H", ABI_MINOR + 1)
+    check(
+        "minor-version-rejected",
+        _expect_error("ABI_VERSION", lambda: decode_frame(bytes(bad_minor))),
+        "unsupported future ABI minor",
+    )
     duplicate_metadata = b'{"sequence_no":0,"sequence_no":0}'
     duplicate_encoded = PRELUDE.pack(
         MAGIC,
@@ -432,6 +475,155 @@ def run_stage_conformance() -> dict[str, Any]:
         "out-of-order-rejected",
         _expect_error("SEQUENCE", lambda: out_of_order.accept(future_frame)),
         "expected sequence zero",
+    )
+    bounded_tracker = SequenceTracker(max_entries=1)
+    bounded_tracker.accept(decoded)
+    bounded_tracker.accept(future_frame)
+    check(
+        "sequence-history-bounded",
+        set(bounded_tracker.acknowledged or {}) == {1}
+        and _expect_error("SEQUENCE", lambda: bounded_tracker.accept(decoded)),
+        "one-entry replay window evicts older digests and fails old retries closed",
+    )
+
+    backend_spec = StageBackendSpec.simulated(
+        SimulationProfile(
+            scenario_id="conformance-attestation",
+            build_id=manifests[0].max_build_id,
+            device_identity=str(
+                manifests[0].device_requirement["device_identity"]
+            ),
+            memory_limit_bytes=32 * 1024 * 1024 * 1024,
+        )
+    )
+    attestation = attest_backend_capabilities(
+        create_stage_backend(StageBackendSpec.from_dict(backend_spec.to_dict())),
+        manifests[0],
+    )
+    check(
+        "backend-factory-capability-attestation",
+        attestation["compatible"]
+        and attestation["checked_before_load"]
+        and attestation["observed"]["source"] == "backend",
+        "serializable factory reports backend-originated facts before load",
+    )
+
+    class CountingBackend(ReferenceStageBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.execute_calls = 0
+
+        def execute(self, handle: Any, request: StageRequest) -> Any:
+            self.execute_calls += 1
+            return super().execute(handle, request)
+
+    counting_backend = CountingBackend()
+    counting_handle = counting_backend.load(manifests[0])
+    server, client = socket.socketpair()
+
+    def serve_wire_conformance() -> None:
+        with server:
+            _serve_connection(
+                server,
+                backend=counting_backend,
+                handle=counting_handle,
+                manifest=manifests[0],
+                max_payload_bytes=256 * 1024 * 1024,
+            )
+
+    wire_thread = threading.Thread(target=serve_wire_conformance, daemon=True)
+    wire_thread.start()
+    duplicate_wire_ok = False
+    nonfinite_liveness_ok = False
+    wire_evidence = "socketpair conformance did not complete"
+    try:
+        negotiate = Frame(
+            MessageKind.HEARTBEAT,
+            0,
+            {
+                "sequence_no": 0,
+                "control": "negotiate",
+                "plan_id": manifests[0].plan_id,
+                "plan_hash": manifests[0].plan_hash,
+                "manifest_hash": manifests[0].manifest_hash,
+                "destination_stage": manifests[0].stage_id,
+                "abi_major": 1,
+                "abi_minor": 0,
+            },
+        )
+        send_frame(client, negotiate)
+        ready = read_frame(client)
+        initial_credit = read_frame(client)
+        data_metadata = _frame_metadata(manifests[0])
+        data_metadata["sequence_no"] = 1
+        data_frame = Frame.from_tensor(
+            tensor, sequence_no=1, metadata=data_metadata
+        )
+        send_frame(client, data_frame)
+        first_responses = tuple(read_frame(client) for _ in range(3))
+        send_frame(client, data_frame)
+        replayed_responses = tuple(read_frame(client) for _ in range(3))
+        duplicate_wire_ok = (
+            ready.metadata.get("control") == "ready"
+            and initial_credit.kind == MessageKind.CREDIT
+            and first_responses == replayed_responses
+            and counting_backend.execute_calls == 1
+        )
+
+        nonfinite_metadata = _frame_metadata(manifests[0])
+        nonfinite_metadata["sequence_no"] = 2
+        nonfinite_metadata["request_id"] = "21212121-2121-4121-8121-212121212121"
+        nonfinite_metadata["tensor"] = tensor.descriptor.to_dict()
+        nonfinite = Frame(
+            MessageKind.ACTIVATION,
+            2,
+            nonfinite_metadata,
+            payload=b"\xc0\x7f" + tensor.payload[2:],
+        )
+        send_frame(client, nonfinite)
+        nonfinite_error = read_frame(client)
+        restored_credit = read_frame(client)
+
+        valid_metadata = _frame_metadata(manifests[0])
+        valid_metadata["sequence_no"] = 3
+        valid_metadata["request_id"] = "23232323-2323-4323-8323-232323232323"
+        valid = Frame.from_tensor(tensor, sequence_no=3, metadata=valid_metadata)
+        send_frame(client, valid)
+        valid_responses = tuple(read_frame(client) for _ in range(3))
+        nonfinite_liveness_ok = (
+            nonfinite_error.kind == MessageKind.ERROR
+            and nonfinite_error.metadata.get("code") == "TENSOR_CONTRACT"
+            and restored_credit.kind == MessageKind.CREDIT
+            and valid_responses[0].kind == MessageKind.ACK
+            and valid_responses[1].kind == MessageKind.ACTIVATION
+            and valid_responses[2].kind == MessageKind.CREDIT
+            and counting_backend.execute_calls == 2
+        )
+        shutdown = Frame(
+            MessageKind.HEARTBEAT,
+            4,
+            {"sequence_no": 4, "control": "shutdown"},
+        )
+        send_frame(client, shutdown)
+        shutdown_response = read_frame(client)
+        wire_evidence = (
+            "exact replay reused response; nonfinite input restored credit; "
+            f"shutdown={shutdown_response.metadata.get('control')}"
+        )
+    except (FrameError, OSError, ValueError) as exc:
+        wire_evidence = str(exc)
+    finally:
+        client.close()
+        wire_thread.join(timeout=2.0)
+    check(
+        "duplicate-wire-response-no-reexecution",
+        duplicate_wire_ok,
+        wire_evidence,
+    )
+    check(
+        "nonfinite-rejection-worker-liveness",
+        nonfinite_liveness_ok and not wire_thread.is_alive(),
+        wire_evidence,
     )
 
     backend_outputs: dict[str, tuple[float, ...]] = {}
@@ -553,6 +745,9 @@ def run_loopback_engine(
             unpack_ns=20_000,
             jitter_fraction=0.05,
             seed=11,
+            memory_limit_bytes=32 * 1024 * 1024 * 1024,
+            build_id="simulated-max-phase05",
+            device_identity="sim-nvidia-stage-0",
         ),
         SimulationProfile(
             scenario_id="S-DESKTOP-stage-1",
@@ -561,6 +756,9 @@ def run_loopback_engine(
             unpack_ns=20_000,
             jitter_fraction=0.05,
             seed=12,
+            memory_limit_bytes=32 * 1024 * 1024 * 1024,
+            build_id="simulated-max-phase05",
+            device_identity="sim-apple-stage-1",
         ),
     )
     tensor = phase05_tensor(8)
@@ -1034,6 +1232,9 @@ def physical_backend_disposition() -> dict[str, Any]:
     workspace = Path(__file__).resolve().parents[1]
     max_cli = workspace / "external/modular/bazel-bin/max/python/max/_entrypoints/pipelines"
     max_source = workspace / "external/modular"
+    # Phase 0.5 is deliberately generated without a physical factory. Physical
+    # adapter discovery/conformance is an explicit separate command so a local
+    # checkout can never make this T1 artifact appear physical by accident.
     adapter_available = MaxStageBackend().available
     return {
         "status": "available" if adapter_available else "unavailable",
@@ -1048,8 +1249,8 @@ def physical_backend_disposition() -> dict[str, Any]:
         "two_qualifying_physical_nodes_available": False,
         "formal_g2_passed": False,
         "reason": (
-            "No StageExecutable MAX adapter and no qualifying two-node heterogeneous "
-            "fleet are available in this run; S05-12 is explicitly dispositioned "
+            "No physical MAX backend factory is configured for this T1 run and no "
+            "qualifying two-node heterogeneous fleet is asserted; S05-12 is explicitly dispositioned "
             "without falling back to simulation or blocking S05-1 through S05-11."
         ),
     }
@@ -1099,7 +1300,7 @@ def run_phase05_engine_v0(
             "ok": loopback["independent_processes"] and loopback["worker_count"] == 2,
         },
         {
-            "name": "prefill-decode-production-abi",
+            "name": "prefill-decode-versioned-experimental-abi",
             "ok": loopback["prefill_status"] == "ok" and loopback["decode_status"] == "ok",
         },
         {
@@ -1217,6 +1418,8 @@ def run_phase05_engine_v0(
         "limitations": [
             "The 30-minute sustained interval is real wall-clock T1 loopback with concurrent simulated workers; it is not physical-hardware stability evidence.",
             "The mechanism backend uses DeepSeek-V2-Lite boundary shapes and stage cuts with a deterministic reference transform; it is not compiled DeepSeek-V2-Lite MAX graph execution.",
+            "The two-stage orchestrator is lockstep; admission and continuous batching are evaluated in separate simulations.",
+            "Wire replay is bounded, but this artifact does not establish an end-of-request KV/state release lifecycle or indefinite-service memory boundedness.",
             "No Apple/NVIDIA supported-platform or throughput claim is made.",
         ],
     }
@@ -1275,6 +1478,22 @@ def validate_phase05_engine_v0_fixture(data: dict[str, Any]) -> dict[str, Any]:
         for row in control_plane
     ):
         errors.append("two-plane HTTP control evidence is incomplete")
+    current_capability_attestation = isinstance(control_plane, list) and len(
+        control_plane
+    ) == 2 and all(
+        isinstance(row, dict)
+        and isinstance(row.get("capabilities"), dict)
+        and row["capabilities"].get("capability_source") == "backend"
+        and isinstance(row["capabilities"].get("attestation"), dict)
+        and row["capabilities"]["attestation"].get("compatible") is True
+        and row["capabilities"]["attestation"].get("checked_before_load") is True
+        and isinstance(
+            row["capabilities"]["attestation"].get("observed"), dict
+        )
+        and row["capabilities"]["attestation"]["observed"].get("source")
+        == "backend"
+        for row in control_plane
+    )
     if float(loopback.get("max_abs_error", math.inf)) > 0.02:
         errors.append("loopback output exceeds BF16 tolerance")
     if loopback.get("reference_top1") != loopback.get("candidate_top1"):
@@ -1391,6 +1610,21 @@ def validate_phase05_engine_v0_fixture(data: dict[str, Any]) -> dict[str, Any]:
     warnings.append(
         "Phase 0.5 is T1 simulation/loopback evidence; physical MAX correctness and G2 remain open."
     )
+    conformance_names = {
+        check.get("name")
+        for check in conformance.get("checks", [])
+        if isinstance(check, dict)
+    }
+    current_contract_authority = (
+        CURRENT_STAGE_CONFORMANCE_CHECKS.issubset(conformance_names)
+        and current_capability_attestation
+    )
+    if not current_contract_authority:
+        warnings.append(
+            "Historical artifact remains valid for its recorded T1 closure, but it "
+            "predates the current backend-attestation and bounded-replay contract; "
+            "it is not current-contract authority."
+        )
     return {
         "ok": not errors,
         "errors": errors,
@@ -1403,6 +1637,7 @@ def validate_phase05_engine_v0_fixture(data: dict[str, Any]) -> dict[str, Any]:
             "worker_count": loopback.get("worker_count"),
             "max_abs_error": loopback.get("max_abs_error"),
             "formal_g2_passed": summary.get("formal_g2_passed") is True,
+            "current_contract_authority": current_contract_authority,
         },
     }
 
@@ -1518,7 +1753,21 @@ def validate_stage_abi_golden(path: str | Path) -> dict[str, Any]:
     if failing:
         errors.append(f"failing conformance checks: {failing}")
     related = data.get("related_logical_contracts")
-    if not isinstance(related, list) or not all((Path(item)).exists() for item in related):
+
+    def related_contract_exists(item: Any) -> bool:
+        if not isinstance(item, str):
+            return False
+        declared = Path(item)
+        if declared.exists():
+            return True
+        parts = declared.parts
+        if parts and parts[0] == "fornax":
+            return Path(__file__).resolve().parent.joinpath(*parts[1:]).exists()
+        return False
+
+    if not isinstance(related, list) or not all(
+        related_contract_exists(item) for item in related
+    ):
         errors.append("related logical contract paths must exist")
     return {
         "ok": not errors,

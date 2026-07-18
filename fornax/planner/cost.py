@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .authority import link_admission_issues, node_admission_issues
 from .model import Inventory, Link, ModelSpec, Node, Target, activation_nbytes
 
 
@@ -141,6 +142,7 @@ def _best_expert_host(
     model: ModelSpec,
     target: Target,
     layer_ids: tuple[int, ...],
+    authority_mode: str,
 ) -> tuple[Node | None, float, float]:
     required_memory = remote_expert_host_memory_bytes(model, layer_ids, target)
     candidates = [
@@ -150,6 +152,12 @@ def _best_expert_host(
         and candidate.id != node.id
         and model.dtype_activation in candidate.supported_dtypes
         and required_memory <= candidate.mem_free_bytes
+        and not node_admission_issues(
+            candidate,
+            model,
+            target,
+            deployment=authority_mode == "deployment",
+        )
     ]
     best: tuple[Node | None, float, float] = (None, float("inf"), required_memory)
     payload = target.concurrency * model.hidden_dim * activation_nbytes(
@@ -158,6 +166,10 @@ def _best_expert_host(
     for candidate in candidates:
         link = inventory.best_link(node.id, candidate.id)
         if link is None:
+            continue
+        if link_admission_issues(
+            link, target, deployment=authority_mode == "deployment"
+        ):
             continue
         transfer = 2 * (payload / link.bandwidth_bytes_s + link.latency_s)
         if transfer < best[1]:
@@ -187,6 +199,7 @@ def _remote_expert_wait_s(
     model: ModelSpec,
     target: Target,
     layer_ids: tuple[int, ...],
+    authority_mode: str,
 ) -> tuple[float, float, tuple[str, ...], tuple[tuple[str, float], ...]]:
     remote_layer_ids = [
         layer_id for layer_id in layer_ids if model.layers[layer_id].kind == "moe"
@@ -194,7 +207,12 @@ def _remote_expert_wait_s(
     if not remote_layer_ids:
         return 0.0, 0.0, (), ()
     host, transfer_per_expert, required_memory = _best_expert_host(
-        inventory, node, model, target, tuple(remote_layer_ids)
+        inventory,
+        node,
+        model,
+        target,
+        tuple(remote_layer_ids),
+        authority_mode,
     )
     if host is None:
         return float("inf"), 1.0, (), ()
@@ -223,12 +241,21 @@ def estimate_stage_cost(
     node: Node,
     layers: tuple[int, ...],
     target: Target,
+    *,
+    authority_mode: str = "exploratory",
 ) -> StageCost | None:
     if not layers:
         return None
     if not node.supports_stage:
         return None
     if model.dtype_activation not in node.supported_dtypes:
+        return None
+    if node_admission_issues(
+        node,
+        model,
+        target,
+        deployment=authority_mode == "deployment",
+    ):
         return None
 
     selected = [model.layers[i] for i in layers]
@@ -252,7 +279,7 @@ def estimate_stage_cost(
             expert_hosts,
             expert_host_memory,
         ) = _remote_expert_wait_s(
-            inventory, node, model, target, layers
+            inventory, node, model, target, layers, authority_mode
         )
         if (
             remote_mem > node.mem_free_bytes
