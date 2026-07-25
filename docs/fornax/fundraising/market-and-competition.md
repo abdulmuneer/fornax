@@ -1,7 +1,12 @@
 # Market, positioning, and competitive research
 
-Prepared: 2026-07-13  
+Prepared: 2026-07-25
+
 Confidence: directional; customer demand and pricing remain unvalidated
+
+This file is tracked in a public repository. Confidential customer, partner,
+topology, pricing, and unannounced product information belongs outside this
+repository.
 
 The full MENA, Indian-subcontinent, and global sensitivity model is maintained in
 [`tam-mena-india-global.md`](tam-mena-india-global.md). Its numerical cases are
@@ -105,6 +110,7 @@ reports cannot replace those facts.
 | Ollama/llama.cpp/MLX/LM Studio | Excellent local developer and desktop experience | One machine and smaller models | Multi-node business service, evidence, operations | Model compression may keep most SMB use cases single-node |
 | exo | Topology-aware automatic partitioning, pipeline/tensor sharding, Thunderbolt RDMA, multiple APIs, dashboard, and benchmarks | Current mixed-device local/distributed deployments; Linux GPU support is described as under development | Intended MAX-native cross-vendor execution plus certified enterprise operations, if physically proven | Closest thesis competitor; the proposed Fornax distinction is unproven and exo could mature faster |
 | Petals | Demonstrated distributed model blocks and private swarms | Collaborative or research inference | Provisioned LAN, business control, support and evidence | Validates concept but also supplies reusable algorithms |
+| Vendor-paired disaggregated inference | Co-designed phase-specific acceleration and one integrated workflow | Datacenter/cloud workloads that justify specialized pools | Vendor-neutral owned-fleet composition, only if physically and economically proven | Vendors may close the valuable seams through optimized bilateral integrations |
 | Hardware/appliance vendors | Integrated support and predictable deployment | Buyers willing to purchase a certified box | Reuse sunk assets and mix vendors | Appliance price/performance and support may dominate |
 | Systems integrator/custom build | Buyer-specific delivery and relationships | One-off regulated deployments | Repeatable engine and certification corpus | Integrators can own the customer and commoditize Fornax |
 
@@ -120,6 +126,17 @@ participants; private swarms are possible. Fornax's intended distinction—one
 physically proven MAX-native cross-vendor fabric with enterprise certification
 and support—remains a hypothesis until G2/G3. Re-pin and recheck this comparison
 before each external use.
+
+On 2026-07-23, AMD and Cerebras announced a planned disaggregated inference
+workflow: AMD Helios for high-throughput prompt processing and long contexts,
+with Cerebras Wafer-Scale Engine technology for low-latency decode/token
+generation. This is meaningful directional evidence that capability-aware
+heterogeneous specialization is commercially relevant. It does not demonstrate
+Fornax's layer-stage/capacity-pooling mechanism or commodity-fabric economics.
+The combined topology, KV/state handoff, security, failure behavior, and
+absolute results were not disclosed; expected availability is in the second
+half of 2026, and the advertised “up to 5x” tokens-per-second-per-watt benefit is
+a vendor model rather than an independent production benchmark.
 
 ## Positioning
 
@@ -168,3 +185,5 @@ Primary and official sources should control external claims:
 - [exo repository, pinned comparison commit](https://github.com/exo-explore/exo/tree/b5375f8cee4368d09e1ce96a56b9f81fb0bc81aa)
 - [Petals repository](https://github.com/bigscience-workshop/petals)
 - [Helix heterogeneous inference paper](https://arxiv.org/abs/2406.01566)
+- [AMD/Cerebras disaggregated inference announcement, 2026-07-23](https://investors.cerebras.ai/news-releases/news-release-details/amd-and-cerebras-announce-industry-leading-ultra-low-latency-and)
+- [AMD Helios open rack description](https://www.amd.com/en/blogs/2025/amd-helios-ai-rack-built-on-metas-2025-ocp-design.html)

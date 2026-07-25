@@ -1,8 +1,14 @@
 # Fornax product and commercialization strategy
 
-Status: internal working brief; hypotheses are not customer evidence  
-Plan of record: `project-plan-v4.md`  
-Last updated: 2026-07-17
+Status: public-repository working brief; hypotheses are not customer evidence
+
+Plan of record: `project-plan-v4.md`
+
+Last updated: 2026-07-25
+
+This file is publicly accessible. Do not put confidential customer, partner,
+pricing, topology, security, fundraising, or unannounced product information
+here merely because a section is labeled “internal” or “working.”
 
 Seed-fund materials, market sizing, VC diligence, and the evidence plan are
 maintained in [`fundraising/`](fundraising/README.md). The binding external-use
@@ -68,6 +74,53 @@ Services should accelerate repeatable product adoption, not hide a consulting
 business. Every service engagement must produce reusable profiles, automation,
 conformance coverage, or a certified configuration. Bespoke kernel work without
 a reuse/upstream path requires an explicit margin and roadmap decision.
+
+## Configuration qualification portfolio
+
+After the core G2/G3 mechanism is physically proven, the Community/Prosumer
+product can expand through exact certified configuration profiles. It must not
+promise the Cartesian product of every device, model, quantization, context,
+runtime, and topology.
+
+Candidate families—not current support commitments—may include high-memory Apple
+Silicon; NVIDIA RTX, H100/B100/B200, and DGX-class devices or islands; AMD Radeon
+and Instinct-class systems; and other accelerator families only after substrate,
+legal, operational, and physical evidence. The planner and current T0/T1 support
+fixtures do not yet admit all of these families.
+
+Each profile must bind:
+
+- exact device/island SKU, memory, firmware, OS, driver, runtime, and build;
+- exact model, tokenizer/template hashes, quantization, dtype, and license;
+- allowed roles such as dense stage, expert worker, KV tier, capacity store, or
+  sampler;
+- topology and measured sustained links;
+- context, request distribution, concurrency, and SLO envelope;
+- correctness, capacity, calibration, failure, security, and operator evidence;
+- evidence date, expiry, revocation, and unsupported states; and
+- support owner, update window, and commercial-rights status.
+
+The profile maturity is the minimum maturity of every required component:
+
+| Level | Meaning | Evidence authority |
+|---|---|---|
+| C0 Candidate | Desired combination or vendor documentation | Directional only |
+| C1 Contracted | Schema, golden vectors, and T0/T1 simulation | No physical claim |
+| C2 Device-validated | Exact device/build/model passes T2 operator, stage, and parity tests | Backend-specific |
+| C3 Interoperable | Exact pair/island/fabric passes T3 generation, faults, and calibration | G2 scope |
+| C4 Configuration-certified | Exact fleet/model/workload passes T4 capacity, throughput, headroom, and security | G3/G4 scope |
+| C5 Product-supported | T5 fresh install, upgrade/rollback, monitoring, support window, and rights | G5 |
+
+Side states are `blocked`, `unsupported`, `expired`, `deprecated`, and `revoked`.
+Reserve “supported” for C5; fixture-only success is `contract_validated`.
+
+Use capability equivalence classes and pairwise/t-wise coverage for routine
+variation, while testing high-risk vendor/runtime, model architecture,
+quantization, activation/KV, ownership, and transport boundaries exhaustively.
+Rank the first small cohort by observed demand, available hardware, substrate
+feasibility, reusable learning, model relevance, fabric requirements, and
+support burden. Do not procure a broad device zoo before the profile schema and
+current G2 mechanism pass.
 
 ## Discovery and design-partner evidence lane
 
@@ -164,6 +217,16 @@ Bind a three-year customer model including hardware, fabric, power/cooling,
 deployment labor, support, upgrades, utilization, and refresh. The economic kill
 metric should be agreed before frontier-fleet procurement.
 
+The 2026-07-23 AMD–Cerebras announcement is directional category evidence, not
+Fornax validation. The companies describe one disaggregated inference workflow
+in which AMD Helios handles high-throughput prompt processing and long contexts,
+while Cerebras Wafer-Scale Engine technology handles latency-sensitive decode.
+The joint implementation details are not public, availability is expected later
+in 2026, and the “up to 5x” efficiency figure is vendor-modeled rather than an
+independent deployed-system benchmark. The defensible inference is that
+capability-aware workload specialization matters; Fornax's mechanism,
+performance, economics, and demand remain open gates.
+
 ## Claims ledger
 
 | Claim | Status | Allowed pitch language |
@@ -173,6 +236,7 @@ metric should be agreed before frontier-fleet procurement.
 | Scheduler queues, channel credits/RSS, cancellation, faults, and historical 30-minute soak | Proven at recorded T1 scope | “Recorded loopback/simulation evidence; not a fully memory-bounded engine or hardware throughput.” |
 | Release, idle expiry, leases/tombstones, and bounded reference runtime retention | Implemented at T0/T1; I-22 evidence remains open | “Mechanism and configured bounds are contract-tested”; do not claim indefinite-service or physical memory stability before restart durability and reviewed sustained physical evidence. |
 | Apple MAX runs short DeepSeek V2 Lite generation on patched source build | Recorded T2 bring-up | “Positive single-Mac bring-up; parity and production role remain open.” |
+| AMD and Cerebras announced a workload-specialized disaggregated inference workflow | Directional external signal; planned availability and vendor-modeled benefit | “Independent category evidence for heterogeneous workload specialization”; do not imply it proves Fornax or the reported efficiency. |
 | Physical NVIDIA→Apple Fornax generation | Open | “Next G2 milestone.” |
 | High aggregate physical throughput | Open | Do not claim. |
 | Frontier model larger than every node | Open | “G3 objective,” not current capability. |
