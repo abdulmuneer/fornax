@@ -20,6 +20,7 @@ GOLDEN_TESTS := \
 	remote-expert-probe \
 	moe-parity-probe \
 	model-support \
+	qualification-recipes \
 	continuous-batching \
 	scheduler-contract \
 	stage-replication \

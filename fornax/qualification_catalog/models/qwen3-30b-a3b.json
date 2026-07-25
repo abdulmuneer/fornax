@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "kind": "fornax_model_qualification_profile",
+  "model_id": "qwen3-30b-a3b",
+  "display_name": "Qwen3-30B-A3B",
+  "selection": {
+    "snapshot_date": "2026-07-25",
+    "popularity_proxy": "hugging_face_downloads_last_month",
+    "downloads_last_month": 3126164,
+    "likes": 912,
+    "cohort_policy": "Adoption-ranked, architecture-diverse initial qualification cohort; duplicate sizes of one architecture family do not consume separate slots.",
+    "selection_reason": "High-adoption conventional GQA-MoE BF16 target that is small enough for first correctness bring-up on a 128 GB Mac while exercising different kernels from gpt-oss and DeepSeek."
+  },
+  "artifact": {
+    "provider": "hugging_face",
+    "repository": "Qwen/Qwen3-30B-A3B",
+    "revision": "ad44e777bcd18fa416d9da3bd8f70d33ebb85d39",
+    "revision_kind": "git_commit",
+    "weight_format": "safetensors",
+    "weight_dtype": "bf16",
+    "quantization": "none",
+    "estimated_weight_bytes": 61066575648,
+    "estimate_basis": "Sum of the 16 pinned safetensors shard sizes in the Hugging Face repository file inventory; headers are included.",
+    "license_spdx": "Apache-2.0",
+    "trust_remote_code_required": false,
+    "required_files": [
+      "config.json",
+      "generation_config.json",
+      "model.safetensors.index.json",
+      "tokenizer.json",
+      "tokenizer_config.json"
+    ],
+    "file_hashes": {
+      "config.json": "sha256:2850ddb3bf7aecad20b611e2d44f3077fc8193f4827c93beddd4c02ad63c2297",
+      "generation_config.json": "sha256:2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2",
+      "merges.txt": "sha256:8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+      "model-00001-of-00016.safetensors": "sha256:454e77b346a61bfb201d54df60e15158838cf930617ee135113556204f2802b5",
+      "model-00002-of-00016.safetensors": "sha256:47f015d6e5bb1782a834d75c06113c5e8c77ddca1cb7daf89686a4ec0deda19e",
+      "model-00003-of-00016.safetensors": "sha256:ac0bf5990f2da995c1e8b77a3149dee71900b4fe1b8a614231dea9647193d96b",
+      "model-00004-of-00016.safetensors": "sha256:89b01fd34a683c70fdb7f22c2e7090538d65063335ba0db46f3654642b17d1e5",
+      "model-00005-of-00016.safetensors": "sha256:9849eb3584d928e35bf5956ccfd91b64207467e1fad8304aae68dc4d92d6d6d9",
+      "model-00006-of-00016.safetensors": "sha256:f7a0f1525557d740158fb692986ad43506e1b5901e7406ae65808c6457bc53ad",
+      "model-00007-of-00016.safetensors": "sha256:920702a50f27a009e5f676da3b02978dbd794f6ad7854f301d709136154c1a84",
+      "model-00008-of-00016.safetensors": "sha256:a85bf0cc8a8047c116172d4c08cf4792eb59d4375032708ba3e1a7ffca0f708a",
+      "model-00009-of-00016.safetensors": "sha256:25cd8aaed86b8e17685efb152912f92448ea3fffb1bdc247f257f04d05907604",
+      "model-00010-of-00016.safetensors": "sha256:7c3307ee214797c4bc61c0994f81d690e768150df5f14d18edf84e53ba4810dc",
+      "model-00011-of-00016.safetensors": "sha256:c658cad2842d36fa4c7c7f726f8515dc5670a3d80c94e13257d4e322ffe61988",
+      "model-00012-of-00016.safetensors": "sha256:8cb898bc5e78492600053d1105c9ff61d7a719f5cc2802df63e41535a652cc26",
+      "model-00013-of-00016.safetensors": "sha256:599594421f314cb8e8ab4474db0eb490cc6310585067e82d73821254b93319ce",
+      "model-00014-of-00016.safetensors": "sha256:66d3294e9976b5f01d117a0a0bed768f128a8898eb6937e224d051de2961d363",
+      "model-00015-of-00016.safetensors": "sha256:2fe000da4fc7399ff6303bb0daec8c415a5d850f5ea53863392758c77fc37664",
+      "model-00016-of-00016.safetensors": "sha256:0c979e314faf06e94a5e1841abd285d4e26e763c79c1abe7710d543192d9da48",
+      "model.safetensors.index.json": "sha256:df0d481ec595c55a0ba58426d517390c6214a566ec4ff1c8fc4bbce9f57b3c24",
+      "tokenizer.json": "sha256:aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+      "tokenizer_config.json": "sha256:d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101",
+      "vocab.json": "sha256:ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    },
+    "download_exclude_patterns": []
+  },
+  "architecture": {
+    "family": "qwen3_moe",
+    "decoder_layers": 48,
+    "hidden_size": 2048,
+    "total_experts": 128,
+    "active_experts_per_token": 8,
+    "config_max_position_embeddings": 40960,
+    "publisher_supported_context_tokens": 131072,
+    "context_note": "Publisher states 32,768 tokens natively and validation up to 131,072 with YaRN. The pinned config uses 40,960 to reserve 8,192 prompt plus 32,768 output tokens; this recipe qualifies only 4,096 and does not imply YaRN support.",
+    "total_parameters": 30500000000,
+    "active_parameters": 3300000000
+  },
+  "runtime": {
+    "candidate_backend": "max",
+    "max_architecture": "Qwen3MoeForCausalLM",
+    "max_weight_encoding": "bfloat16",
+    "activation_dtype_candidates": [
+      "bf16"
+    ],
+    "kv_dtype_candidates": [
+      "bf16"
+    ],
+    "required_operations": [
+      "attention",
+      "dense_mlp",
+      "router_topk",
+      "expert_gemm_mlp",
+      "collect_scatter_gather",
+      "kv_operations",
+      "sampling_logits",
+      "serialization_pack_gather",
+      "transport"
+    ],
+    "prompt_format": "qwen3_chat_template",
+    "qualification_context_tokens": 4096,
+    "model_path_placeholder": "<MODEL_DIR>"
+  },
+  "qualification": {
+    "maturity": "C1_contracted",
+    "support_state": "contract_validated",
+    "artifact_hash_status": "pinned_expected_sha256_unobserved",
+    "tokenizer_hash_status": "pinned_expected_sha256_unobserved",
+    "chat_template_hash_status": "pinned_expected_sha256_unobserved",
+    "parity_status": "not_run",
+    "unresolved_evidence": [
+      "Acquire the pinned checkpoint and observe every selected local SHA-256 before execution.",
+      "Validate tokenizer and embedded chat-template behavior against the serving contract.",
+      "Measure layer and final-logit parity against an independent reference.",
+      "Validate every required operation on the exact MAX build and platform."
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "qwen-hub-api-snapshot",
+      "url": "https://huggingface.co/api/models/Qwen/Qwen3-30B-A3B",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "selection"
+      ]
+    },
+    {
+      "source_id": "qwen-config-pinned",
+      "url": "https://huggingface.co/Qwen/Qwen3-30B-A3B/blob/ad44e777bcd18fa416d9da3bd8f70d33ebb85d39/config.json",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "artifact.revision",
+        "architecture"
+      ]
+    },
+    {
+      "source_id": "qwen-files-pinned",
+      "url": "https://huggingface.co/Qwen/Qwen3-30B-A3B/tree/ad44e777bcd18fa416d9da3bd8f70d33ebb85d39",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "artifact.estimated_weight_bytes",
+        "artifact.file_hashes",
+        "artifact.required_files"
+      ]
+    },
+    {
+      "source_id": "qwen-model-card-pinned",
+      "url": "https://huggingface.co/Qwen/Qwen3-30B-A3B/blob/ad44e777bcd18fa416d9da3bd8f70d33ebb85d39/README.md",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "architecture.total_parameters",
+        "architecture.active_parameters",
+        "artifact.license_spdx"
+      ]
+    },
+    {
+      "source_id": "modular-max-model-formats",
+      "url": "https://docs.modular.com/max/models/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "runtime.max_architecture",
+        "runtime.max_weight_encoding"
+      ]
+    }
+  ],
+  "provenance": [
+    {
+      "field": "artifact.file_hashes",
+      "status": "pinned_repository_sha256_inventory",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "qwen-files-pinned"
+      ]
+    },
+    {
+      "field": "selection",
+      "status": "dated_hub_adoption_proxy",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "qwen-hub-api-snapshot"
+      ]
+    },
+    {
+      "field": "artifact.estimated_weight_bytes",
+      "status": "pinned_repository_file_inventory",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "qwen-files-pinned"
+      ]
+    },
+    {
+      "field": "architecture",
+      "status": "pinned_artifact_config",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "qwen-config-pinned",
+        "qwen-model-card-pinned"
+      ]
+    },
+    {
+      "field": "runtime.max_architecture",
+      "status": "published_candidate_contract_unverified",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "modular-max-model-formats"
+      ]
+    },
+    {
+      "field": "runtime.max_weight_encoding",
+      "status": "published_candidate_contract_unverified",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "modular-max-model-formats"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "kind": "fornax_model_qualification_profile",
+  "model_id": "gpt-oss-120b",
+  "display_name": "gpt-oss-120b",
+  "selection": {
+    "snapshot_date": "2026-07-25",
+    "popularity_proxy": "hugging_face_downloads_last_month",
+    "downloads_last_month": 4466763,
+    "likes": 5028,
+    "cohort_policy": "Adoption-ranked, architecture-diverse initial qualification cohort; duplicate sizes of one architecture family do not consume separate slots.",
+    "selection_reason": "The 120B checkpoint adds the capacity-spanning native-MXFP4 and Harmony-format target. The more-downloaded gpt-oss-20b is retained as a same-family smoke companion rather than replacing a distinct architecture slot."
+  },
+  "artifact": {
+    "provider": "hugging_face",
+    "repository": "openai/gpt-oss-120b",
+    "revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+    "revision_kind": "git_commit",
+    "weight_format": "safetensors",
+    "weight_dtype": "mxfp4",
+    "quantization": "mxfp4",
+    "estimated_weight_bytes": 65248893184,
+    "estimate_basis": "Sum of the 15 root-level pinned MXFP4 safetensors shard sizes; alternate original and Metal trees are excluded.",
+    "license_spdx": "Apache-2.0",
+    "trust_remote_code_required": false,
+    "required_files": [
+      "chat_template.jinja",
+      "config.json",
+      "generation_config.json",
+      "model.safetensors.index.json",
+      "tokenizer.json",
+      "tokenizer_config.json"
+    ],
+    "file_hashes": {
+      "chat_template.jinja": "sha256:a4c9919cbbd4acdd51ccffe22da049264b1b73e59055fa58811a99efbd7c8146",
+      "config.json": "sha256:933aeb666a3fd851133ddd7686414f369bc564c4185fb5704416550879f10566",
+      "generation_config.json": "sha256:f9970ada892d2d1f72e3ed0a6535ccebadd11897318794ca671d8c7014c957da",
+      "model-00000-of-00014.safetensors": "sha256:695218884684c611fe08a74751ee443f971e9bd9bc062edba822da3fe45969b7",
+      "model-00001-of-00014.safetensors": "sha256:a881aa5f561b26a22b14a8262aa61849ace349ffd73d74769e030ac90a1fcf8a",
+      "model-00002-of-00014.safetensors": "sha256:022478dd04398c5bdb545a5be0a6437ecc2eb53d1dbd29edafcfff4b3ddf0a41",
+      "model-00003-of-00014.safetensors": "sha256:47aee9e7b9d5bedb215042c01ccededd9bd9c30b0dddea862dc2506b9d6c74de",
+      "model-00004-of-00014.safetensors": "sha256:f6c2752acda607b1d5ca52df9e75c1b9b2761e6875ff10c9bd6ddac473c0262e",
+      "model-00005-of-00014.safetensors": "sha256:0c8dd401544c31cb93b8459eee7da20ea2a07626a59455d7d92b85257df9b46c",
+      "model-00006-of-00014.safetensors": "sha256:28d839f2e027985a8b14e45f2323798862eddb7770ee9800ea6b7c803abee489",
+      "model-00007-of-00014.safetensors": "sha256:c8958c5f183c04f6ea959cfd90562b5128124154b2bbf979b8a22b9405b30ed8",
+      "model-00008-of-00014.safetensors": "sha256:bf1f2a88868ffc37d520dcf77d26f0e823710b5e682d473ff10f6974fa3b7517",
+      "model-00009-of-00014.safetensors": "sha256:f72d34a4004241b45c332b61f8ffa124e9a913bc1ab442b66e717d3e94e741ce",
+      "model-00010-of-00014.safetensors": "sha256:f48c867c2cb0a44bfc2f8768cb98e4aec9a350946fceacfebdcad5d32ad4a471",
+      "model-00011-of-00014.safetensors": "sha256:a06851b2cfd35f48722f823bc1ab8f7bcb4a878a5b8e975f4d3544f230454eeb",
+      "model-00012-of-00014.safetensors": "sha256:3af33667c307e20ae2a7648ea52653de46dd0171601ec5c696e47a2f5d5bf1e4",
+      "model-00013-of-00014.safetensors": "sha256:bcbcb74b043e071d1e05471d500d74dcf661175e00878ed302ccdf1801a75aef",
+      "model-00014-of-00014.safetensors": "sha256:54b1be1609696c307cc5ca117b1fa54feaddebffa04e9c2db117652a01964230",
+      "model.safetensors.index.json": "sha256:ede2655fdc05008561983b6e0829c600727c28d591e071077377059f03a6c00e",
+      "special_tokens_map.json": "sha256:dd5e191d20c12d2fee1da5bae14ca1db0f5f4215300af691f23cdee97120a293",
+      "tokenizer.json": "sha256:0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
+      "tokenizer_config.json": "sha256:9279e942392b742d633c7adbb89ebe002c98399db8926a7af5125c726f404070"
+    },
+    "download_exclude_patterns": [
+      "metal/*",
+      "original/*"
+    ]
+  },
+  "architecture": {
+    "family": "gpt_oss",
+    "decoder_layers": 36,
+    "hidden_size": 2880,
+    "total_experts": 128,
+    "active_experts_per_token": 4,
+    "config_max_position_embeddings": 131072,
+    "publisher_supported_context_tokens": 131072,
+    "context_note": "The pinned config and publisher model card specify a 131,072-token context; this initial recipe qualifies only 4,096 tokens.",
+    "total_parameters": 117000000000,
+    "active_parameters": 5100000000
+  },
+  "runtime": {
+    "candidate_backend": "max",
+    "max_architecture": "GptOssForCausalLM",
+    "max_weight_encoding": "float4_e2m1fnx2",
+    "activation_dtype_candidates": [
+      "bf16"
+    ],
+    "kv_dtype_candidates": [
+      "bf16"
+    ],
+    "required_operations": [
+      "attention",
+      "dense_mlp",
+      "router_topk",
+      "expert_gemm_mlp",
+      "collect_scatter_gather",
+      "kv_operations",
+      "sampling_logits",
+      "serialization_pack_gather",
+      "transport"
+    ],
+    "prompt_format": "openai_harmony",
+    "qualification_context_tokens": 4096,
+    "model_path_placeholder": "<MODEL_DIR>"
+  },
+  "qualification": {
+    "maturity": "C1_contracted",
+    "support_state": "contract_validated",
+    "artifact_hash_status": "pinned_expected_sha256_unobserved",
+    "tokenizer_hash_status": "pinned_expected_sha256_unobserved",
+    "chat_template_hash_status": "pinned_expected_sha256_unobserved",
+    "parity_status": "not_run",
+    "unresolved_evidence": [
+      "Acquire the pinned root representation and observe every selected local SHA-256 before execution.",
+      "Validate native MXFP4 decode and expert kernels on the exact MAX build.",
+      "Validate Harmony template and tokenizer behavior against the serving contract.",
+      "Measure layer and final-logit parity against an independent reference."
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "gpt-oss-hub-api-snapshot",
+      "url": "https://huggingface.co/api/models/openai/gpt-oss-120b",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "selection"
+      ]
+    },
+    {
+      "source_id": "gpt-oss-config-pinned",
+      "url": "https://huggingface.co/openai/gpt-oss-120b/blob/b5c939de8f754692c1647ca79fbf85e8c1e70f8a/config.json",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "artifact.quantization",
+        "artifact.revision",
+        "architecture"
+      ]
+    },
+    {
+      "source_id": "gpt-oss-files-pinned",
+      "url": "https://huggingface.co/openai/gpt-oss-120b/tree/b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "artifact.estimated_weight_bytes",
+        "artifact.file_hashes",
+        "artifact.required_files"
+      ]
+    },
+    {
+      "source_id": "gpt-oss-model-card-pinned",
+      "url": "https://huggingface.co/openai/gpt-oss-120b/blob/b5c939de8f754692c1647ca79fbf85e8c1e70f8a/README.md",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "architecture.total_parameters",
+        "architecture.active_parameters",
+        "artifact.license_spdx",
+        "runtime.prompt_format"
+      ]
+    },
+    {
+      "source_id": "modular-max-model-formats",
+      "url": "https://docs.modular.com/max/models/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "runtime.max_architecture",
+        "runtime.max_weight_encoding"
+      ]
+    }
+  ],
+  "provenance": [
+    {
+      "field": "artifact.file_hashes",
+      "status": "pinned_repository_sha256_inventory",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "gpt-oss-files-pinned"
+      ]
+    },
+    {
+      "field": "selection",
+      "status": "dated_hub_adoption_proxy",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "gpt-oss-hub-api-snapshot"
+      ]
+    },
+    {
+      "field": "artifact.estimated_weight_bytes",
+      "status": "pinned_repository_file_inventory",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "gpt-oss-files-pinned"
+      ]
+    },
+    {
+      "field": "architecture",
+      "status": "pinned_artifact_config",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "gpt-oss-config-pinned",
+        "gpt-oss-model-card-pinned"
+      ]
+    },
+    {
+      "field": "runtime.max_architecture",
+      "status": "published_candidate_contract_unverified",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "modular-max-model-formats"
+      ]
+    },
+    {
+      "field": "runtime.max_weight_encoding",
+      "status": "published_candidate_contract_unverified",
+      "calibration_status": "not_applicable",
+      "source_ids": [
+        "modular-max-model-formats"
+      ]
+    }
+  ]
+}

@@ -113,6 +113,13 @@ The profile maturity is the minimum maturity of every required component:
 Side states are `blocked`, `unsupported`, `expired`, `deprecated`, and `revoked`.
 Reserve “supported” for C5; fixture-only success is `contract_validated`.
 
+The first executable portfolio is the
+[three-model by six-platform consumer MoE recipe cohort](consumer-hardware-recipes.md).
+It intentionally stops at C1: deterministic locks and offline preflight checks
+reduce future hardware time, while physical compatibility, parity,
+interoperability, performance, and support claims remain false until their
+named gates produce evidence.
+
 Use capability equivalence classes and pairwise/t-wise coverage for routine
 variation, while testing high-risk vendor/runtime, model architecture,
 quantization, activation/KV, ownership, and transport boundaries exhaustively.

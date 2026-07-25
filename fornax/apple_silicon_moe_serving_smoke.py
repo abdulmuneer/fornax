@@ -1,27 +1,53 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import os
 import platform
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any
 
+from .bounded_subprocess import (
+    BoundedPopen,
+    SubprocessOutputLimitExceeded,
+    run_bounded_subprocess,
+    start_bounded_subprocess,
+)
 from .io import read_json, write_json
+from .max_generation_smoke import (
+    MAX_TIMEOUT_SECONDS,
+    SMOKE_SENTINEL_PROMPT,
+    extract_exact_max_metrics_sentinel,
+    is_diagnostic_generated_text,
+)
 
 
 RECORD_KIND = "apple-silicon-moe-serving-smoke"
 EVIDENCE_SCOPE = "single-mac-max-real-moe-serving-smoke"
 DEFAULT_MODEL_ID = "Qwen/Qwen3-30B-A3B"
-DEFAULT_PROMPT = "In one short sentence, say what MoE means in AI inference."
-ALLOWED_FAMILIES = {"Qwen", "DeepSeek", "Kimi", "GLM"}
+DEFAULT_PROMPT = SMOKE_SENTINEL_PROMPT
+ALLOWED_FAMILIES = {"Qwen", "DeepSeek", "Kimi", "GLM", "GPT-OSS"}
 RUNTIME_MODES = {"generate", "serve"}
+MAX_VERSION_OUTPUT_BYTES = 64 * 1024
+MAX_VERSION_STDERR_BYTES = 256 * 1024
+MAX_HARDWARE_OUTPUT_BYTES = 1024 * 1024
+MAX_GENERATION_OUTPUT_BYTES = 4 * 1024 * 1024
+MAX_SERVE_OUTPUT_BYTES = 4 * 1024 * 1024
+MAX_HTTP_RESPONSE_BYTES = 1024 * 1024
+_GENERATED_MARKER_RE = re.compile(
+    r"^(?:generated(?:\s+(?:text|output))?|output|response|assistant)\s*:\s*(.+)$",
+    re.IGNORECASE,
+)
 
 
 def _positive_int(name: str, value: int) -> None:
@@ -29,9 +55,21 @@ def _positive_int(name: str, value: int) -> None:
         raise ValueError(f"{name} must be a positive integer")
 
 
-def _positive_number(name: str, value: float) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ValueError(f"{name} must be a positive number")
+def _positive_number(
+    name: str,
+    value: float,
+    *,
+    maximum: float | None = None,
+) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) <= 0
+    ):
+        raise ValueError(f"{name} must be a finite positive number")
+    if maximum is not None and float(value) > maximum:
+        raise ValueError(f"{name} exceeds the bounded limit {maximum}")
 
 
 def _command_parts(command: str) -> list[str]:
@@ -45,12 +83,11 @@ def _run_text(
     command: list[str], *, timeout_s: float, cwd: str | None = None
 ) -> tuple[str | None, str | None]:
     try:
-        result = subprocess.run(
+        result = run_bounded_subprocess(
             command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
+            timeout_s=timeout_s,
+            stdout_limit_bytes=MAX_VERSION_OUTPUT_BYTES,
+            stderr_limit_bytes=MAX_VERSION_STDERR_BYTES,
             cwd=cwd,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -82,6 +119,8 @@ def _family_from_model_id(model_id: str) -> str | None:
         return "Kimi"
     if "glm" in lower or lower.startswith("zai-org/"):
         return "GLM"
+    if "gpt-oss" in lower or "gpt_oss" in lower:
+        return "GPT-OSS"
     return None
 
 
@@ -154,12 +193,11 @@ def _hardware_summary() -> dict[str, Any]:
         "processor": platform.processor(),
     }
     try:
-        result = subprocess.run(
+        result = run_bounded_subprocess(
             ["system_profiler", "SPHardwareDataType"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
+            timeout_s=30,
+            stdout_limit_bytes=MAX_HARDWARE_OUTPUT_BYTES,
+            stderr_limit_bytes=MAX_VERSION_STDERR_BYTES,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         summary["collection_error"] = f"{type(exc).__name__}: {exc}"
@@ -170,6 +208,7 @@ def _hardware_summary() -> dict[str, Any]:
     fields = {
         "model_name": "Model Name",
         "model_identifier": "Model Identifier",
+        "model_number": "Model Number",
         "chip": "Chip",
         "core_count": "Total Number of Cores",
         "memory": "Memory",
@@ -181,30 +220,54 @@ def _hardware_summary() -> dict[str, Any]:
     return summary
 
 
-def _generated_text_from_stdout(stdout: str) -> str:
-    ignored = (
-        "INFO:",
-        "WARNING:",
-        "Warning:",
-        "UserWarning:",
-        "Downloading",
-        "Loading",
-    )
-    lines: list[str] = []
-    for raw in stdout.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if re.match(r"^\d\d:\d\d:\d\d\.\d+\s+\w+:", line):
-            continue
-        if line.startswith("/private/") or line.startswith("/Users/"):
-            continue
-        if any(line.startswith(prefix) for prefix in ignored):
-            continue
-        if "%|" in line:
-            continue
-        lines.append(line)
-    return "\n".join(lines[-8:]).strip()
+def _json_generated_text(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    for key in ("generated_text", "output_text"):
+        text = value.get(key)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+    choices = value.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return ""
+    first = choices[0]
+    message = first.get("message")
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    text = first.get("text")
+    return text.strip() if isinstance(text, str) and text.strip() else ""
+
+
+def _generated_text_from_stdout(stdout: str, *, prompt: str) -> str:
+    """Extract only explicitly framed generated text.
+
+    Arbitrary residual stdout is deliberately not accepted: compiler status,
+    architecture lines, prompt echoes, and output-size diagnostics are not
+    generation evidence.
+    """
+
+    try:
+        payload = json.loads(stdout)
+    except (json.JSONDecodeError, UnicodeError):
+        payload = None
+    candidate = _json_generated_text(payload)
+    if not candidate:
+        for raw in reversed(stdout.splitlines()):
+            match = _GENERATED_MARKER_RE.match(raw.strip())
+            if match is not None:
+                candidate = match.group(1).strip()
+                break
+    if not candidate:
+        candidate = extract_exact_max_metrics_sentinel(stdout, prompt)
+    if (
+        not candidate
+        or candidate == prompt.strip()
+        or is_diagnostic_generated_text(candidate)
+    ):
+        return ""
+    return candidate
 
 
 def _generated_text_from_response(response: dict[str, Any]) -> str:
@@ -223,6 +286,14 @@ def _generated_text_from_response(response: dict[str, Any]) -> str:
 
 def _tail(text: str, limit: int = 12000) -> str:
     return text.strip()[-limit:]
+
+
+def _utf8_text_sha256(value: str) -> str | None:
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeError:
+        return None
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _failure_signature(stdout: str, stderr: str) -> list[str]:
@@ -267,11 +338,26 @@ def _post_chat_completion(
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout_s) as response:
-            payload = response.read().decode("utf-8", errors="replace")
+            payload_bytes = response.read(MAX_HTTP_RESPONSE_BYTES + 1)
+            if len(payload_bytes) > MAX_HTTP_RESPONSE_BYTES:
+                return (
+                    int(response.status),
+                    None,
+                    "OpenAI-compatible response exceeds the bounded "
+                    f"{MAX_HTTP_RESPONSE_BYTES}-byte limit",
+                )
+            payload = payload_bytes.decode("utf-8", errors="replace")
             status = int(response.status)
     except urllib.error.HTTPError as exc:
         try:
-            detail = exc.read().decode("utf-8", errors="replace")
+            detail_bytes = exc.read(MAX_HTTP_RESPONSE_BYTES + 1)
+            if len(detail_bytes) > MAX_HTTP_RESPONSE_BYTES:
+                detail = (
+                    "HTTP error response exceeds the bounded "
+                    f"{MAX_HTTP_RESPONSE_BYTES}-byte limit"
+                )
+            else:
+                detail = detail_bytes.decode("utf-8", errors="replace")
         except Exception:
             detail = str(exc)
         return exc.code, None, detail
@@ -286,6 +372,16 @@ def _post_chat_completion(
     return status, data, None
 
 
+def _listener_present(port: int) -> bool:
+    """Return whether the exact loopback endpoint already accepts TCP connects."""
+
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.25):
+            return True
+    except OSError:
+        return False
+
+
 def _run_serve_request(
     *,
     command: list[str],
@@ -298,17 +394,35 @@ def _run_serve_request(
     timeout_s: float,
 ) -> dict[str, Any]:
     started = time.perf_counter()
-    process: subprocess.Popen[str] | None = None
+    process: BoundedPopen | None = None
     http_status: int | None = None
     response: dict[str, Any] | None = None
     http_error: str | None = None
     generated_text = ""
+    ownership_verified = False
+    if _listener_present(port):
+        return {
+            "elapsed_s": time.perf_counter() - started,
+            "returncode": None,
+            "server_returncode": None,
+            "stdout": "",
+            "stderr": "",
+            "generated_text": "",
+            "http_status": None,
+            "http_error": (
+                "refusing MAX serve probe because a listener already owns "
+                f"127.0.0.1:{port}"
+            ),
+            "response": None,
+            "server_terminated_by_probe": False,
+            "preexisting_listener_detected": True,
+            "server_ownership_verified": False,
+        }
     try:
-        process = subprocess.Popen(
+        process = start_bounded_subprocess(
             command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            stdout_limit_bytes=MAX_SERVE_OUTPUT_BYTES,
+            stderr_limit_bytes=MAX_SERVE_OUTPUT_BYTES,
             env=env,
             cwd=cwd,
         )
@@ -324,8 +438,29 @@ def _run_serve_request(
                 timeout_s=2.0,
             )
             if response is not None:
-                generated_text = _generated_text_from_response(response)
-                if generated_text:
+                candidate = _generated_text_from_response(response)
+                if candidate == prompt.strip():
+                    http_error = (
+                        "OpenAI-compatible response only echoed the prompt; "
+                        "refusing it as generated-text evidence"
+                    )
+                    break
+                if candidate and response.get("model") != served_model_name:
+                    http_error = (
+                        "OpenAI-compatible response model does not match the "
+                        "unique model name assigned to the spawned MAX server; "
+                        "refusing stale-listener evidence"
+                    )
+                    break
+                if candidate and process.poll() is None:
+                    generated_text = candidate
+                    ownership_verified = True
+                    break
+                if candidate:
+                    http_error = (
+                        "HTTP generation arrived after the spawned MAX process "
+                        "exited; refusing stale-listener evidence"
+                    )
                     break
             time.sleep(1.0)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -340,6 +475,8 @@ def _run_serve_request(
             "http_error": f"MAX serve failed to launch: {type(exc).__name__}: {exc}",
             "response": response,
             "server_terminated_by_probe": False,
+            "preexisting_listener_detected": False,
+            "server_ownership_verified": False,
         }
 
     assert process is not None
@@ -347,20 +484,44 @@ def _run_serve_request(
     if generated_text and process.poll() is None:
         process.terminate()
         server_terminated_by_probe = True
-    elif process.poll() is None and time.perf_counter() >= deadline:
-        http_error = http_error or "MAX serve did not become ready before timeout"
+    elif process.poll() is None:
+        if time.perf_counter() >= deadline:
+            http_error = (
+                http_error or "MAX serve did not become ready before timeout"
+            )
+        else:
+            http_error = (
+                http_error
+                or "MAX serve probe ended without ownership-verifiable output"
+            )
         process.terminate()
         server_terminated_by_probe = True
     try:
         stdout, stderr = process.communicate(timeout=15)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        stdout, stderr = process.communicate(timeout=15)
+    except SubprocessOutputLimitExceeded as exc:
+        stdout, stderr = exc.stdout, exc.stderr
+        generated_text = ""
+        ownership_verified = False
+        http_error = (
+            "MAX serve output exceeded its bounded capture limit; "
+            "the server was killed and its HTTP result was discarded"
+        )
+        server_terminated_by_probe = True
+    except subprocess.TimeoutExpired as exc:
+        stdout = str(exc.stdout or exc.output or "")
+        stderr = str(exc.stderr or "")
+        generated_text = ""
+        ownership_verified = False
+        http_error = (
+            "MAX serve did not exit after termination; it was killed and reaped"
+        )
         server_terminated_by_probe = True
     elapsed_s = time.perf_counter() - started
     return {
         "elapsed_s": elapsed_s,
-        "returncode": 0 if generated_text else process.returncode,
+        "returncode": (
+            0 if generated_text and ownership_verified else process.returncode
+        ),
         "server_returncode": process.returncode,
         "stdout": stdout,
         "stderr": stderr,
@@ -369,6 +530,8 @@ def _run_serve_request(
         "http_error": http_error,
         "response": response,
         "server_terminated_by_probe": server_terminated_by_probe,
+        "preexisting_listener_detected": False,
+        "server_ownership_verified": ownership_verified,
     }
 
 
@@ -399,13 +562,18 @@ def run_apple_silicon_moe_serving_smoke(
     if runtime_mode not in RUNTIME_MODES:
         raise ValueError(f"runtime_mode must be one of {sorted(RUNTIME_MODES)}")
     _positive_int("serve_port", serve_port)
-    _positive_number("timeout_s", timeout_s)
+    _positive_number(
+        "timeout_s",
+        timeout_s,
+        maximum=MAX_TIMEOUT_SECONDS,
+    )
     if not prompt:
         raise ValueError("prompt must be non-empty")
     family = _family_from_model_id(model_id)
     if family not in ALLOWED_FAMILIES:
         raise ValueError(
-            "model_id must be from one of Qwen, DeepSeek, Kimi, or GLM for this smoke"
+            "model_id must be from one of Qwen, DeepSeek, Kimi, GLM, or GPT-OSS "
+            "for this smoke"
         )
     max_cwd_path = Path(max_cwd).expanduser() if max_cwd else None
     if max_cwd_path is not None and not max_cwd_path.is_dir():
@@ -458,12 +626,11 @@ def run_apple_silicon_moe_serving_smoke(
 
         started = time.perf_counter()
         try:
-            result = subprocess.run(
+            result = run_bounded_subprocess(
                 command,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=timeout_s,
+                timeout_s=timeout_s,
+                stdout_limit_bytes=MAX_GENERATION_OUTPUT_BYTES,
+                stderr_limit_bytes=MAX_GENERATION_OUTPUT_BYTES,
                 env=env,
                 cwd=max_cwd_text,
             )
@@ -476,12 +643,15 @@ def run_apple_silicon_moe_serving_smoke(
             error = None
         stdout = result.stdout if result is not None else ""
         stderr = result.stderr if result is not None else ""
-        generated_text = _generated_text_from_stdout(stdout)
+        generated_text = _generated_text_from_stdout(stdout, prompt=prompt)
         response_payload: dict[str, Any] | None = None
         http_status = None
         http_error = None
         server_returncode = None
         server_terminated_by_probe = False
+        preexisting_listener_detected = False
+        server_ownership_verified = False
+        served_model_name = None
         returncode = result.returncode if result is not None else None
         ok = bool(result is not None and result.returncode == 0 and generated_text)
         if result is not None and result.returncode != 0:
@@ -489,7 +659,7 @@ def run_apple_silicon_moe_serving_smoke(
         if result is not None and result.returncode == 0 and not generated_text:
             error = "MAX generation emitted no parseable generated text"
     else:
-        served_model_name = model_id
+        served_model_name = "fornax-smoke-" + uuid.uuid4().hex
         command = base_command + [
             "serve",
             "--model",
@@ -529,8 +699,20 @@ def run_apple_silicon_moe_serving_smoke(
         http_error = serve_result.get("http_error")
         server_returncode = serve_result.get("server_returncode")
         server_terminated_by_probe = bool(serve_result.get("server_terminated_by_probe"))
+        preexisting_listener_detected = bool(
+            serve_result.get("preexisting_listener_detected")
+        )
+        server_ownership_verified = bool(
+            serve_result.get("server_ownership_verified")
+        )
         returncode = serve_result.get("returncode")
-        ok = bool(response_payload is not None and http_status == 200 and generated_text)
+        ok = bool(
+            response_payload is not None
+            and http_status == 200
+            and generated_text
+            and server_ownership_verified
+            and not preexisting_listener_detected
+        )
         if ok:
             error = None
         elif returncode not in (None, 0):
@@ -596,6 +778,7 @@ def run_apple_silicon_moe_serving_smoke(
             "backend": "max",
             "mode": runtime_mode_label,
             "max_command": base_command,
+            "launch_argv": command,
             "max_cwd": max_cwd_text,
             "max_extra_args": extra_args,
             "max_version": max_version,
@@ -604,14 +787,16 @@ def run_apple_silicon_moe_serving_smoke(
             "mojo_version_error": mojo_version_error,
             "devices_requested": devices,
             "quantization_encoding": quantization_encoding,
+            "top_k": top_k,
             "max_length": max_length,
             "serve_port": serve_port if runtime_mode == "serve" else None,
+            "served_model_name": served_model_name,
             "allow_download": allow_download,
             "fornax_orchestrated": True,
         },
         "serving": {
             "request": {
-                "model": model_id,
+                "model": served_model_name or model_id,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_new_tokens": max_new_tokens,
                 "stream": False,
@@ -628,9 +813,26 @@ def run_apple_silicon_moe_serving_smoke(
             "returncode": returncode,
             "server_returncode": server_returncode,
             "server_terminated_by_probe": server_terminated_by_probe,
+            "preexisting_listener_detected": preexisting_listener_detected,
+            "server_ownership_verified": server_ownership_verified,
+            "stdout": stdout,
+            "stdout_chars": len(stdout),
+            "stdout_text_sha256": (
+                _utf8_text_sha256(stdout)
+            ),
+            "stderr": stderr,
+            "stderr_chars": len(stderr),
+            "stderr_text_sha256": (
+                _utf8_text_sha256(stderr)
+            ),
             "stdout_tail": _tail(stdout),
             "stderr_tail": _tail(stderr),
             "failure_signature": _failure_signature(stdout, stderr),
+        },
+        "runner": {
+            "kind": "live_subprocess",
+            "physical_execution_eligible": True,
+            "authenticated": False,
         },
         "hardware": _hardware_summary(),
         "environment": {
@@ -651,9 +853,12 @@ def run_apple_silicon_moe_serving_smoke(
             "production_distributed_serving": False,
         },
         "note": (
-            "Apple Silicon MAX smoke for a real Qwen/DeepSeek/Kimi/GLM MoE. "
-            "This is single-Mac local evidence through MAX, not distributed "
-            "Fornax runtime closure, target-model parity, or formal G2/G3 evidence."
+            "Apple Silicon diagnostic for a real Qwen/DeepSeek/Kimi/GLM/GPT-OSS "
+            "MoE through a future/custom capable MAX build. Upstream stock MAX "
+            "currently documents large GenAI inference as unavailable on Apple "
+            "silicon and is expected to fail. This is single-Mac local evidence, "
+            "not publisher support, distributed Fornax runtime closure, "
+            "target-model parity, or formal G2/G3 evidence."
         ),
     }
     write_json(out, data)
@@ -679,6 +884,7 @@ def validate_apple_silicon_moe_serving_smoke_fixture(data: dict[str, Any]) -> di
     warnings = [
         "Apple Silicon MoE serving smoke is single-Mac MAX evidence, not production distributed serving or formal G2/G3 closure",
         "use this as bounded MAX/model bring-up evidence, not target-model parity proof",
+        "upstream stock MAX currently documents large GenAI inference as unavailable on Apple silicon; a pass requires a future/custom capable build and is not publisher support",
     ]
     if data.get("version") != 1:
         errors.append("version must be 1")
@@ -698,7 +904,9 @@ def validate_apple_silicon_moe_serving_smoke_fixture(data: dict[str, Any]) -> di
     if family is not None and family not in ALLOWED_FAMILIES:
         errors.append(f"model.model_family must be one of {sorted(ALLOWED_FAMILIES)}")
     if model_id is not None and _family_from_model_id(model_id) not in ALLOWED_FAMILIES:
-        errors.append("model.model_id must be from Qwen, DeepSeek, Kimi, or GLM")
+        errors.append(
+            "model.model_id must be from Qwen, DeepSeek, Kimi, GLM, or GPT-OSS"
+        )
     architecture = _non_empty_string(model.get("architecture"), "model.architecture", errors)
     model_type = model.get("model_type")
     if model.get("real_frontier_moe_model") is not True:
@@ -736,16 +944,37 @@ def validate_apple_silicon_moe_serving_smoke_fixture(data: dict[str, Any]) -> di
     if max_cwd is not None and not isinstance(max_cwd, str):
         errors.append("runtime.max_cwd must be null or a string")
     serve_port = runtime.get("serve_port")
+    served_model_name = runtime.get("served_model_name")
     if runtime_mode == "max-serve":
         if isinstance(serve_port, bool) or not isinstance(serve_port, int) or serve_port <= 0:
             errors.append("runtime.serve_port must be a positive integer for max-serve mode")
+        if (
+            not isinstance(served_model_name, str)
+            or not re.fullmatch(r"fornax-smoke-[0-9a-f]{32}", served_model_name)
+        ):
+            errors.append(
+                "runtime.served_model_name must be a unique fornax-smoke UUID "
+                "for max-serve mode"
+            )
     elif serve_port is not None:
         errors.append("runtime.serve_port must be null for max-generate mode")
+    elif served_model_name is not None:
+        errors.append("runtime.served_model_name must be null for max-generate mode")
     max_extra_args = runtime.get("max_extra_args")
     if not isinstance(max_extra_args, list) or not all(
         isinstance(item, str) and item for item in max_extra_args
     ):
         errors.append("runtime.max_extra_args must be a list of non-empty strings")
+    launch_argv = runtime.get("launch_argv")
+    if (
+        not isinstance(launch_argv, list)
+        or not launch_argv
+        or not all(isinstance(item, str) and item for item in launch_argv)
+    ):
+        errors.append("runtime.launch_argv must be a list of non-empty strings")
+    top_k = runtime.get("top_k")
+    if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k <= 0:
+        errors.append("runtime.top_k must be a positive integer")
     max_version = _non_empty_string(runtime.get("max_version"), "runtime.max_version", errors)
     if max_version is not None and not max_version.startswith("MAX "):
         errors.append("runtime.max_version must start with 'MAX '")
@@ -771,11 +1000,25 @@ def validate_apple_silicon_moe_serving_smoke_fixture(data: dict[str, Any]) -> di
     if runtime_mode == "max-serve" and http_status != 200:
         errors.append("serving.http_status must be 200 for max-serve mode")
     generated = _non_empty_string(serving.get("generated_text"), "serving.generated_text", errors)
+    request = serving.get("request")
+    if not isinstance(request, dict):
+        errors.append("serving.request must be an object")
+    elif runtime_mode == "max-serve" and request.get("model") != served_model_name:
+        errors.append(
+            "serving.request.model must match runtime.served_model_name"
+        )
     response = serving.get("response")
     if not isinstance(response, dict):
         errors.append("serving.response must be an object")
     elif response.get("object") != "chat.completion":
         errors.append("serving.response.object must be chat.completion")
+    elif (
+        runtime_mode == "max-serve"
+        and response.get("model") != served_model_name
+    ):
+        errors.append(
+            "serving.response.model must match runtime.served_model_name"
+        )
 
     result = data.get("result")
     if not isinstance(result, dict):
@@ -784,6 +1027,53 @@ def validate_apple_silicon_moe_serving_smoke_fixture(data: dict[str, Any]) -> di
     _positive_number_field(result.get("elapsed_s"), "result.elapsed_s", errors)
     if result.get("returncode") != 0:
         errors.append("result.returncode must be 0")
+    preexisting_listener = result.get("preexisting_listener_detected")
+    ownership_verified = result.get("server_ownership_verified")
+    if preexisting_listener is not False:
+        errors.append("result.preexisting_listener_detected must be false")
+    expected_ownership = runtime_mode == "max-serve"
+    if ownership_verified is not expected_ownership:
+        errors.append(
+            "result.server_ownership_verified must be true only for max-serve mode"
+        )
+    stdout = result.get("stdout")
+    stderr = result.get("stderr")
+    if not isinstance(stdout, str):
+        errors.append("result.stdout must be a string")
+        stdout = ""
+    if not isinstance(stderr, str):
+        errors.append("result.stderr must be a string")
+        stderr = ""
+    if result.get("stdout_chars") != len(stdout):
+        errors.append("result.stdout_chars must match complete stdout")
+    if result.get("stderr_chars") != len(stderr):
+        errors.append("result.stderr_chars must match complete stderr")
+    expected_stdout_sha256 = _utf8_text_sha256(stdout)
+    if expected_stdout_sha256 is None:
+        errors.append("result.stdout must be valid UTF-8 text")
+    elif result.get("stdout_text_sha256") != expected_stdout_sha256:
+        errors.append("result.stdout_text_sha256 must match complete stdout")
+    expected_stderr_sha256 = _utf8_text_sha256(stderr)
+    if expected_stderr_sha256 is None:
+        errors.append("result.stderr must be valid UTF-8 text")
+    elif result.get("stderr_text_sha256") != expected_stderr_sha256:
+        errors.append("result.stderr_text_sha256 must match complete stderr")
+
+    runner = data.get("runner")
+    if not isinstance(runner, dict) or set(runner) != {
+        "kind",
+        "physical_execution_eligible",
+        "authenticated",
+    }:
+        errors.append("runner must exactly match the provenance schema")
+    elif (
+        runner.get("kind") != "live_subprocess"
+        or runner.get("physical_execution_eligible") is not True
+        or runner.get("authenticated") is not False
+    ):
+        errors.append(
+            "runner must identify an unauthenticated live subprocess execution"
+        )
 
     hardware = data.get("hardware")
     if not isinstance(hardware, dict):
@@ -831,6 +1121,8 @@ def validate_apple_silicon_moe_serving_smoke_fixture(data: dict[str, Any]) -> di
             "max_version": runtime.get("max_version"),
             "max_cwd": max_cwd,
             "max_extra_args": max_extra_args if isinstance(max_extra_args, list) else None,
+            "launch_argv": launch_argv if isinstance(launch_argv, list) else None,
+            "top_k": top_k,
             "runtime_mode": runtime_mode,
             "serve_port": serve_port,
             "devices_requested": devices,

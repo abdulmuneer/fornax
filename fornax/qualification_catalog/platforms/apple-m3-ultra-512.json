@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "kind": "fornax_platform_qualification_profile",
+  "platform_id": "apple-m3-ultra-512",
+  "display_name": "Apple M3 Ultra 512 GB",
+  "vendor": "apple",
+  "device_class": "apple_silicon",
+  "identity": {
+    "chip": "Apple M3 Ultra",
+    "memory_gb": 512,
+    "marketed_memory_gb": 512,
+    "configuration_note": "Mac Studio (2025), 32-core CPU, 80-core GPU, 512 GB unified memory; this is the valid replacement for the nonexistent M5 512 GB request."
+  },
+  "static_facts": {
+    "accelerator": {
+      "model": "M3 Ultra",
+      "accelerator_count": 1,
+      "gpu_cores": 80,
+      "compute_capability": null
+    },
+    "memory": {
+      "kind": "unified_memory",
+      "marketed_gb": 512,
+      "unified_with_system": true
+    },
+    "memory_bandwidth_bytes_per_second": 819000000000,
+    "interfaces": [
+      {
+        "kind": "thunderbolt_5",
+        "count": 6,
+        "advertised_bandwidth_bytes_per_second": 10000000000,
+        "bandwidth_scope": "per_port_symmetric_per_direction_theoretical_line_rate",
+        "memory_pooling": false,
+        "note": "80 Gb/s symmetric per direction converted arithmetically to 10 GB/s; 120 Gb/s is the asymmetric, display-oriented Bandwidth Boost ceiling and is not used here. This is not measured payload throughput."
+      },
+      {
+        "kind": "ethernet_10gbe",
+        "count": 1,
+        "advertised_bandwidth_bytes_per_second": 1250000000,
+        "bandwidth_scope": "theoretical_line_rate",
+        "memory_pooling": false,
+        "note": "10 Gb/s converted arithmetically to 1.25 GB/s; this is not measured payload throughput."
+      }
+    ],
+    "power": {
+      "value_watts": 270,
+      "rating_kind": "vendor_measured_max_wall_draw",
+      "not_chip_tdp": true
+    }
+  },
+  "capacity_policy": {
+    "sizing_memory_bytes": 549755813888,
+    "usable_memory_basis_points": 7500,
+    "policy_scope": "capacity_estimate_only",
+    "excludes": [
+      "KV cache and workload-dependent allocations",
+      "Measured compiler and runtime workspace",
+      "Measured transport buffers",
+      "Performance and thermal feasibility"
+    ]
+  },
+  "runtime": {
+    "candidate_backend": "max",
+    "os_family": "macos",
+    "architecture": "arm64",
+    "minimum_os": "macOS 15",
+    "minimum_driver": null,
+    "hardware_precision": [
+      "fp16",
+      "fp32"
+    ],
+    "runtime_precision_candidates": [
+      "fp16"
+    ],
+    "verification_status": "unverified"
+  },
+  "topology": {
+    "unit_semantics": "one_mac_one_unified_memory_pool",
+    "multi_unit_memory_pooling": false,
+    "internal_fabric": "ultrafusion_internal_two_dies_one_logical_device",
+    "default_cross_unit_transport": "unmeasured",
+    "notes": [
+      "UltraFusion is internal silicon fabric, not a two-node Fornax transport route.",
+      "CPU and GPU share this memory and must not be counted as independent capacity."
+    ]
+  },
+  "qualification": {
+    "maturity": "C1_contracted",
+    "support_state": "contract_validated",
+    "hardware_validation_status": "not_run",
+    "runtime_validation_status": "not_run",
+    "unresolved_evidence": [
+      "Upstream MAX large GenAI inference is unavailable on Apple Silicon as of 2026-07-25; qualify a custom Fornax MAX/Mojo model path before bring-up.",
+      "Match the observed catalog chip and nominal memory threshold.",
+      "Measure allocatable unified memory after OS and runtime reserves.",
+      "Measure MAX MoE operations, transport, parity, and sustained thermals."
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "apple-m3-ultra-announcement",
+      "url": "https://www.apple.com/newsroom/2025/03/apple-reveals-m3-ultra-taking-apple-silicon-to-a-new-extreme/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "identity",
+        "static_facts.accelerator",
+        "static_facts.memory",
+        "static_facts.memory_bandwidth_bytes_per_second",
+        "topology.internal_fabric"
+      ]
+    },
+    {
+      "source_id": "apple-mac-studio-spec",
+      "url": "https://www.apple.com/mac-studio/specs/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "static_facts.interfaces"
+      ]
+    },
+    {
+      "source_id": "apple-mac-power",
+      "url": "https://support.apple.com/en-us/102027",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "static_facts.power"
+      ]
+    },
+    {
+      "source_id": "max-package-requirements",
+      "url": "https://docs.modular.com/max/packages/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "runtime"
+      ]
+    },
+    {
+      "source_id": "intel-thunderbolt-5-overview",
+      "url": "https://www.intel.com/content/www/us/en/architecture-and-technology/thunderbolt/overview.html",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "static_facts.interfaces"
+      ]
+    }
+  ],
+  "provenance": [
+    {
+      "field": "static_facts",
+      "status": "vendor_specification",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "apple-m3-ultra-announcement",
+        "apple-mac-studio-spec",
+        "apple-mac-power",
+        "intel-thunderbolt-5-overview"
+      ]
+    },
+    {
+      "field": "capacity_policy",
+      "status": "conservative_sizing_assumption",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "apple-m3-ultra-announcement"
+      ]
+    },
+    {
+      "field": "runtime",
+      "status": "publisher_documented_upstream_genai_unavailable_custom_fornax_path_required",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "max-package-requirements"
+      ]
+    }
+  ]
+}

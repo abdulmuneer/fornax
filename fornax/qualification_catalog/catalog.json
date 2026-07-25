@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "kind": "fornax_qualification_catalog",
+  "catalog_id": "fornax-consumer-moe-c1-v1",
+  "model_ids": [
+    "deepseek-r1",
+    "gpt-oss-120b",
+    "qwen3-30b-a3b"
+  ],
+  "platform_ids": [
+    "apple-m3-max-128",
+    "apple-m3-ultra-512",
+    "apple-m5-max-128",
+    "nvidia-h100-sxm-80gb",
+    "nvidia-rtx-4090-24gb",
+    "nvidia-rtx-5090-32gb"
+  ],
+  "expected_recipe_count": 18,
+  "defaults": {
+    "runtime_headroom_basis_points": 1000,
+    "maturity": "C1_contracted",
+    "support_state": "contract_validated",
+    "physical_claims": {
+      "distributed_runtime_passed": false,
+      "formal_g2_passed": false,
+      "formal_g3_passed": false,
+      "hardware_detected": false,
+      "model_artifact_verified": false,
+      "production_supported": false,
+      "single_platform_bringup_passed": false,
+      "target_model_parity_passed": false
+    }
+  },
+  "rejected_platform_identifiers": [
+    {
+      "identifier": "apple-m5-512",
+      "reason": "No marketed Apple M5 Mac configuration has 512 GB of unified memory. M5 Max tops out at 128 GB; the marketed 512 GB configuration is M3 Ultra Mac Studio.",
+      "replacement_platform_id": "apple-m3-ultra-512",
+      "source_url": "https://www.apple.com/mac-studio/specs/"
+    }
+  ]
+}
