@@ -121,6 +121,6 @@ Use [templates/gate-review.md](templates/gate-review.md). Every review must show
 assumptions validated/invalidated, evidence class, unresolved physical gaps, and
 the exact scope authorized by `PROCEED`.
 
-Fundraising/package release uses the separate XG-1…XG-8 controls in
-[`../fundraising/external-readiness-gates.md`](../fundraising/external-readiness-gates.md).
-Those gates do not replace or lower G0…G5 technical/product criteria.
+Non-public package-release controls are maintained outside this public
+repository. They do not replace or lower G0…G5 technical/product criteria, and
+nothing here authorizes external financing claims.

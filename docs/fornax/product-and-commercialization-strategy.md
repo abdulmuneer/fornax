@@ -10,10 +10,9 @@ This file is publicly accessible. Do not put confidential customer, partner,
 pricing, topology, security, fundraising, or unannounced product information
 here merely because a section is labeled “internal” or “working.”
 
-Seed-fund materials, market sizing, VC diligence, and the evidence plan are
-maintained in [`fundraising/`](fundraising/README.md). The binding external-use
-control is
-[`fundraising/external-readiness-gates.md`](fundraising/external-readiness-gates.md).
+Non-public commercial and disclosure materials are maintained outside this
+public repository. No public document authorizes external claims about
+financing, counterparties, commercial terms, team, rights, or traction.
 The current platform/developer-experience proxy-review disposition is
 [`founder-proxy-review-follow-up-2026-07-17.md`](founder-proxy-review-follow-up-2026-07-17.md).
 

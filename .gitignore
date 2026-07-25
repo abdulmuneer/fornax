@@ -8,5 +8,12 @@ __pycache__/
 build/
 dist/
 
+# Machine-local agent instructions, skills, checkouts, and tool state.
+AGENTS.local.md
+.agents/
+.claude/
+external/
+.private-remote-approved
+
 # Development-aid reference material; not part of the published repo
 docs/external_knowledge/

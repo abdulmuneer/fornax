@@ -68,10 +68,9 @@ ceremony.
 - The next formal evidence gate is **G2 physical distributed correctness**.
 - A parallel product-discovery lane is active for buyer/workload/concurrency and
   design-partner evidence; it does not authorize serving or performance claims.
-- External fundraising materials remain internal and `ITERATE` under
-  [external-readiness gates](../fundraising/external-readiness-gates.md); team,
-  rights, financing, customer, market, and package claims are not inferred from
-  technical progress.
+- Non-public commercial-readiness materials are maintained outside this
+  repository; team, rights, financing, counterparty, market, and package claims
+  are not inferred from technical progress.
 - Later Phase 3-5 proxy scope is frozen; existing fixtures remain regression
   evidence without closing physical/product gates.
 

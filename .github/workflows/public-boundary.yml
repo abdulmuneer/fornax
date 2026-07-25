@@ -1,0 +1,28 @@
+name: Public boundary
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  public-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check pull-request changes
+        if: github.event_name == 'pull_request'
+        run: >-
+          python3 scripts/check_public_boundary.py
+          --range "${{ github.event.pull_request.base.sha }}...HEAD"
+      - name: Check pushed changes
+        if: github.event_name == 'push'
+        run: >-
+          python3 scripts/check_public_boundary.py
+          --range "${{ github.event.before }}...HEAD"
