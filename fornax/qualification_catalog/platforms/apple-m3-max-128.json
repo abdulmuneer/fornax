@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "kind": "fornax_platform_qualification_profile",
+  "platform_id": "apple-m3-max-128",
+  "display_name": "Apple M3 Max 128 GB",
+  "vendor": "apple",
+  "device_class": "apple_silicon",
+  "identity": {
+    "chip": "Apple M3 Max",
+    "memory_gb": 128,
+    "marketed_memory_gb": 128,
+    "configuration_note": "16-inch MacBook Pro (2023), 16-core CPU, 40-core GPU, 128 GB unified memory."
+  },
+  "static_facts": {
+    "accelerator": {
+      "model": "M3 Max",
+      "accelerator_count": 1,
+      "gpu_cores": 40,
+      "compute_capability": null
+    },
+    "memory": {
+      "kind": "unified_memory",
+      "marketed_gb": 128,
+      "unified_with_system": true
+    },
+    "memory_bandwidth_bytes_per_second": 400000000000,
+    "interfaces": [
+      {
+        "kind": "thunderbolt_4",
+        "count": 3,
+        "advertised_bandwidth_bytes_per_second": 5000000000,
+        "bandwidth_scope": "per_port_theoretical_line_rate",
+        "memory_pooling": false,
+        "note": "40 Gb/s converted arithmetically to 5 GB/s; this is not measured payload throughput."
+      }
+    ],
+    "power": {
+      "value_watts": 140,
+      "rating_kind": "power_adapter_rating",
+      "not_chip_tdp": true
+    }
+  },
+  "capacity_policy": {
+    "sizing_memory_bytes": 137438953472,
+    "usable_memory_basis_points": 7500,
+    "policy_scope": "capacity_estimate_only",
+    "excludes": [
+      "KV cache and workload-dependent allocations",
+      "Measured compiler and runtime workspace",
+      "Measured transport buffers",
+      "Performance and thermal feasibility"
+    ]
+  },
+  "runtime": {
+    "candidate_backend": "max",
+    "os_family": "macos",
+    "architecture": "arm64",
+    "minimum_os": "macOS 15",
+    "minimum_driver": null,
+    "hardware_precision": [
+      "fp16",
+      "fp32"
+    ],
+    "runtime_precision_candidates": [
+      "fp16"
+    ],
+    "verification_status": "unverified"
+  },
+  "topology": {
+    "unit_semantics": "one_mac_one_unified_memory_pool",
+    "multi_unit_memory_pooling": false,
+    "internal_fabric": "single_soc_unified_memory",
+    "default_cross_unit_transport": "unmeasured",
+    "notes": [
+      "CPU and GPU share this memory and must not be counted as independent capacity.",
+      "The MacBook Pro has no built-in Ethernet; an exact adapter and link must be qualified."
+    ]
+  },
+  "qualification": {
+    "maturity": "C1_contracted",
+    "support_state": "contract_validated",
+    "hardware_validation_status": "not_run",
+    "runtime_validation_status": "not_run",
+    "unresolved_evidence": [
+      "Upstream MAX large GenAI inference is unavailable on Apple Silicon as of 2026-07-25; qualify a custom Fornax MAX/Mojo model path before bring-up.",
+      "Match the observed catalog chip and nominal memory threshold.",
+      "Measure allocatable unified memory after OS and runtime reserves.",
+      "Measure MAX MoE operations, transport, parity, and sustained thermals."
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "apple-m3-max-spec",
+      "url": "https://support.apple.com/en-us/117737",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "identity",
+        "static_facts"
+      ]
+    },
+    {
+      "source_id": "max-package-requirements",
+      "url": "https://docs.modular.com/max/packages/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "runtime"
+      ]
+    }
+  ],
+  "provenance": [
+    {
+      "field": "static_facts",
+      "status": "vendor_specification",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "apple-m3-max-spec"
+      ]
+    },
+    {
+      "field": "capacity_policy",
+      "status": "conservative_sizing_assumption",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "apple-m3-max-spec"
+      ]
+    },
+    {
+      "field": "runtime",
+      "status": "publisher_documented_upstream_genai_unavailable_custom_fornax_path_required",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "max-package-requirements"
+      ]
+    }
+  ]
+}

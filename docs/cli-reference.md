@@ -34,6 +34,27 @@ Use these commands to turn a model and fleet into a placement and prediction. Se
 | `preflight --target T --out-dir D [opts]` | Run the planning/contract pipeline and write evidence artifacts. |
 | `doctor --bundle DIR [--out O]` | Inspect a phase-0 evidence bundle, such as a `preflight` output. |
 
+## Consumer qualification recipes
+
+These commands prepare exact bring-up packets before the named hardware is
+available. Catalog validation and rendering are C1 contract evidence only; they
+do not claim that a model runs on a device.
+
+| Command | Purpose |
+|---|---|
+| `recipe list` | List the three pinned model profiles, six exact platform profiles, and their 18 C1 recipe combinations. |
+| `recipe validate` | Validate the packaged schemas, source pins, capacity arithmetic, maturity labels, and deterministic recipe identities. |
+| `recipe render --model M --platform P [--units N] --out-dir D [--force]` | Write a canonical recipe lock, argv-only command manifest, ordered runbook, and manifest-last byte-integrity record. Without `--units`, the renderer selects the capacity-only minimum. It fails if `N` is below that minimum; `--force` replaces only the four managed packet files. Multi-unit recipes intentionally omit a full-model launch until topology and a physical `StageBackend` are bound. |
+| `recipe verify --packet-dir D [--expected-bundle-sha256 H] [--allow-unmanaged-evidence] [--out O]` | Verify managed-file bytes, strict C1 semantics, and exact reproduction from the currently installed catalog. An optional out-of-band digest adds a comparison anchor, not publisher authentication. Unmanaged evidence is rejected unless explicitly allowed and remains outside integrity scope. |
+| `recipe probe-host --platform P [--units N] --out O` | Collect local Apple or NVIDIA identity facts and fail closed unless the observed chip/GPU name and nominal-memory threshold match. `--units` is for a homogeneous same-host NVIDIA count; other exact environment/topology facts remain separate gates. |
+| `recipe probe-runtime --model M --platform P [--max-command C] --out O` | Capture `max --version` plus `max list --json` and require the exact catalog architecture/encoding pair. This is registry identity only—not OS, driver, device-kernel, decode/conversion, model-load, correctness, or support evidence. |
+| `recipe run-apple-single --model M --platform P --model-dir D --model-artifact-report A --host-report H --runtime-report R --max-command C --out O` | Re-inspect and bind the selected local checkpoint to successful exact-Apple-host and MAX-registry reports before one offline generation launch. `--max-command` is mandatory and must name one direct future/custom Fornax-capable MAX executable; multi-part wrappers are rejected because they cannot be content-bound strongly enough. Upstream stock MAX currently documents that large GenAI model inference is unavailable on Apple silicon, so it is expected to fail this physical gate. The wrapper uses the resolved hashed executable path, re-hashes it before and after generation, freshly observes the host and model before/after execution, and requires exact request/response/stdout sentinel framing. Raw evidence hashes are recorded but unauthenticated. Only single-platform bring-up may pass; parity, distributed execution, G2/G3, publisher support, and product support remain false. Multi-unit recipes do not emit this command. |
+| `recipe run-nvidia-single --model M --platform P --model-dir D --model-artifact-report A --host-report H --runtime-report R --out O [--device gpu:N] [--max-command C]` | Re-inspect and bind the selected local checkpoint to successful artifact, exact-device host, and MAX-registry reports before one shell-free launch. `--device gpu:N` selects the physical `nvidia-smi` row; the wrapper freshly rebinds its GPU UUID, sets `CUDA_VISIBLE_DEVICES=<UUID>`, and launches MAX on visible ordinal `gpu:0`. Evidence-file, catalog/profile, executable, UUID/environment, and launch-ordinal bindings are recorded but unauthenticated. Generated output must use conservative explicit/JSON or exact MAX sentinel framing. Only single-platform bring-up may pass; parity, distributed execution, G2/G3, and support remain false. Multi-unit recipes do not emit this command. |
+| `recipe inspect-model --model M --model-dir D [--remote-code-review R --expected-remote-code-review-sha256 H] --out O` | Inspect an already-local model snapshot without downloading or executing remote code; verify catalog/profile lineage, locally observed revision provenance, config, tokenizer/template/generation assets, representation, index, every selected file hash, shards, and bytes. When remote code is required, both a model/revision-bound SHA-256 allowlist acknowledgement and its separately transported digest are mandatory; this binds bytes but does not authenticate a reviewer. |
+
+See [Consumer MoE qualification recipes](fornax/consumer-hardware-recipes.md)
+for the selected cohort, the M5/512GB correction, and the C2–C5 promotion gates.
+
 ## Hardware and fleet inspection
 
 | Command | Purpose |
@@ -43,7 +64,7 @@ Use these commands to turn a model and fleet into a placement and prediction. Se
 | `accelerator {expert-mlp-probe,activation-transfer-probe,target-fixture-probe}` | Run accelerator micro-probes for expert MLP, activation transfer, and target fixture behavior. |
 | `program local-4gpu-moe-serving-smoke --out-dir D [--devices cuda:0,cuda:1,cuda:2,cuda:3]` | Same-host CUDA smoke for a tiny MoE serving fixture: one gateway GPU plus three expert GPUs, with split-vs-reference parity. Scope excludes live HTTP, frontier parity, production distributed transport, and formal gate closure. |
 | `program local-real-moe-serving-smoke --out O [--model-path P] [--devices cuda:0,cuda:1,cuda:2,cuda:3]` | Same-host real Qwen3-Omni MoE text-generation smoke. The default model is `Qwen/Qwen3-Omni-30B-A3B-Instruct`. The artifact records model and device placement evidence. Scope excludes live HTTP, production distributed serving, target-model parity, and formal gate closure. |
-| `program apple-silicon-moe-serving-smoke --out O [--runtime-mode generate\|serve] [--max-command C] [--max-cwd D] [--max-extra-arg A] [--model-id M]` | Single-Mac Apple Silicon MAX-only smoke for a real Qwen, DeepSeek, Kimi, or GLM MoE. The default model is `Qwen/Qwen3-30B-A3B`, run through `max generate --devices gpu`; `--runtime-mode serve` starts `max serve` and requires one successful local `/v1/chat/completions` response. Pixi installs should use `--max-command "pixi run max" --max-cwd D`. Repeat `--max-extra-arg` for MAX bring-up flags. The artifact records MAX/Mojo version, Apple hardware, model MoE metadata, generated text or serve-start failure, HTTP status for serve mode, and explicit non-closure claims. |
+| `program apple-silicon-moe-serving-smoke --out O [--runtime-mode generate\|serve] [--max-command C] [--max-cwd D] [--max-extra-arg A] [--model-id M]` | Low-level single-Mac diagnostic for a real Qwen, DeepSeek, Kimi, GLM, or GPT-OSS MoE through a future/custom MAX build. Upstream stock MAX currently documents large GenAI inference as unavailable on Apple silicon and is expected to fail. The default model is `Qwen/Qwen3-30B-A3B`; `--runtime-mode serve` requires one successful local `/v1/chat/completions` response. The artifact records exact launch argv, MAX/Mojo version, Apple hardware, model MoE metadata, generated text or serve-start failure, HTTP status for serve mode, and explicit non-closure claims. Use catalog-bound `recipe run-apple-single` for qualification evidence. |
 | `apple {probe-template,simulate-probe,validate-probe,role-decision}` | Apple Silicon worker probing and role decisions. |
 | `fabric probe` | Probe a network link for inventory `links` bandwidth and latency. |
 | `calibrate local` | Calibrate the cost model against the local machine. |
@@ -113,7 +134,7 @@ Available suites include `golden-plans`, `runtime-format`, `network-contract`,
 `state-ownership`, `engine-simulation`,
 `observability`, `metrics-ledger`, `trace-ledger`, `worker-contract`,
 `transport-contract`, `trust-boundary`, `moe-runtime`, `moe-parity-probe`,
-`model-support`, `continuous-batching`, `scheduler-contract`,
+`model-support`, `qualification-recipes`, `continuous-batching`, `scheduler-contract`,
 `stage-replication`, `resilience-replay`, `ops-lifecycle`,
 `onboarding-methodology`, `program-governance`, `backend-coverage`,
 `phase3-proxy-gate`, `phase4-resilience-gate`, `phase5-ga-gate`,

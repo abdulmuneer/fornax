@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "kind": "fornax_platform_qualification_profile",
+  "platform_id": "nvidia-rtx-4090-24gb",
+  "display_name": "NVIDIA GeForce RTX 4090 24 GB",
+  "vendor": "nvidia",
+  "device_class": "cuda_gpu",
+  "identity": {
+    "gpu_name": "NVIDIA GeForce RTX 4090",
+    "vram_gb": 24,
+    "marketed_memory_gb": 24,
+    "configuration_note": "Ada GeForce flagship with 24 GB GDDR6X and no NVLink."
+  },
+  "static_facts": {
+    "accelerator": {
+      "model": "GeForce RTX 4090",
+      "accelerator_count": 1,
+      "gpu_cores": null,
+      "compute_capability": "8.9"
+    },
+    "memory": {
+      "kind": "gddr6x",
+      "marketed_gb": 24,
+      "unified_with_system": false
+    },
+    "memory_bandwidth_bytes_per_second": 1008000000000,
+    "interfaces": [
+      {
+        "kind": "pcie_gen4",
+        "count": 1,
+        "advertised_bandwidth_bytes_per_second": null,
+        "bandwidth_scope": "exact_host_topology_required",
+        "memory_pooling": false,
+        "note": "NVIDIA lists NVLink support as no; PCIe and any host staging must be measured."
+      }
+    ],
+    "power": {
+      "value_watts": 450,
+      "rating_kind": "total_graphics_power",
+      "not_chip_tdp": true
+    }
+  },
+  "capacity_policy": {
+    "sizing_memory_bytes": 25769803776,
+    "usable_memory_basis_points": 8500,
+    "policy_scope": "capacity_estimate_only",
+    "excludes": [
+      "KV cache and workload-dependent allocations",
+      "Measured compiler and runtime workspace",
+      "Measured PCIe and host-staging buffers",
+      "Performance, topology, and power feasibility"
+    ]
+  },
+  "runtime": {
+    "candidate_backend": "max",
+    "os_family": "linux",
+    "architecture": "x86_64",
+    "minimum_os": "Ubuntu 22.04",
+    "minimum_driver": "580",
+    "hardware_precision": [
+      "bf16",
+      "fp16",
+      "fp8",
+      "int4",
+      "int8",
+      "tf32"
+    ],
+    "runtime_precision_candidates": [
+      "bf16",
+      "fp16",
+      "fp8"
+    ],
+    "verification_status": "unverified"
+  },
+  "topology": {
+    "unit_semantics": "one_pcie_gpu_one_gddr_pool",
+    "multi_unit_memory_pooling": false,
+    "internal_fabric": "pcie_only_no_nvlink",
+    "default_cross_unit_transport": "unmeasured",
+    "notes": [
+      "Multiple cards remain separate memory pools.",
+      "Exact motherboard lanes, switches, NUMA affinity, host memory, and NICs must be recorded."
+    ]
+  },
+  "qualification": {
+    "maturity": "C1_contracted",
+    "support_state": "contract_validated",
+    "hardware_validation_status": "not_run",
+    "runtime_validation_status": "not_run",
+    "unresolved_evidence": [
+      "Match the exact RTX 4090 memory configuration.",
+      "Pin driver, MAX build, PCIe/NUMA, host staging, and NIC topology.",
+      "Measure MAX MoE operations, transport, parity, thermals, and power."
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "nvidia-rtx-4090-spec",
+      "url": "https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4090/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "identity",
+        "static_facts"
+      ]
+    },
+    {
+      "source_id": "nvidia-compute-capability",
+      "url": "https://developer.nvidia.com/cuda/gpus",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "static_facts.accelerator.compute_capability"
+      ]
+    },
+    {
+      "source_id": "max-package-requirements",
+      "url": "https://docs.modular.com/max/packages/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "runtime"
+      ]
+    }
+  ],
+  "provenance": [
+    {
+      "field": "static_facts",
+      "status": "vendor_specification",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "nvidia-rtx-4090-spec",
+        "nvidia-compute-capability"
+      ]
+    },
+    {
+      "field": "capacity_policy",
+      "status": "conservative_sizing_assumption",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "nvidia-rtx-4090-spec"
+      ]
+    },
+    {
+      "field": "runtime",
+      "status": "publisher_documented_candidate_runtime",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "max-package-requirements"
+      ]
+    }
+  ]
+}

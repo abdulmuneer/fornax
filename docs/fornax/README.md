@@ -59,6 +59,7 @@ irreducible price of spanning. See
 | [planner-status-erratum-2026-07-17.md](planner-status-erratum-2026-07-17.md) | Records the implemented exploratory/deployment authority split, provenance/confidence/error fields, exact capability admission, and the remaining physical-calibration boundary |
 | [founder-proxy-review-follow-up-2026-07-17.md](founder-proxy-review-follow-up-2026-07-17.md) | Dated proxy-lens disposition of the 2026-07-13 platform/DX review; records actions closed, partial, and still blocking without implying named-person participation or endorsement |
 | [g2-in-a-box.md](g2-in-a-box.md) | One-command, fail-closed G2 readiness/physical-validation runner; exact lineage/model/device/command capture and durable bundle contract |
+| [consumer-hardware-recipes.md](consumer-hardware-recipes.md) | Dated three-model by six-platform C1 qualification cohort, content-addressed operator packets, exact identity/artifact checks, and the C2–C5 promotion path |
 | [max-fork-build-reproducibility.md](max-fork-build-reproducibility.md) | Tracked MAX lineage pin, clean-build procedure, and cross-node compatibility requirements |
 | [partitioner-spec.md](partitioner-spec.md) | Throughput-optimizing heterogeneous MoE partitioner: stage/expert placement, cost model, search, and contract/golden-vector expectations |
 | [deepseek-v2-lite-max-check.md](deepseek-v2-lite-max-check.md) | 2026-07-01 source-built MAX evidence for `deepseek-ai/DeepSeek-V2-Lite-Chat` on Apple Silicon M3 Max, including MLA/MoE/gather blockers cleared and remaining caveats |

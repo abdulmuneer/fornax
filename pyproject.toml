@@ -30,4 +30,6 @@ fornax = [
   "golden_plans/*.md",
   "golden_vectors/**/*.json",
   "golden_vectors/**/*.jsonl",
+  "qualification_catalog/*.json",
+  "qualification_catalog/**/*.json",
 ]

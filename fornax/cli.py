@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.resources
+import json
+import os
+import re
+import shlex
 import shutil
+import stat
 import sys
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +34,7 @@ from .apple_silicon_moe_serving_smoke import (
     DEFAULT_PROMPT as APPLE_MOE_DEFAULT_PROMPT,
     run_apple_silicon_moe_serving_smoke,
     validate_apple_silicon_moe_serving_smoke,
+    validate_apple_silicon_moe_serving_smoke_fixture,
 )
 from .backend_coverage import (
     render_backend_coverage_report,
@@ -53,6 +62,7 @@ from .g1_evidence_packet import (
 )
 from .g1_review import render_g1_gate_review_draft
 from .g2_validation import run_g2_validation
+from .hardware_identity import collect_host_identity, match_platform_identity
 from .inventory import (
     SIMULATED_CLUSTER_PROFILES,
     build_logical_cluster_inventory,
@@ -88,9 +98,33 @@ from .local_serving_smoke import (
     run_local_serving_smoke,
     validate_local_serving_smoke,
 )
+from .max_runtime_probe import probe_max_runtime_support
+from .max_generation_smoke import (
+    SMOKE_SENTINEL,
+    SMOKE_SENTINEL_PROMPT,
+    extract_exact_max_metrics_sentinel,
+    run_max_generation_smoke,
+    validate_max_generation_smoke_evidence,
+)
 from .planner import EvidenceRegistry, plan_placement
 from .preflight import run_phase0_preflight
 from .quickstart import run_quickstart
+from .qualification import (
+    PHYSICAL_CLAIM_KEYS,
+    canonical_sha256,
+    compose_all_qualification_recipes,
+    compose_qualification_recipe,
+    load_qualification_catalog,
+    materialize_qualification_recipe,
+    verify_materialized_qualification_recipe,
+)
+from .qualification_evidence import (
+    QualificationEvidenceError,
+    executable_identity,
+    load_json_evidence,
+    validate_apple_single_preflights,
+    validate_nvidia_single_preflights,
+)
 from .remote_expert_probe import (
     run_remote_expert_batch_probe,
     validate_remote_expert_batch_probe,
@@ -122,6 +156,7 @@ from .model_support import (
     simulated_model_support_matrix,
     validate_model_support_matrix,
 )
+from .model_artifacts import inspect_model_artifacts, validate_model_artifact_report
 from .metrics_ledger import simulate_metrics_ledger, validate_metrics_ledger
 from .network_contract import validate_network_contract
 from .network_security_spec import render_network_security_spec_draft
@@ -587,6 +622,2146 @@ def _cmd_quickstart(args: argparse.Namespace) -> int:
     )
     print(f"artifacts: {result['artifacts']['summary']}")
     return 0
+
+
+def _write_json_with_parent(path: str | Path, value: Any) -> None:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    write_json(output, value)
+
+
+def _write_new_json_no_follow(
+    path: str | Path,
+    value: Any,
+    *,
+    forbidden_ancestor: str | Path | None = None,
+) -> None:
+    """Atomically publish one new JSON file without following target symlinks."""
+
+    output = Path(os.path.abspath(os.path.expanduser(str(path))))
+    parent = output.parent
+    if output.name in {"", ".", ".."}:
+        raise ValueError("qualification envelope filename is invalid")
+    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise ValueError(
+            "qualification envelope publication requires O_DIRECTORY and "
+            "O_NOFOLLOW"
+        )
+    flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    directory_descriptors: list[int] = []
+    directory_components: list[tuple[int, str, int]] = []
+    try:
+        root_fd = os.open(os.path.sep, flags)
+        directory_descriptors.append(root_fd)
+        current_fd = root_fd
+        for component in parent.parts[1:]:
+            child_fd = os.open(component, flags, dir_fd=current_fd)
+            directory_descriptors.append(child_fd)
+            directory_components.append((current_fd, component, child_fd))
+            current_fd = child_fd
+        parent_fd = current_fd
+    except OSError as exc:
+        for descriptor in reversed(directory_descriptors):
+            os.close(descriptor)
+        raise ValueError(
+            "qualification envelope parent components must be existing real "
+            "no-follow directories: "
+            f"{parent}: {exc}"
+        ) from exc
+
+    def assert_directory_chain_stable() -> None:
+        for ancestor_fd, component, child_fd in directory_components:
+            anchored = os.stat(
+                component,
+                dir_fd=ancestor_fd,
+                follow_symlinks=False,
+            )
+            retained = os.fstat(child_fd)
+            if (
+                not stat.S_ISDIR(anchored.st_mode)
+                or (anchored.st_dev, anchored.st_ino)
+                != (retained.st_dev, retained.st_ino)
+            ):
+                raise ValueError(
+                    "qualification envelope parent directory chain changed "
+                    "during publish"
+                )
+
+    temporary_name = f".{output.name}.fornax-{uuid.uuid4().hex}.tmp"
+    temporary_created = False
+    forbidden_descriptor: int | None = None
+    try:
+        if forbidden_ancestor is not None:
+            forbidden = Path(
+                os.path.abspath(
+                    os.path.expanduser(str(forbidden_ancestor))
+                )
+            )
+            forbidden_flags = (
+                os.O_RDONLY
+                | os.O_DIRECTORY
+                | getattr(os, "O_CLOEXEC", 0)
+            )
+            try:
+                forbidden_descriptor = os.open(forbidden, forbidden_flags)
+            except OSError as exc:
+                raise ValueError(
+                    "qualification envelope packet directory cannot be "
+                    f"identified safely: {forbidden}: {exc}"
+                ) from exc
+            forbidden_metadata = os.fstat(forbidden_descriptor)
+            for descriptor in directory_descriptors:
+                ancestor_metadata = os.fstat(descriptor)
+                if (
+                    ancestor_metadata.st_dev,
+                    ancestor_metadata.st_ino,
+                ) == (
+                    forbidden_metadata.st_dev,
+                    forbidden_metadata.st_ino,
+                ):
+                    raise ValueError(
+                        "qualification envelope output must be outside the "
+                        f"packet directory: {output}"
+                    )
+        assert_directory_chain_stable()
+        try:
+            existing = os.stat(
+                output.name,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            kind = (
+                "symbolic link"
+                if stat.S_ISLNK(existing.st_mode)
+                else "non-regular entry"
+                if not stat.S_ISREG(existing.st_mode)
+                else "existing file"
+            )
+            raise ValueError(
+                f"qualification envelope refuses to replace {kind}: {output}"
+            )
+        payload = (
+            json.dumps(
+                value,
+                allow_nan=False,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        create_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(
+            temporary_name,
+            create_flags,
+            0o600,
+            dir_fd=parent_fd,
+        )
+        temporary_created = True
+        try:
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("short qualification envelope write")
+                remaining = remaining[written:]
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise OSError(
+                    "qualification envelope temporary output is not one "
+                    "private regular file"
+                )
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.link(
+            temporary_name,
+            output.name,
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+        target = os.stat(
+            output.name,
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(target.st_mode)
+            or (target.st_dev, target.st_ino) != (metadata.st_dev, metadata.st_ino)
+        ):
+            raise OSError(
+                "qualification envelope target identity changed during publish"
+            )
+        os.unlink(temporary_name, dir_fd=parent_fd)
+        temporary_created = False
+        os.fsync(parent_fd)
+        assert_directory_chain_stable()
+    finally:
+        if temporary_created:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+        if forbidden_descriptor is not None:
+            os.close(forbidden_descriptor)
+        for descriptor in reversed(directory_descriptors):
+            os.close(descriptor)
+
+
+def _qualification_recipe_validation_report() -> dict[str, Any]:
+    errors: list[str] = []
+    catalog = load_qualification_catalog()
+    recipes = compose_all_qualification_recipes(catalog)
+    expected_ids = catalog.recipe_ids()
+    actual_ids = tuple(recipe["recipe_id"] for recipe in recipes)
+
+    if len(catalog.models) != 3:
+        errors.append(f"expected 3 model profiles, found {len(catalog.models)}")
+    if len(catalog.platforms) != 6:
+        errors.append(f"expected 6 platform profiles, found {len(catalog.platforms)}")
+    if len(recipes) != 18:
+        errors.append(f"expected 18 recipes, found {len(recipes)}")
+    if actual_ids != expected_ids:
+        errors.append("composed recipe IDs do not match the sorted catalog cross-product")
+    if len(actual_ids) != len(set(actual_ids)):
+        errors.append("composed recipe IDs are not unique")
+
+    minimum_units: dict[str, int] = {}
+    for recipe in recipes:
+        recipe_id = recipe["recipe_id"]
+        lock = recipe["lock"]
+        lock_payload = dict(lock)
+        observed_hash = lock_payload.pop("lock_content_sha256", None)
+        expected_hash = canonical_sha256(lock_payload)
+        if observed_hash != expected_hash:
+            errors.append(f"{recipe_id}: recipe lock content hash mismatch")
+
+        claims = lock.get("physical_claims")
+        if not isinstance(claims, dict) or set(claims) != set(PHYSICAL_CLAIM_KEYS):
+            errors.append(f"{recipe_id}: physical-claim keys do not match the contract")
+        elif any(claims.values()):
+            errors.append(f"{recipe_id}: a C1 recipe contains a positive physical claim")
+
+        command_claims = recipe["commands"].get("physical_claims")
+        if command_claims != claims:
+            errors.append(f"{recipe_id}: command and lock physical claims disagree")
+        command_rows = recipe["commands"].get("commands")
+        if not isinstance(command_rows, list):
+            errors.append(f"{recipe_id}: commands must be an array")
+            command_steps: set[str] = set()
+        else:
+            command_steps = {
+                row.get("step_id")
+                for row in command_rows
+                if isinstance(row, dict) and isinstance(row.get("step_id"), str)
+            }
+        required_steps = {
+            "acquire_pinned_model",
+            "inspect_local_model",
+            "probe_host_identity",
+            "collect_local_inventory",
+            "probe_max_runtime_registry",
+        }
+        if not required_steps.issubset(command_steps):
+            errors.append(f"{recipe_id}: commands omit a required C1 preflight")
+
+        qualification = lock.get("qualification", {})
+        if (
+            qualification.get("maturity") != "C1_contracted"
+            or qualification.get("support_state") != "contract_validated"
+            or qualification.get("physical_execution_status") != "not_run"
+        ):
+            errors.append(f"{recipe_id}: recipe overstates qualification maturity")
+
+        capacity = lock.get("capacity_estimate", {})
+        if not capacity.get("capacity_only"):
+            errors.append(f"{recipe_id}: capacity estimate is not labeled capacity-only")
+        if capacity.get("performance_feasibility_evaluated") is not False:
+            errors.append(f"{recipe_id}: recipe implies performance feasibility")
+        if not capacity.get("capacity_sufficient_by_estimate"):
+            errors.append(f"{recipe_id}: default unit count is below its capacity minimum")
+        minimum = capacity.get("minimum_units")
+        if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum <= 0:
+            errors.append(f"{recipe_id}: invalid capacity-only minimum unit count")
+        else:
+            minimum_units[recipe_id] = minimum
+        selected_units = capacity.get("selected_units")
+        if selected_units == 1:
+            if (
+                "single_platform_model_bringup" not in command_steps
+                or "capacity_spanning_readiness" in command_steps
+            ):
+                errors.append(
+                    f"{recipe_id}: single-unit terminal command is inconsistent"
+                )
+        elif isinstance(selected_units, int) and not isinstance(
+            selected_units, bool
+        ):
+            if (
+                "capacity_spanning_readiness" not in command_steps
+                or "single_platform_model_bringup" in command_steps
+            ):
+                errors.append(
+                    f"{recipe_id}: multi-unit recipe emits an invalid full-model "
+                    "single-device path"
+                )
+
+        precision = lock.get("precision_contract")
+        if not isinstance(precision, dict):
+            errors.append(f"{recipe_id}: precision contract is missing")
+        elif lock["inputs"]["platform"]["vendor"] == "apple":
+            if not precision.get("conversion_or_custom_kernel_required"):
+                errors.append(
+                    f"{recipe_id}: Apple precision conversion is not fail-closed"
+                )
+
+        runbook = recipe.get("runbook_markdown", "")
+        if "C1 contracted" not in runbook or "not a supported-hardware" not in runbook:
+            errors.append(f"{recipe_id}: runbook is missing the C1 evidence boundary")
+
+    return {
+        "schema_version": 1,
+        "record_kind": "fornax_qualification_recipe_validation",
+        "ok": not errors,
+        "errors": errors,
+        "warnings": [
+            "Capacity results are arithmetic planning bounds, not measured fit, "
+            "correctness, performance, or support evidence."
+        ],
+        "summary": {
+            "catalog_id": catalog.manifest["catalog_id"],
+            "catalog_sha256": catalog.catalog_sha256,
+            "model_count": len(catalog.models),
+            "platform_count": len(catalog.platforms),
+            "recipe_count": len(recipes),
+            "maturity": "C1_contracted",
+            "support_state": "contract_validated",
+            "all_physical_claims_false": all(
+                not any(recipe["lock"]["physical_claims"].values())
+                for recipe in recipes
+            ),
+            "minimum_units": minimum_units,
+        },
+    }
+
+
+def _cmd_recipe_list(args: argparse.Namespace) -> int:
+    catalog = load_qualification_catalog()
+    recipes = compose_all_qualification_recipes(catalog)
+    report = {
+        "schema_version": 1,
+        "record_kind": "fornax_qualification_recipe_listing",
+        "catalog_id": catalog.manifest["catalog_id"],
+        "catalog_sha256": catalog.catalog_sha256,
+        "maturity": "C1_contracted",
+        "support_state": "contract_validated",
+        "models": [
+            {
+                "model_id": profile.model_id,
+                "display_name": profile.display_name,
+                "repository": profile.artifact["repository"],
+                "revision": profile.artifact["revision"],
+                "selection_snapshot_date": profile.selection["snapshot_date"],
+                "downloads_last_month": profile.selection["downloads_last_month"],
+                "profile_sha256": profile.profile_sha256,
+            }
+            for profile in catalog.models
+        ],
+        "platforms": [
+            {
+                "platform_id": profile.platform_id,
+                "display_name": profile.display_name,
+                "profile_sha256": profile.profile_sha256,
+            }
+            for profile in catalog.platforms
+        ],
+        "recipes": [
+            {
+                "recipe_id": recipe["recipe_id"],
+                "model_id": recipe["lock"]["inputs"]["model"]["model_id"],
+                "platform_id": recipe["lock"]["inputs"]["platform"]["platform_id"],
+                "minimum_units": recipe["lock"]["capacity_estimate"]["minimum_units"],
+                "capacity_only": True,
+                "physical_claims": recipe["lock"]["physical_claims"],
+            }
+            for recipe in recipes
+        ],
+    }
+    if args.out:
+        _write_json_with_parent(args.out, report)
+    print(
+        "qualification recipes: "
+        f"{len(report['models'])} models x {len(report['platforms'])} platforms "
+        f"= {len(report['recipes'])} C1 recipes"
+    )
+    for profile in report["models"]:
+        print(
+            f"model {profile['model_id']}: {profile['repository']} "
+            f"downloads_last_month={profile['downloads_last_month']}"
+        )
+    for profile in report["platforms"]:
+        print(f"platform {profile['platform_id']}: {profile['display_name']}")
+    if args.out:
+        print(f"wrote listing: {args.out}")
+    return 0
+
+
+def _cmd_recipe_validate(args: argparse.Namespace) -> int:
+    report = _qualification_recipe_validation_report()
+    if args.out:
+        _write_json_with_parent(args.out, report)
+    summary = report["summary"]
+    if report["ok"]:
+        print(
+            "PASS qualification-recipes: "
+            f"{summary['model_count']} models x {summary['platform_count']} platforms "
+            f"= {summary['recipe_count']} C1 recipes; physical claims=false"
+        )
+        return 0
+    print("FAIL qualification-recipes: " + "; ".join(report["errors"]))
+    return 1
+
+
+def _cmd_recipe_render(args: argparse.Namespace) -> int:
+    recipe = compose_qualification_recipe(
+        args.model,
+        args.platform,
+        units=args.units,
+    )
+    capacity = recipe["lock"]["capacity_estimate"]
+    if not capacity["capacity_sufficient_by_estimate"]:
+        print(
+            "recipe render: selected units are below the capacity-only minimum "
+            f"({capacity['selected_units']} < {capacity['minimum_units']})"
+        )
+        return 2
+
+    output = Path(args.out_dir)
+    if output.exists() and not output.is_dir():
+        print(f"recipe render: output path is not a directory: {output}")
+        return 2
+    targets = (
+        output / "recipe-lock.json",
+        output / "commands.json",
+        output / "RUNBOOK.md",
+        output / "bundle-manifest.json",
+    )
+    existing = [str(path) for path in targets if path.exists()]
+    if existing and not args.force:
+        print(
+            "recipe render: refusing to overwrite existing recipe files: "
+            + ", ".join(existing)
+            + "; pass --force to replace only these files"
+        )
+        return 2
+
+    paths = materialize_qualification_recipe(
+        args.model,
+        args.platform,
+        output,
+        units=args.units,
+        overwrite=args.force,
+    )
+    print(
+        f"rendered {recipe['recipe_id']}: "
+        f"units={capacity['selected_units']} minimum={capacity['minimum_units']} "
+        f"maturity=C1_contracted"
+    )
+    for name in ("recipe_lock", "commands", "runbook", "bundle_manifest"):
+        print(f"{name}: {paths[name]}")
+    manifest = read_json(paths["bundle_manifest"])
+    print(f"bundle_content_sha256: {manifest['bundle_content_sha256']}")
+    return 0
+
+
+def _cmd_recipe_verify(args: argparse.Namespace) -> int:
+    report = verify_materialized_qualification_recipe(
+        args.packet_dir,
+        expected_bundle_content_sha256=args.expected_bundle_sha256,
+        allow_unmanaged_entries=args.allow_unmanaged_evidence,
+    )
+    if args.out:
+        _write_new_json_no_follow(
+            args.out,
+            report,
+            forbidden_ancestor=args.packet_dir,
+        )
+    if report["ok"]:
+        print(
+            f"PASS recipe packet: {report['recipe_id']}; "
+            f"bundle={report['bundle_content_sha256']} "
+            "self_consistent=true current_catalog_match=true "
+            "authenticated=false"
+        )
+        return 0
+    print("FAIL recipe packet: " + "; ".join(report["errors"]))
+    return 2
+
+
+def _collect_qualification_runtime_report(
+    catalog: Any,
+    model: Any,
+    platform: Any,
+    max_command: list[str],
+) -> dict[str, Any]:
+    model_data = model.to_dict()
+    platform_data = platform.to_dict()
+    max_executable = executable_identity(max_command[0])
+    report = probe_max_runtime_support(
+        model_data["runtime"]["max_architecture"],
+        model_data["runtime"]["max_weight_encoding"],
+        max_command=max_command,
+    )
+    report["catalog_sha256"] = catalog.catalog_sha256
+    report["model"] = {
+        "model_id": model.model_id,
+        "profile_sha256": model.profile_sha256,
+        "repository": model_data["artifact"]["repository"],
+    }
+    report["platform"] = {
+        "platform_id": platform.platform_id,
+        "profile_sha256": platform.profile_sha256,
+        "vendor": platform_data["vendor"],
+        "runtime_verification_status": platform_data["runtime"][
+            "verification_status"
+        ],
+    }
+    report["max_executable"] = max_executable
+    report["interpretation"] = (
+        "Exact MAX registry architecture/encoding identity bound to the selected "
+        "catalog profiles. Device, OS, driver, decode/conversion, kernel, "
+        "model-load, correctness, performance, and support remain unproven."
+    )
+    return report
+
+
+def _cmd_recipe_probe_runtime(args: argparse.Namespace) -> int:
+    catalog = load_qualification_catalog()
+    model = catalog.model(args.model)
+    platform = catalog.platform(args.platform)
+    max_command = shlex.split(args.max_command)
+    if not max_command:
+        raise ValueError("--max-command must contain at least one argv element")
+    if len(max_command) != 1:
+        raise ValueError(
+            "qualification requires --max-command to name one direct "
+            "executable; wrapper prefixes such as 'pixi run max' are not "
+            "eligible for physical evidence"
+        )
+    max_command = [executable_identity(max_command[0])["resolved_path"]]
+    report = _collect_qualification_runtime_report(
+        catalog,
+        model,
+        platform,
+        max_command,
+    )
+    _write_new_json_no_follow(args.out, report)
+    if report["ok"]:
+        print(
+            f"PASS MAX runtime registry: {args.model} on {args.platform}; "
+            "registry only, device execution and support remain unproven"
+        )
+        return 0
+    print(
+        f"FAIL MAX runtime registry: {args.model} on {args.platform}: "
+        + "; ".join(report["errors"])
+    )
+    return 2
+
+
+def _apple_smoke_host_rebind(
+    evidence: dict[str, Any],
+    observed_host: Any,
+) -> dict[str, Any]:
+    """Compare the smoke's independent hardware sample with the fresh preflight."""
+
+    errors: list[str] = []
+    hardware = evidence.get("hardware")
+    if not isinstance(hardware, dict):
+        hardware = {}
+        errors.append("Apple smoke hardware evidence must be an object")
+    if not isinstance(observed_host, dict):
+        observed_host = {}
+        errors.append("fresh Apple host observation must be an object")
+
+    expected_chip = observed_host.get("chip")
+    smoke_chip = hardware.get("chip")
+
+    def normalize(value: str) -> str:
+        return " ".join(value.split()).casefold()
+
+    chip_matched = bool(
+        isinstance(expected_chip, str)
+        and expected_chip
+        and isinstance(smoke_chip, str)
+        and smoke_chip
+        and normalize(expected_chip) == normalize(smoke_chip)
+    )
+    if not chip_matched:
+        errors.append(
+            "Apple smoke chip does not match the fresh host observation"
+        )
+
+    expected_memory_bytes = observed_host.get("memory_bytes")
+    smoke_memory = hardware.get("memory")
+    memory_match = re.fullmatch(
+        r"\s*([0-9]+)\s*(?:GB|GiB)\s*",
+        smoke_memory,
+        flags=re.IGNORECASE,
+    ) if isinstance(smoke_memory, str) else None
+    memory_matched = bool(
+        isinstance(expected_memory_bytes, int)
+        and not isinstance(expected_memory_bytes, bool)
+        and expected_memory_bytes > 0
+        and memory_match is not None
+        and int(memory_match.group(1)) * 1024**3 == expected_memory_bytes
+    )
+    if not memory_matched:
+        errors.append(
+            "Apple smoke memory does not match fresh sysctl hw.memsize bytes"
+        )
+
+    field_matches: dict[str, bool | None] = {}
+    for observed_field, smoke_field in (
+        ("machine_name", "model_name"),
+        ("model_identifier", "model_identifier"),
+        ("model_number", "model_number"),
+    ):
+        expected_value = observed_host.get(observed_field)
+        smoke_value = hardware.get(smoke_field)
+        if expected_value is None:
+            field_matches[observed_field] = None
+            continue
+        matched = bool(
+            isinstance(expected_value, str)
+            and expected_value
+            and isinstance(smoke_value, str)
+            and smoke_value
+            and normalize(expected_value) == normalize(smoke_value)
+        )
+        field_matches[observed_field] = matched
+        if not matched:
+            errors.append(
+                f"Apple smoke {smoke_field} does not match the fresh host "
+                f"{observed_field}"
+            )
+
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "fresh_observed_host": dict(observed_host),
+        "smoke_hardware": hardware,
+        "chip_matched": chip_matched,
+        "memory_matched": memory_matched,
+        "identity_field_matches": field_matches,
+        "authenticated": False,
+    }
+
+
+def _no_follow_directory_identity(path: str | Path) -> dict[str, Any]:
+    absolute = os.path.abspath(os.path.expanduser(str(path)))
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(absolute, flags)
+    try:
+        metadata = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    return {
+        "absolute_path": absolute,
+        "device": metadata.st_dev,
+        "inode": metadata.st_ino,
+    }
+
+
+def _artifact_rebind(
+    expected: dict[str, Any],
+    observed: dict[str, Any],
+) -> dict[str, Any]:
+    fields = (
+        "model_dir",
+        "catalog_sha256",
+        "profile_sha256",
+        "profile_identity",
+        "revision",
+        "files",
+        "hash_coverage",
+        "artifact_manifest_sha256",
+        "ok",
+    )
+    mismatches = [
+        field for field in fields if observed.get(field) != expected.get(field)
+    ]
+    return {
+        "ok": not mismatches and observed.get("ok") is True,
+        "mismatched_fields": mismatches,
+        "artifact_manifest_sha256": observed.get("artifact_manifest_sha256"),
+    }
+
+
+def _cmd_recipe_run_apple_single(args: argparse.Namespace) -> int:
+    catalog = load_qualification_catalog()
+    model = catalog.model(args.model)
+    platform = catalog.platform(args.platform)
+    model_data = model.to_dict()
+    platform_data = platform.to_dict()
+    if platform_data["vendor"] != "apple":
+        raise ValueError(
+            "recipe run-apple-single requires an Apple platform profile"
+        )
+    recipe = compose_qualification_recipe(
+        args.model,
+        args.platform,
+        units=1,
+        catalog=catalog,
+    )
+    minimum_units = recipe["lock"]["capacity_estimate"]["minimum_units"]
+    if minimum_units != 1:
+        raise ValueError(
+            "recipe run-apple-single is forbidden because the capacity-only "
+            f"minimum is {minimum_units} units for {args.model} on "
+            f"{args.platform}"
+        )
+    precision_contract = recipe["lock"].get("precision_contract")
+    if not isinstance(precision_contract, dict):
+        raise ValueError(
+            "recipe run-apple-single requires a precision contract before "
+            "physical launch"
+        )
+    conversion_required = precision_contract.get(
+        "conversion_or_custom_kernel_required"
+    )
+    if not isinstance(conversion_required, bool):
+        raise ValueError(
+            "recipe run-apple-single requires a boolean "
+            "conversion_or_custom_kernel_required precision contract"
+        )
+    if conversion_required:
+        raise ValueError(
+            "recipe run-apple-single is forbidden because its precision "
+            "contract requires conversion or custom-kernel evidence, but no "
+            "versioned evidence input exists for that prerequisite"
+        )
+    if args.prompt != SMOKE_SENTINEL_PROMPT:
+        raise ValueError(
+            "--prompt must remain the exact bounded sentinel prompt: "
+            f"{SMOKE_SENTINEL_PROMPT}"
+        )
+    max_command = shlex.split(args.max_command)
+    if not max_command:
+        raise ValueError("--max-command must contain at least one argv element")
+    if len(max_command) != 1:
+        raise ValueError(
+            "recipe run-apple-single requires --max-command to name one direct "
+            "executable; wrapper prefixes cannot be bound strongly enough for "
+            "physical evidence"
+        )
+
+    def fail_closed(
+        errors: list[str],
+        *,
+        preflight: dict[str, Any] | None = None,
+    ) -> int:
+        failed_preflight = preflight or {
+            "schema_version": 1,
+            "record_kind": "fornax_apple_single_preflight_binding",
+            "ok": False,
+            "errors": list(dict.fromkeys(errors)),
+            "warnings": [],
+            "catalog_sha256": catalog.catalog_sha256,
+            "model_id": model.model_id,
+            "model_profile_sha256": model.profile_sha256,
+            "platform_id": platform.platform_id,
+            "platform_profile_sha256": platform.profile_sha256,
+            "authenticated": False,
+        }
+        envelope = {
+            "schema_version": 1,
+            "record_kind": "fornax_qualification_apple_single_generation",
+            "catalog_sha256": catalog.catalog_sha256,
+            "model": {
+                "model_id": model.model_id,
+                "profile_sha256": model.profile_sha256,
+                "repository": model_data["artifact"]["repository"],
+            },
+            "platform": {
+                "platform_id": platform.platform_id,
+                "profile_sha256": platform.profile_sha256,
+            },
+            "preflight": failed_preflight,
+            "runtime_rebind": None,
+            "model_rebind": None,
+            "host_rebind": None,
+            "smoke_artifact_binding": None,
+            "evidence": None,
+            "validation": {
+                "ok": False,
+                "errors": [
+                    "generation was not launched because prerequisite binding failed"
+                ],
+                "warnings": [],
+            },
+            "qualification": {
+                "maturity": "C1_contracted",
+                "single_platform_bringup_passed": False,
+                "target_model_parity_passed": False,
+                "distributed_runtime_passed": False,
+                "formal_g2_passed": False,
+                "formal_g3_passed": False,
+                "production_supported": False,
+            },
+        }
+        _write_new_json_no_follow(args.out, envelope)
+        print(
+            f"FAIL Apple single-device preflight: {args.model} on "
+            f"{args.platform}: " + "; ".join(failed_preflight["errors"])
+        )
+        return 2
+
+    try:
+        resolved_max = executable_identity(max_command[0])["resolved_path"]
+        max_command = [resolved_max]
+        fresh_runtime_report = _collect_qualification_runtime_report(
+            catalog,
+            model,
+            platform,
+            max_command,
+        )
+        max_executable = fresh_runtime_report["max_executable"]
+        collector_executables = {
+            command: executable_identity(command)
+            for command in ("system_profiler", "sysctl", "sw_vers")
+        }
+        artifact_report, artifact_file = load_json_evidence(
+            args.model_artifact_report,
+            label="model artifact report",
+        )
+        host_report, host_file = load_json_evidence(
+            args.host_report,
+            label="host identity report",
+        )
+        runtime_report, runtime_file = load_json_evidence(
+            args.runtime_report,
+            label="MAX runtime report",
+        )
+        fresh_artifact_report = inspect_model_artifacts(
+            args.model_dir,
+            model_data,
+            catalog_sha256=catalog.catalog_sha256,
+            profile_sha256=model.profile_sha256,
+            require_complete_hash_coverage=True,
+        )
+        fresh_model_directory_identity = _no_follow_directory_identity(
+            args.model_dir
+        )
+        fresh_host_identity = collect_host_identity(
+            executable_paths={
+                command: identity["resolved_path"]
+                for command, identity in collector_executables.items()
+            }
+        )
+        fresh_host_match = match_platform_identity(
+            fresh_host_identity,
+            platform_data,
+        )
+    except (QualificationEvidenceError, OSError, ValueError) as exc:
+        return fail_closed([str(exc)])
+
+    preflight = validate_apple_single_preflights(
+        artifact_report=artifact_report,
+        fresh_artifact_report=fresh_artifact_report,
+        host_report=host_report,
+        runtime_report=runtime_report,
+        fresh_host_identity=fresh_host_identity,
+        fresh_host_match=fresh_host_match,
+        fresh_runtime_report=fresh_runtime_report,
+        artifact_file=artifact_file,
+        host_file=host_file,
+        runtime_file=runtime_file,
+        expected_catalog_sha256=catalog.catalog_sha256,
+        expected_model_id=model.model_id,
+        expected_model_profile_sha256=model.profile_sha256,
+        expected_repository=model_data["artifact"]["repository"],
+        expected_revision=model_data["artifact"]["revision"],
+        expected_model_dir=args.model_dir,
+        expected_platform_id=platform.platform_id,
+        expected_platform_profile_sha256=platform.profile_sha256,
+        expected_platform_vendor=platform_data["vendor"],
+        expected_platform_runtime_verification_status=platform_data["runtime"][
+            "verification_status"
+        ],
+        expected_apple_chip=platform_data["identity"]["chip"],
+        expected_apple_memory_bytes=platform_data["capacity_policy"][
+            "sizing_memory_bytes"
+        ],
+        expected_architecture=model_data["runtime"]["max_architecture"],
+        expected_encoding=model_data["runtime"]["max_weight_encoding"],
+        expected_max_command=max_command,
+        expected_max_executable=max_executable,
+        expected_collector_executables=collector_executables,
+        minimum_units=minimum_units,
+    )
+    if not preflight["ok"]:
+        return fail_closed(preflight["errors"], preflight=preflight)
+
+    try:
+        launch_artifact_report = inspect_model_artifacts(
+            args.model_dir,
+            model_data,
+            catalog_sha256=catalog.catalog_sha256,
+            profile_sha256=model.profile_sha256,
+            require_complete_hash_coverage=True,
+        )
+        launch_model_directory_identity = _no_follow_directory_identity(
+            args.model_dir
+        )
+        launch_collector_executables = {
+            command: executable_identity(command)
+            for command in ("system_profiler", "sysctl", "sw_vers")
+        }
+        launch_host_identity = collect_host_identity(
+            executable_paths={
+                command: identity["resolved_path"]
+                for command, identity in launch_collector_executables.items()
+            }
+        )
+        launch_host_match = match_platform_identity(
+            launch_host_identity,
+            platform_data,
+        )
+        launch_max_executable = executable_identity(max_command[0])
+    except (QualificationEvidenceError, OSError, ValueError) as exc:
+        return fail_closed(
+            [f"immediate pre-launch rebind failed: {exc}"],
+            preflight=preflight,
+        )
+    launch_artifact_rebind = _artifact_rebind(
+        fresh_artifact_report,
+        launch_artifact_report,
+    )
+    launch_rebind_errors: list[str] = []
+    if not launch_artifact_rebind["ok"]:
+        launch_rebind_errors.append(
+            "model artifacts changed between prerequisite validation and launch"
+        )
+    if launch_model_directory_identity != fresh_model_directory_identity:
+        launch_rebind_errors.append(
+            "model directory identity changed between prerequisite validation "
+            "and launch"
+        )
+    if (
+        launch_host_identity != fresh_host_identity
+        or launch_host_match != fresh_host_match
+    ):
+        launch_rebind_errors.append(
+            "Apple host identity changed between prerequisite validation and launch"
+        )
+    if launch_collector_executables != collector_executables:
+        launch_rebind_errors.append(
+            "Apple collector executable identity changed before launch"
+        )
+    if launch_max_executable != max_executable:
+        launch_rebind_errors.append("MAX executable identity changed before launch")
+    if launch_rebind_errors:
+        return fail_closed(launch_rebind_errors, preflight=preflight)
+
+    def postlaunch_failure(errors: list[str]) -> int:
+        envelope = {
+            "schema_version": 1,
+            "record_kind": "fornax_qualification_apple_single_generation",
+            "catalog_sha256": catalog.catalog_sha256,
+            "model": {
+                "model_id": model.model_id,
+                "profile_sha256": model.profile_sha256,
+                "repository": model_data["artifact"]["repository"],
+            },
+            "platform": {
+                "platform_id": platform.platform_id,
+                "profile_sha256": platform.profile_sha256,
+            },
+            "preflight": preflight,
+            "runtime_rebind": None,
+            "model_rebind": None,
+            "host_rebind": None,
+            "smoke_artifact_binding": None,
+            "evidence": None,
+            "validation": {
+                "ok": False,
+                "errors": list(dict.fromkeys(errors)),
+                "warnings": [],
+            },
+            "qualification": {
+                "maturity": "C1_contracted",
+                "single_platform_bringup_passed": False,
+                "target_model_parity_passed": False,
+                "distributed_runtime_passed": False,
+                "formal_g2_passed": False,
+                "formal_g3_passed": False,
+                "production_supported": False,
+            },
+        }
+        _write_new_json_no_follow(args.out, envelope)
+        print(
+            f"FAIL Apple single-device MAX generation: {args.model} on "
+            f"{args.platform}: " + "; ".join(envelope["validation"]["errors"])
+        )
+        return 2
+
+    resolved_model_dir = str(Path(args.model_dir).expanduser().resolve())
+    with tempfile.TemporaryDirectory(prefix="fornax-apple-single-") as directory:
+        temporary_artifact = Path(directory) / "apple-smoke.json"
+        try:
+            run_apple_silicon_moe_serving_smoke(
+                out=temporary_artifact,
+                max_command=shlex.join(max_command),
+                model_id=model_data["artifact"]["repository"],
+                model_path=resolved_model_dir,
+                devices="gpu",
+                quantization_encoding=model_data["runtime"][
+                    "max_weight_encoding"
+                ],
+                prompt=args.prompt,
+                max_new_tokens=args.max_new_tokens,
+                top_k=args.top_k,
+                runtime_mode="generate",
+                allow_download=False,
+                timeout_s=args.timeout_s,
+            )
+        except (OSError, ValueError) as exc:
+            return postlaunch_failure(
+                [f"Apple MAX generation smoke could not complete: {exc}"]
+            )
+        try:
+            evidence, smoke_file = load_json_evidence(
+                temporary_artifact,
+                label="Apple MAX generation smoke artifact",
+            )
+        except QualificationEvidenceError as exc:
+            return postlaunch_failure(
+                [f"Apple MAX generation smoke artifact is invalid: {exc}"],
+            )
+
+    try:
+        post_artifact_report = inspect_model_artifacts(
+            args.model_dir,
+            model_data,
+            catalog_sha256=catalog.catalog_sha256,
+            profile_sha256=model.profile_sha256,
+            require_complete_hash_coverage=True,
+        )
+        post_model_directory_identity = _no_follow_directory_identity(
+            args.model_dir
+        )
+        post_collector_executables = {
+            command: executable_identity(command)
+            for command in ("system_profiler", "sysctl", "sw_vers")
+        }
+        post_host_identity = collect_host_identity(
+            executable_paths={
+                command: identity["resolved_path"]
+                for command, identity in post_collector_executables.items()
+            }
+        )
+        post_host_match = match_platform_identity(
+            post_host_identity,
+            platform_data,
+        )
+        post_max_executable = executable_identity(max_command[0])
+    except (QualificationEvidenceError, OSError, ValueError) as exc:
+        return postlaunch_failure([f"post-generation rebind failed: {exc}"])
+    post_artifact_rebind = _artifact_rebind(
+        launch_artifact_report,
+        post_artifact_report,
+    )
+    continuity_errors: list[str] = []
+    if not post_artifact_rebind["ok"]:
+        continuity_errors.append("model artifacts changed during generation")
+    if post_model_directory_identity != launch_model_directory_identity:
+        continuity_errors.append("model directory identity changed during generation")
+    if post_host_identity != launch_host_identity or post_host_match != launch_host_match:
+        continuity_errors.append("Apple host identity changed during generation")
+    if post_collector_executables != launch_collector_executables:
+        continuity_errors.append(
+            "Apple collector executable identity changed during generation"
+        )
+    if post_max_executable != launch_max_executable:
+        continuity_errors.append("MAX executable identity changed during generation")
+
+    try:
+        validation = validate_apple_silicon_moe_serving_smoke_fixture(evidence)
+    except (
+        TypeError,
+        ValueError,
+        UnicodeError,
+        OverflowError,
+        OSError,
+    ) as exc:
+        return postlaunch_failure(
+            [f"Apple smoke fixture validation failed closed: {exc}"]
+        )
+    wrapper_errors: list[str] = list(continuity_errors)
+    expected_evidence_keys = {
+        "version",
+        "record_kind",
+        "evidence_scope",
+        "ok",
+        "error",
+        "model",
+        "runtime",
+        "serving",
+        "result",
+        "runner",
+        "hardware",
+        "environment",
+        "claims",
+        "note",
+    }
+    if set(evidence) != expected_evidence_keys:
+        wrapper_errors.append(
+            "Apple smoke fields must exactly match the bounded evidence schema"
+        )
+    runner = evidence.get("runner")
+    physical_runner_rebound = bool(
+        isinstance(runner, dict)
+        and set(runner)
+        == {"kind", "physical_execution_eligible", "authenticated"}
+        and runner.get("kind") == "live_subprocess"
+        and runner.get("physical_execution_eligible") is True
+        and runner.get("authenticated") is False
+    )
+    if not physical_runner_rebound:
+        wrapper_errors.append(
+            "Apple smoke runner is synthetic, injected, or otherwise ineligible "
+            "for a physical bring-up claim"
+        )
+    evidence_model = evidence.get("model")
+    if not isinstance(evidence_model, dict):
+        evidence_model = {}
+        wrapper_errors.append("Apple smoke model evidence must be an object")
+    expected_model_binding = {
+        "model_id": model_data["artifact"]["repository"],
+        "model_path": resolved_model_dir,
+        "architecture": model_data["runtime"]["max_architecture"],
+    }
+    observed_model_binding = {
+        "model_id": evidence_model.get("model_id"),
+        "model_path": evidence_model.get("model_path"),
+        "architecture": evidence_model.get("architecture"),
+    }
+    model_rebound = observed_model_binding == expected_model_binding
+    if not model_rebound:
+        wrapper_errors.append(
+            "Apple smoke model id, local path, or architecture does not match "
+            "the selected catalog model"
+        )
+
+    runtime = evidence.get("runtime")
+    if not isinstance(runtime, dict):
+        runtime = {}
+        wrapper_errors.append("Apple smoke runtime evidence must be an object")
+    expected_runtime_version = fresh_runtime_report.get("observed", {}).get(
+        "max_version"
+    )
+    observed_runtime_version = runtime.get("max_version")
+    runtime_version_rebound = bool(
+        isinstance(expected_runtime_version, str)
+        and expected_runtime_version
+        and observed_runtime_version == expected_runtime_version
+    )
+    expected_launch_argv = [
+        *max_command,
+        "generate",
+        "--model",
+        resolved_model_dir,
+        "--devices",
+        "gpu",
+        "--max-new-tokens",
+        str(args.max_new_tokens),
+        "--top-k",
+        str(args.top_k),
+        "--prompt",
+        args.prompt,
+        "--quantization-encoding",
+        model_data["runtime"]["max_weight_encoding"],
+    ]
+    runtime_configuration_rebound = bool(
+        runtime.get("backend") == "max"
+        and runtime.get("mode") == "max-generate"
+        and runtime.get("max_command") == max_command
+        and runtime.get("launch_argv") == expected_launch_argv
+        and runtime.get("max_cwd") is None
+        and runtime.get("max_extra_args") == []
+        and runtime.get("devices_requested") == "gpu"
+        and runtime.get("quantization_encoding")
+        == model_data["runtime"]["max_weight_encoding"]
+        and runtime.get("top_k") == args.top_k
+        and runtime.get("max_length") is None
+        and runtime.get("allow_download") is False
+        and runtime.get("fornax_orchestrated") is True
+    )
+    if not runtime_version_rebound:
+        wrapper_errors.append(
+            "MAX version observed during Apple generation does not match the "
+            "fresh runtime-registry preflight"
+        )
+    if not runtime_configuration_rebound:
+        wrapper_errors.append(
+            "Apple smoke MAX command, encoding, device, mode, or offline "
+            "configuration does not match the bounded launch"
+        )
+
+    serving = evidence.get("serving")
+    request = serving.get("request") if isinstance(serving, dict) else None
+    expected_request = {
+        "model": model_data["artifact"]["repository"],
+        "messages": [{"role": "user", "content": SMOKE_SENTINEL_PROMPT}],
+        "max_new_tokens": args.max_new_tokens,
+        "stream": False,
+    }
+    prompt_rebound = request == expected_request
+    generated_text = (
+        serving.get("generated_text") if isinstance(serving, dict) else None
+    )
+    response = serving.get("response") if isinstance(serving, dict) else None
+    response_rebound = False
+    if isinstance(response, dict) and set(response) == {
+        "id",
+        "object",
+        "model",
+        "choices",
+    }:
+        choices = response.get("choices")
+        if (
+            response.get("object") == "chat.completion"
+            and response.get("model") == model_data["artifact"]["repository"]
+            and isinstance(choices, list)
+            and len(choices) == 1
+            and isinstance(choices[0], dict)
+            and set(choices[0]) == {
+                "index",
+                "message",
+                "finish_reason",
+            }
+            and choices[0].get("index") == 0
+            and isinstance(choices[0].get("message"), dict)
+            and choices[0]["message"]
+            == {"role": "assistant", "content": SMOKE_SENTINEL}
+        ):
+            response_rebound = True
+    result = evidence.get("result")
+    if not isinstance(result, dict):
+        result = {}
+    stdout = result.get("stdout")
+    stderr = result.get("stderr")
+    try:
+        stdout_sha256 = (
+            "sha256:" + hashlib.sha256(stdout.encode("utf-8")).hexdigest()
+            if isinstance(stdout, str)
+            else None
+        )
+        stderr_sha256 = (
+            "sha256:" + hashlib.sha256(stderr.encode("utf-8")).hexdigest()
+            if isinstance(stderr, str)
+            else None
+        )
+    except UnicodeError as exc:
+        return postlaunch_failure(
+            [f"Apple smoke output is not valid UTF-8 text: {exc}"]
+        )
+    stdout_contract_rebound = bool(
+        isinstance(stdout, str)
+        and result.get("stdout_chars") == len(stdout)
+        and result.get("stdout_text_sha256") == stdout_sha256
+        and extract_exact_max_metrics_sentinel(stdout, args.prompt)
+        == SMOKE_SENTINEL
+    )
+    stderr_contract_rebound = bool(
+        isinstance(stderr, str)
+        and result.get("stderr_chars") == len(stderr)
+        and result.get("stderr_text_sha256") == stderr_sha256
+    )
+    sentinel_rebound = bool(
+        generated_text == SMOKE_SENTINEL
+        and response_rebound
+        and stdout_contract_rebound
+        and stderr_contract_rebound
+        and result.get("returncode") == 0
+        and result.get("failure_signature") == []
+        and evidence.get("error") is None
+        and runtime.get("max_version_error") is None
+    )
+    if not prompt_rebound or not sentinel_rebound:
+        wrapper_errors.append(
+            "Apple smoke did not bind the exact request, response, return code, "
+            "complete stdout, and generated sentinel contract"
+        )
+
+    host_rebind = _apple_smoke_host_rebind(
+        evidence,
+        preflight.get("fresh_host_observation"),
+    )
+    wrapper_errors.extend(host_rebind["errors"])
+    smoke_artifact_binding = {
+        key: value for key, value in smoke_file.items() if key != "path"
+    }
+    smoke_artifact_binding["ephemeral_path_retained"] = False
+    combined_validation = {
+        "ok": validation["ok"] and not wrapper_errors,
+        "errors": list(
+            dict.fromkeys([*validation["errors"], *wrapper_errors])
+        ),
+        "warnings": validation["warnings"],
+        "fixture_validator": validation,
+    }
+    bringup_passed = bool(
+        preflight["ok"]
+        and evidence.get("ok") is True
+        and combined_validation["ok"]
+        and model_rebound
+        and runtime_version_rebound
+        and runtime_configuration_rebound
+        and physical_runner_rebound
+        and prompt_rebound
+        and sentinel_rebound
+        and host_rebind["ok"]
+    )
+    envelope = {
+        "schema_version": 1,
+        "record_kind": "fornax_qualification_apple_single_generation",
+        "catalog_sha256": catalog.catalog_sha256,
+        "model": {
+            "model_id": model.model_id,
+            "profile_sha256": model.profile_sha256,
+            "repository": model_data["artifact"]["repository"],
+        },
+        "platform": {
+            "platform_id": platform.platform_id,
+            "profile_sha256": platform.profile_sha256,
+        },
+        "preflight": preflight,
+        "runtime_rebind": {
+            "expected_max_version": expected_runtime_version,
+            "generation_max_version": observed_runtime_version,
+            "version_matched": runtime_version_rebound,
+            "launch_configuration_matched": runtime_configuration_rebound,
+            "expected_launch_argv": expected_launch_argv,
+            "physical_runner_matched": physical_runner_rebound,
+        },
+        "model_rebind": {
+            "expected": expected_model_binding,
+            "observed": observed_model_binding,
+            "matched": model_rebound,
+        },
+        "generation_contract_rebind": {
+            "request_matched": prompt_rebound,
+            "response_matched": response_rebound,
+            "stdout_contract_matched": stdout_contract_rebound,
+            "stderr_integrity_matched": stderr_contract_rebound,
+            "sentinel_matched": sentinel_rebound,
+            "physical_runner_matched": physical_runner_rebound,
+        },
+        "host_rebind": host_rebind,
+        "continuity_rebind": {
+            "preflight_model_directory": fresh_model_directory_identity,
+            "launch_model_directory": launch_model_directory_identity,
+            "post_model_directory": post_model_directory_identity,
+            "launch_artifacts": launch_artifact_rebind,
+            "post_artifacts": post_artifact_rebind,
+            "launch_host_matched": (
+                launch_host_identity == fresh_host_identity
+                and launch_host_match == fresh_host_match
+            ),
+            "post_host_matched": (
+                post_host_identity == launch_host_identity
+                and post_host_match == launch_host_match
+            ),
+            "launch_collector_executables": launch_collector_executables,
+            "post_collector_executables": post_collector_executables,
+            "launch_max_executable": launch_max_executable,
+            "post_max_executable": post_max_executable,
+            "errors": continuity_errors,
+            "ok": not continuity_errors,
+            "authenticated": False,
+        },
+        "smoke_artifact_binding": smoke_artifact_binding,
+        "evidence": evidence,
+        "validation": combined_validation,
+        "qualification": {
+            "maturity": "C1_contracted",
+            "single_platform_bringup_passed": bringup_passed,
+            "target_model_parity_passed": False,
+            "distributed_runtime_passed": False,
+            "formal_g2_passed": False,
+            "formal_g3_passed": False,
+            "production_supported": False,
+        },
+    }
+    _write_new_json_no_follow(args.out, envelope)
+    if bringup_passed:
+        print(
+            f"PASS Apple single-device MAX generation: {args.model} on "
+            f"{args.platform}; bring-up only, parity and support remain unproven"
+        )
+        return 0
+    print(
+        f"FAIL Apple single-device MAX generation: {args.model} on "
+        f"{args.platform}: " + "; ".join(combined_validation["errors"])
+    )
+    return 2
+
+
+def _cmd_recipe_run_nvidia_single(args: argparse.Namespace) -> int:
+    catalog = load_qualification_catalog()
+    model = catalog.model(args.model)
+    platform = catalog.platform(args.platform)
+    model_data = model.to_dict()
+    platform_data = platform.to_dict()
+    if platform_data["vendor"] != "nvidia":
+        raise ValueError(
+            "recipe run-nvidia-single requires a NVIDIA platform profile"
+        )
+    recipe = compose_qualification_recipe(
+        args.model,
+        args.platform,
+        units=1,
+        catalog=catalog,
+    )
+    minimum_units = recipe["lock"]["capacity_estimate"]["minimum_units"]
+    if minimum_units != 1:
+        raise ValueError(
+            "recipe run-nvidia-single is forbidden because the capacity-only "
+            f"minimum is {minimum_units} units for {args.model} on "
+            f"{args.platform}"
+        )
+    if args.prompt != SMOKE_SENTINEL_PROMPT:
+        raise ValueError(
+            "--prompt must remain the exact bounded sentinel prompt: "
+            f"{SMOKE_SENTINEL_PROMPT}"
+        )
+    max_command = shlex.split(args.max_command)
+    if not max_command:
+        raise ValueError("--max-command must contain at least one argv element")
+    if len(max_command) != 1:
+        raise ValueError(
+            "recipe run-nvidia-single requires --max-command to name one direct "
+            "executable; wrapper prefixes cannot be bound strongly enough for "
+            "physical evidence"
+        )
+
+    def fail_closed(
+        errors: list[str],
+        *,
+        preflight: dict[str, Any] | None = None,
+        continuity: dict[str, Any] | None = None,
+    ) -> int:
+        failed_preflight = preflight or {
+            "schema_version": 1,
+            "record_kind": "fornax_nvidia_single_preflight_binding",
+            "ok": False,
+            "errors": list(dict.fromkeys(errors)),
+            "warnings": [],
+            "catalog_sha256": catalog.catalog_sha256,
+            "model_id": model.model_id,
+            "model_profile_sha256": model.profile_sha256,
+            "platform_id": platform.platform_id,
+            "platform_profile_sha256": platform.profile_sha256,
+            "authenticated": False,
+        }
+        envelope = {
+            "schema_version": 1,
+            "record_kind": "fornax_qualification_nvidia_single_generation",
+            "catalog_sha256": catalog.catalog_sha256,
+            "model": {
+                "model_id": model.model_id,
+                "profile_sha256": model.profile_sha256,
+                "repository": model_data["artifact"]["repository"],
+            },
+            "platform": {
+                "platform_id": platform.platform_id,
+                "profile_sha256": platform.profile_sha256,
+            },
+            "preflight": failed_preflight,
+            "runtime_rebind": None,
+            "model_rebind": None,
+            "device_rebind": None,
+            "generation_contract_rebind": None,
+            "continuity_rebind": continuity,
+            "evidence": None,
+            "validation": {
+                "ok": False,
+                "errors": list(dict.fromkeys(errors)),
+                "warnings": [],
+            },
+            "qualification": {
+                "maturity": "C1_contracted",
+                "single_platform_bringup_passed": False,
+                "target_model_parity_passed": False,
+                "distributed_runtime_passed": False,
+                "formal_g2_passed": False,
+                "formal_g3_passed": False,
+                "production_supported": False,
+            },
+        }
+        _write_new_json_no_follow(args.out, envelope)
+        print(
+            f"FAIL NVIDIA single-device preflight: {args.model} on "
+            f"{args.platform}: " + "; ".join(failed_preflight["errors"])
+        )
+        return 2
+
+    try:
+        resolved_max = executable_identity(max_command[0])["resolved_path"]
+        max_command = [resolved_max]
+        fresh_runtime_report = _collect_qualification_runtime_report(
+            catalog,
+            model,
+            platform,
+            max_command,
+        )
+        max_executable = fresh_runtime_report["max_executable"]
+        nvidia_smi_executable = executable_identity("nvidia-smi")
+        artifact_report, artifact_file = load_json_evidence(
+            args.model_artifact_report,
+            label="model artifact report",
+        )
+        host_report, host_file = load_json_evidence(
+            args.host_report,
+            label="host identity report",
+        )
+        runtime_report, runtime_file = load_json_evidence(
+            args.runtime_report,
+            label="MAX runtime report",
+        )
+        fresh_artifact_report = inspect_model_artifacts(
+            args.model_dir,
+            model_data,
+            catalog_sha256=catalog.catalog_sha256,
+            profile_sha256=model.profile_sha256,
+            require_complete_hash_coverage=True,
+        )
+        fresh_model_directory_identity = _no_follow_directory_identity(
+            args.model_dir
+        )
+        fresh_host_identity = collect_host_identity(
+            executable_paths={
+                "nvidia-smi": nvidia_smi_executable["resolved_path"],
+            }
+        )
+        fresh_host_match = match_platform_identity(
+            fresh_host_identity,
+            platform_data,
+        )
+    except (QualificationEvidenceError, OSError, ValueError) as exc:
+        return fail_closed([str(exc)])
+
+    preflight = validate_nvidia_single_preflights(
+        artifact_report=artifact_report,
+        fresh_artifact_report=fresh_artifact_report,
+        host_report=host_report,
+        runtime_report=runtime_report,
+        fresh_host_identity=fresh_host_identity,
+        fresh_host_match=fresh_host_match,
+        fresh_runtime_report=fresh_runtime_report,
+        artifact_file=artifact_file,
+        host_file=host_file,
+        runtime_file=runtime_file,
+        expected_catalog_sha256=catalog.catalog_sha256,
+        expected_model_id=model.model_id,
+        expected_model_profile_sha256=model.profile_sha256,
+        expected_repository=model_data["artifact"]["repository"],
+        expected_revision=model_data["artifact"]["revision"],
+        expected_model_dir=args.model_dir,
+        expected_platform_id=platform.platform_id,
+        expected_platform_profile_sha256=platform.profile_sha256,
+        expected_architecture=model_data["runtime"]["max_architecture"],
+        expected_encoding=model_data["runtime"]["max_weight_encoding"],
+        expected_device=args.device,
+        expected_max_command=max_command,
+        expected_max_executable=max_executable,
+        expected_nvidia_smi_executable=nvidia_smi_executable,
+        minimum_units=minimum_units,
+    )
+    if not preflight["ok"]:
+        return fail_closed(preflight["errors"], preflight=preflight)
+
+    device_binding = preflight.get("device_binding")
+    if not isinstance(device_binding, dict):
+        return fail_closed(
+            ["successful NVIDIA preflight is missing its device binding"],
+            preflight=preflight,
+        )
+    physical_index = device_binding.get("nvidia_smi_index")
+    physical_uuid = device_binding.get("nvidia_gpu_uuid")
+    max_launch_device = device_binding.get("max_launch_device")
+    if (
+        isinstance(physical_index, bool)
+        or not isinstance(physical_index, int)
+        or physical_index < 0
+        or not isinstance(physical_uuid, str)
+        or not physical_uuid
+        or max_launch_device != "gpu:0"
+        or device_binding.get("cuda_visible_devices") != physical_uuid
+        or device_binding.get("verified") is not True
+    ):
+        return fail_closed(
+            ["successful NVIDIA preflight contains an invalid device binding"],
+            preflight=preflight,
+        )
+
+    try:
+        launch_artifact_report = inspect_model_artifacts(
+            args.model_dir,
+            model_data,
+            catalog_sha256=catalog.catalog_sha256,
+            profile_sha256=model.profile_sha256,
+            require_complete_hash_coverage=True,
+        )
+        launch_model_directory_identity = _no_follow_directory_identity(
+            args.model_dir
+        )
+        launch_max_executable = executable_identity(max_command[0])
+        launch_nvidia_smi_executable = executable_identity("nvidia-smi")
+        launch_host_identity = collect_host_identity(
+            executable_paths={
+                "nvidia-smi": launch_nvidia_smi_executable["resolved_path"],
+            }
+        )
+        launch_host_match = match_platform_identity(
+            launch_host_identity,
+            platform_data,
+        )
+    except (QualificationEvidenceError, OSError, ValueError) as exc:
+        return fail_closed(
+            [f"immediate pre-launch rebind failed: {exc}"],
+            preflight=preflight,
+        )
+
+    launch_artifact_rebind = _artifact_rebind(
+        fresh_artifact_report,
+        launch_artifact_report,
+    )
+    launch_rebind_errors: list[str] = []
+    if not launch_artifact_rebind["ok"]:
+        launch_rebind_errors.append(
+            "model artifacts changed between prerequisite validation and launch"
+        )
+    if launch_model_directory_identity != fresh_model_directory_identity:
+        launch_rebind_errors.append(
+            "model directory identity changed between prerequisite validation "
+            "and launch"
+        )
+    if (
+        launch_host_identity != fresh_host_identity
+        or launch_host_match != fresh_host_match
+    ):
+        launch_rebind_errors.append(
+            "NVIDIA host identity changed between prerequisite validation and launch"
+        )
+    if launch_max_executable != max_executable:
+        launch_rebind_errors.append("MAX executable identity changed before launch")
+    if launch_nvidia_smi_executable != nvidia_smi_executable:
+        launch_rebind_errors.append(
+            "nvidia-smi executable identity changed before launch"
+        )
+    if launch_rebind_errors:
+        return fail_closed(launch_rebind_errors, preflight=preflight)
+
+    evidence = run_max_generation_smoke(
+        model_id=model_data["artifact"]["repository"],
+        model_dir=args.model_dir,
+        quantization_encoding=model_data["runtime"]["max_weight_encoding"],
+        device=max_launch_device,
+        prompt=args.prompt,
+        max_new_tokens=args.max_new_tokens,
+        top_k=args.top_k,
+        max_argv_prefix=max_command,
+        timeout_s=args.timeout_s,
+        nvidia_smi_index=physical_index,
+        nvidia_gpu_uuid=physical_uuid,
+    )
+    validation = validate_max_generation_smoke_evidence(evidence)
+
+    continuity_errors: list[str] = []
+    post_artifact_report: dict[str, Any] | None = None
+    post_model_directory_identity: dict[str, Any] | None = None
+    post_max_executable: dict[str, Any] | None = None
+    post_nvidia_smi_executable: dict[str, Any] | None = None
+    post_host_identity: dict[str, Any] | None = None
+    post_host_match: dict[str, Any] | None = None
+    try:
+        post_artifact_report = inspect_model_artifacts(
+            args.model_dir,
+            model_data,
+            catalog_sha256=catalog.catalog_sha256,
+            profile_sha256=model.profile_sha256,
+            require_complete_hash_coverage=True,
+        )
+        post_model_directory_identity = _no_follow_directory_identity(
+            args.model_dir
+        )
+        post_max_executable = executable_identity(max_command[0])
+        post_nvidia_smi_executable = executable_identity("nvidia-smi")
+        post_host_identity = collect_host_identity(
+            executable_paths={
+                "nvidia-smi": post_nvidia_smi_executable["resolved_path"],
+            }
+        )
+        post_host_match = match_platform_identity(
+            post_host_identity,
+            platform_data,
+        )
+    except (QualificationEvidenceError, OSError, ValueError) as exc:
+        continuity_errors.append(f"post-generation continuity check failed: {exc}")
+
+    post_artifact_rebind = (
+        _artifact_rebind(launch_artifact_report, post_artifact_report)
+        if post_artifact_report is not None
+        else {
+            "ok": False,
+            "mismatched_fields": ["post_artifact_report"],
+            "artifact_manifest_sha256": None,
+        }
+    )
+    if not post_artifact_rebind["ok"]:
+        continuity_errors.append("model artifacts changed during generation")
+    if post_model_directory_identity != launch_model_directory_identity:
+        continuity_errors.append("model directory identity changed during generation")
+    if (
+        post_host_identity != launch_host_identity
+        or post_host_match != launch_host_match
+    ):
+        continuity_errors.append("NVIDIA host identity changed during generation")
+    if post_max_executable != launch_max_executable:
+        continuity_errors.append("MAX executable identity changed during generation")
+    if post_nvidia_smi_executable != launch_nvidia_smi_executable:
+        continuity_errors.append(
+            "nvidia-smi executable identity changed during generation"
+        )
+
+    expected_runtime_version = fresh_runtime_report.get("observed", {}).get(
+        "max_version"
+    )
+    observed_runtime_version = evidence.get("observed", {}).get("max_version")
+    runtime_version_rebound = bool(
+        isinstance(expected_runtime_version, str)
+        and expected_runtime_version
+        and observed_runtime_version == expected_runtime_version
+    )
+    observed_max_prefix = evidence.get("inputs", {}).get("max_argv_prefix")
+    runtime_command_rebound = observed_max_prefix == max_command
+    resolved_model_dir = str(Path(args.model_dir).expanduser().resolve())
+    observed_model_dir = evidence.get("inputs", {}).get("model_dir")
+    model_path_rebound = observed_model_dir == resolved_model_dir
+    observed_prompt = evidence.get("inputs", {}).get("prompt")
+    prompt_rebound = observed_prompt == SMOKE_SENTINEL_PROMPT
+    generated_text_signal = evidence.get("observed", {}).get(
+        "generated_text_signal"
+    )
+    sentinel_rebound = bool(
+        isinstance(generated_text_signal, dict)
+        and generated_text_signal.get("detected") is True
+        and generated_text_signal.get("text_excerpt") == SMOKE_SENTINEL
+        and generated_text_signal.get("text_excerpt_truncated") is False
+    )
+    observed_device_binding = evidence.get("runner", {}).get(
+        "device_binding"
+    )
+    expected_device_binding = {
+        "mode": "nvidia_gpu_uuid_to_visible_ordinal",
+        "physical_nvidia_smi_index": physical_index,
+        "physical_nvidia_gpu_uuid": physical_uuid,
+        "cuda_visible_devices": physical_uuid,
+        "max_device": "gpu:0",
+        "applied_to_live_subprocess": True,
+    }
+    device_binding_rebound = observed_device_binding == expected_device_binding
+    final_errors = list(continuity_errors)
+    if not runtime_version_rebound:
+        final_errors.append(
+            "MAX version observed during generation does not match the fresh "
+            "runtime-registry preflight"
+        )
+    if not runtime_command_rebound:
+        final_errors.append(
+            "MAX generation argv does not use the canonical bound executable"
+        )
+    if not model_path_rebound:
+        final_errors.append(
+            "MAX generation evidence model directory does not match the "
+            "no-follow inspected directory"
+        )
+    if not prompt_rebound or not sentinel_rebound:
+        final_errors.append(
+            "MAX generation did not bind the exact sentinel prompt and response"
+        )
+    if not device_binding_rebound:
+        final_errors.append(
+            "MAX generation evidence does not match the fresh physical GPU "
+            "UUID visibility binding"
+        )
+    if evidence["claims"]["single_platform_bringup_passed"] is not True:
+        final_errors.append(
+            "MAX generation evidence did not establish a live physical "
+            "single-platform bring-up claim"
+        )
+    combined_validation = {
+        **validation,
+        "ok": bool(validation["ok"] and not final_errors),
+        "errors": list(
+            dict.fromkeys(
+                [
+                    *evidence["errors"],
+                    *validation["errors"],
+                    *final_errors,
+                ]
+            )
+        ),
+    }
+    bringup_passed = bool(
+        preflight["ok"]
+        and evidence["ok"]
+        and combined_validation["ok"]
+        and runtime_version_rebound
+        and runtime_command_rebound
+        and model_path_rebound
+        and prompt_rebound
+        and sentinel_rebound
+        and device_binding_rebound
+        and not continuity_errors
+        and evidence["claims"]["single_platform_bringup_passed"] is True
+    )
+    envelope = {
+        "schema_version": 1,
+        "record_kind": "fornax_qualification_nvidia_single_generation",
+        "catalog_sha256": catalog.catalog_sha256,
+        "model": {
+            "model_id": model.model_id,
+            "profile_sha256": model.profile_sha256,
+            "repository": model_data["artifact"]["repository"],
+        },
+        "platform": {
+            "platform_id": platform.platform_id,
+            "profile_sha256": platform.profile_sha256,
+        },
+        "preflight": preflight,
+        "runtime_rebind": {
+            "expected_max_version": expected_runtime_version,
+            "generation_max_version": observed_runtime_version,
+            "version_matched": runtime_version_rebound,
+            "command_matched": runtime_command_rebound,
+            "max_command": max_command,
+            "preflight_executable": max_executable,
+            "launch_executable": launch_max_executable,
+            "post_executable": post_max_executable,
+            "executable_continuity_matched": (
+                launch_max_executable == max_executable
+                and post_max_executable == launch_max_executable
+            ),
+        },
+        "model_rebind": {
+            "expected_model_dir": resolved_model_dir,
+            "generation_model_dir": observed_model_dir,
+            "path_matched": model_path_rebound,
+            "preflight_directory": fresh_model_directory_identity,
+            "launch_directory": launch_model_directory_identity,
+            "post_directory": post_model_directory_identity,
+            "launch_artifacts": launch_artifact_rebind,
+            "post_artifacts": post_artifact_rebind,
+        },
+        "device_rebind": {
+            "physical_selector": args.device,
+            "nvidia_smi_index": physical_index,
+            "nvidia_gpu_uuid": physical_uuid,
+            "cuda_visible_devices": physical_uuid,
+            "max_launch_device": "gpu:0",
+            "matched_generation_evidence": device_binding_rebound,
+        },
+        "generation_contract_rebind": {
+            "expected_prompt": SMOKE_SENTINEL_PROMPT,
+            "generation_prompt": observed_prompt,
+            "prompt_matched": prompt_rebound,
+            "expected_response": SMOKE_SENTINEL,
+            "generation_signal": generated_text_signal,
+            "sentinel_matched": sentinel_rebound,
+        },
+        "continuity_rebind": {
+            "preflight_host_identity": fresh_host_identity,
+            "launch_host_identity": launch_host_identity,
+            "post_host_identity": post_host_identity,
+            "preflight_host_match": fresh_host_match,
+            "launch_host_match": launch_host_match,
+            "post_host_match": post_host_match,
+            "preflight_nvidia_smi_executable": nvidia_smi_executable,
+            "launch_nvidia_smi_executable": launch_nvidia_smi_executable,
+            "post_nvidia_smi_executable": post_nvidia_smi_executable,
+            "errors": list(dict.fromkeys(continuity_errors)),
+            "ok": not continuity_errors,
+            "authenticated": False,
+        },
+        "evidence": evidence,
+        "validation": combined_validation,
+        "qualification": {
+            "maturity": "C1_contracted",
+            "single_platform_bringup_passed": bringup_passed,
+            "target_model_parity_passed": False,
+            "distributed_runtime_passed": False,
+            "formal_g2_passed": False,
+            "formal_g3_passed": False,
+            "production_supported": False,
+        },
+    }
+    _write_new_json_no_follow(args.out, envelope)
+    if bringup_passed:
+        print(
+            f"PASS NVIDIA single-device MAX generation: {args.model} on "
+            f"{args.platform}; bring-up only, parity and support remain unproven"
+        )
+        return 0
+    print(
+        f"FAIL NVIDIA single-device MAX generation: {args.model} on "
+        f"{args.platform}: " + "; ".join(combined_validation["errors"])
+    )
+    return 2
+
+
+def _cmd_recipe_probe_host(args: argparse.Namespace) -> int:
+    catalog = load_qualification_catalog()
+    profile = catalog.platform(args.platform)
+    profile_data = profile.to_dict()
+    if args.units is not None:
+        profile_data["units"] = args.units
+    collector_executables: dict[str, Any] = {}
+    collector_errors: list[str] = []
+    collector_names = (
+        ("system_profiler", "sysctl", "sw_vers")
+        if profile_data["vendor"] == "apple"
+        else ("nvidia-smi",)
+    )
+    for command in collector_names:
+        try:
+            collector_executables[command] = executable_identity(command)
+        except QualificationEvidenceError as exc:
+            collector_errors.append(str(exc))
+    identity = collect_host_identity(
+        executable_paths={
+            command: executable["resolved_path"]
+            for command, executable in collector_executables.items()
+        }
+        if len(collector_executables) == len(collector_names)
+        else None
+    )
+    match = match_platform_identity(identity, profile_data)
+    if collector_errors:
+        match["errors"].extend(collector_errors)
+        match["ok"] = False
+    report = {
+        "schema_version": 1,
+        "record_kind": "fornax_qualification_host_identity",
+        "platform_id": profile.platform_id,
+        "platform_profile_sha256": profile.profile_sha256,
+        "catalog_sha256": catalog.catalog_sha256,
+        "identity": identity,
+        "match": match,
+        "collector_executables": collector_executables,
+        "evidence_scope": "observed_host_identity_only",
+        "qualification": {
+            "maturity": "C1_contracted",
+            "identity_match_passed": match["ok"],
+            "runtime_compatibility_passed": False,
+            "model_bringup_passed": False,
+            "target_model_parity_passed": False,
+            "formal_g2_passed": False,
+            "production_supported": False,
+        },
+    }
+    _write_new_json_no_follow(args.out, report)
+    if match["ok"]:
+        print(
+            f"PASS host identity: {args.platform}; "
+            "identity only, runtime and support remain unproven"
+        )
+        return 0
+    print(f"FAIL host identity: {args.platform}: " + "; ".join(match["errors"]))
+    return 2
+
+
+def _apply_remote_code_review(
+    profile: dict[str, Any],
+    review_path: str | Path,
+    expected_review_sha256: str,
+) -> None:
+    try:
+        review, review_file = load_json_evidence(
+            review_path,
+            label="remote-code review",
+        )
+    except QualificationEvidenceError as exc:
+        raise ValueError(str(exc)) from exc
+    if (
+        not isinstance(expected_review_sha256, str)
+        or len(expected_review_sha256) != 71
+        or not expected_review_sha256.startswith("sha256:")
+    ):
+        raise ValueError(
+            "expected remote-code review digest must use "
+            "sha256:<64 lowercase hex>"
+        )
+    try:
+        int(expected_review_sha256[7:], 16)
+    except ValueError as exc:
+        raise ValueError(
+            "expected remote-code review digest must use "
+            "sha256:<64 lowercase hex>"
+        ) from exc
+    if expected_review_sha256[7:] != expected_review_sha256[7:].lower():
+        raise ValueError(
+            "expected remote-code review digest must use "
+            "sha256:<64 lowercase hex>"
+        )
+    if review_file["sha256"] != expected_review_sha256:
+        raise ValueError(
+            "remote-code review bytes do not match the expected out-of-band digest"
+        )
+    required_keys = {
+        "schema_version",
+        "record_kind",
+        "review_id",
+        "model_id",
+        "revision",
+        "decision",
+        "files",
+    }
+    if not isinstance(review, dict) or set(review) != required_keys:
+        raise ValueError(
+            "remote-code review must contain exactly schema_version, record_kind, "
+            "review_id, model_id, revision, decision, and files"
+        )
+    if (
+        isinstance(review["schema_version"], bool)
+        or review["schema_version"] != 1
+        or review["record_kind"] != "fornax_remote_code_review"
+    ):
+        raise ValueError("remote-code review has an unsupported schema")
+    if review["model_id"] != profile["model_id"]:
+        raise ValueError("remote-code review model_id does not match the model profile")
+    if review["revision"] != profile["artifact"]["revision"]:
+        raise ValueError("remote-code review revision does not match the pinned profile")
+    if review["decision"] != "allow_pinned_sha256":
+        raise ValueError("remote-code review decision must be allow_pinned_sha256")
+    review_id = review["review_id"]
+    if (
+        not isinstance(review_id, str)
+        or not review_id.strip()
+        or len(review_id) > 256
+    ):
+        raise ValueError(
+            "remote-code review_id must be a non-empty string of at most "
+            "256 characters"
+        )
+    files = review["files"]
+    if not isinstance(files, dict) or not files:
+        raise ValueError("remote-code review files must be a non-empty object")
+    if len(files) > 64:
+        raise ValueError("remote-code review files exceeds the 64-file limit")
+    for path, digest in files.items():
+        normalized = path.replace("\\", "/") if isinstance(path, str) else ""
+        parts = normalized.split("/")
+        if (
+            not normalized
+            or len(normalized) > 512
+            or normalized.startswith("/")
+            or any(part in {"", ".", ".."} for part in parts)
+            or not normalized.endswith(".py")
+        ):
+            raise ValueError(
+                "remote-code review file paths must be safe relative Python paths"
+            )
+        if (
+            not isinstance(digest, str)
+            or not digest.startswith("sha256:")
+            or len(digest) != 71
+        ):
+            raise ValueError(
+                "remote-code review digests must use sha256:<64 lowercase hex>"
+            )
+        try:
+            int(digest[7:], 16)
+        except ValueError as exc:
+            raise ValueError(
+                "remote-code review digests must use sha256:<64 lowercase hex>"
+            ) from exc
+        if digest[7:] != digest[7:].lower():
+            raise ValueError("remote-code review SHA-256 hex must be lowercase")
+    profile["artifact"]["remote_code"] = {
+        "policy": (
+            f"pinned_sha256_allowlist_operator_acknowledged:{review_id.strip()}:"
+            f"{expected_review_sha256}:authenticated=false"
+        ),
+        "files": dict(files),
+    }
+
+
+def _cmd_recipe_inspect_model(args: argparse.Namespace) -> int:
+    catalog = load_qualification_catalog()
+    profile = catalog.model(args.model)
+    profile_data = profile.to_dict()
+    if args.remote_code_review:
+        if not args.expected_remote_code_review_sha256:
+            raise ValueError(
+                "--expected-remote-code-review-sha256 is required with "
+                "--remote-code-review"
+            )
+        _apply_remote_code_review(
+            profile_data,
+            args.remote_code_review,
+            args.expected_remote_code_review_sha256,
+        )
+    elif args.expected_remote_code_review_sha256:
+        raise ValueError(
+            "--expected-remote-code-review-sha256 requires --remote-code-review"
+        )
+    report = inspect_model_artifacts(
+        args.model_dir,
+        profile_data,
+        catalog_sha256=catalog.catalog_sha256,
+        profile_sha256=profile.profile_sha256,
+        require_complete_hash_coverage=True,
+    )
+    validation = validate_model_artifact_report(
+        report,
+        expected_catalog_sha256=catalog.catalog_sha256,
+        expected_profile_sha256=profile.profile_sha256,
+        require_complete_hash_coverage=True,
+    )
+    report["validation"] = validation
+    _write_new_json_no_follow(args.out, report)
+    if validation["ok"]:
+        print(
+            f"PASS model artifacts: {args.model}; "
+            "local artifact identity only, execution and support remain unproven"
+        )
+        return 0
+    print(f"FAIL model artifacts: {args.model}: " + "; ".join(validation["errors"]))
+    return 2
 
 
 def _cmd_engine_simulate(args: argparse.Namespace) -> int:
@@ -3207,6 +5382,8 @@ def _cmd_test(args: argparse.Namespace) -> int:
         return _cmd_test_moe_parity_probe(args)
     if args.test_name == "model-support":
         return _cmd_test_model_support(args)
+    if args.test_name == "qualification-recipes":
+        return _cmd_recipe_validate(args)
     if args.test_name == "continuous-batching":
         return _cmd_test_continuous_batching(args)
     if args.test_name == "scheduler-contract":
@@ -3275,6 +5452,285 @@ def build_parser() -> argparse.ArgumentParser:
     )
     quickstart.add_argument("--out-dir", default="fornax-quickstart")
     quickstart.set_defaults(func=_cmd_quickstart)
+
+    recipe = sub.add_parser(
+        "recipe",
+        help="prepare fail-closed C1 model/platform qualification packets",
+        description=(
+            "List, validate, and materialize the consumer MoE qualification "
+            "catalog. Catalog and rendered recipe success is C1 contract evidence "
+            "only, never a physical compatibility or product-support claim."
+        ),
+    )
+    recipe_sub = recipe.add_subparsers(dest="recipe_command", required=True)
+
+    recipe_list = recipe_sub.add_parser("list", help="list the packaged 3x6 recipe cohort")
+    recipe_list.add_argument("--out", help="optional JSON listing output")
+    recipe_list.set_defaults(func=_cmd_recipe_list)
+
+    recipe_validate = recipe_sub.add_parser(
+        "validate",
+        help="validate catalog schemas, recipe hashes, capacity labels, and C1 claims",
+    )
+    recipe_validate.add_argument("--out", help="optional JSON validation report")
+    recipe_validate.set_defaults(func=_cmd_recipe_validate)
+
+    recipe_render = recipe_sub.add_parser(
+        "render",
+        help="materialize one content-addressed operator packet",
+    )
+    recipe_render.add_argument("--model", required=True)
+    recipe_render.add_argument("--platform", required=True)
+    recipe_render.add_argument("--units", type=int)
+    recipe_render.add_argument("--out-dir", required=True)
+    recipe_render.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "replace only recipe-lock.json, commands.json, RUNBOOK.md, and "
+            "bundle-manifest.json"
+        ),
+    )
+    recipe_render.set_defaults(func=_cmd_recipe_render)
+
+    recipe_verify = recipe_sub.add_parser(
+        "verify",
+        help="verify packet bytes, C1 semantics, and current-catalog reproducibility",
+    )
+    recipe_verify.add_argument("--packet-dir", required=True)
+    recipe_verify.add_argument(
+        "--expected-bundle-sha256",
+        help=(
+            "optional out-of-band sha256:<hex> manifest-content digest; "
+            "matching is still not publisher authentication"
+        ),
+    )
+    recipe_verify.add_argument(
+        "--allow-unmanaged-evidence",
+        action="store_true",
+        help=(
+            "allow entries outside the four managed packet files; such entries "
+            "remain outside the verified integrity scope"
+        ),
+    )
+    recipe_verify.add_argument(
+        "--out",
+        help=(
+            "optional new JSON verification report outside the packet; "
+            "existing files, symlinks, FIFOs, and other entries are never "
+            "replaced"
+        ),
+    )
+    recipe_verify.set_defaults(func=_cmd_recipe_verify)
+
+    recipe_probe_runtime = recipe_sub.add_parser(
+        "probe-runtime",
+        help="match the exact architecture and encoding in `max list --json`",
+    )
+    recipe_probe_runtime.add_argument("--model", required=True)
+    recipe_probe_runtime.add_argument("--platform", required=True)
+    recipe_probe_runtime.add_argument(
+        "--max-command",
+        default="max",
+        help=(
+            "one direct MAX executable name or path; wrapper prefixes are "
+            "rejected because their executable bytes cannot be bound exactly"
+        ),
+    )
+    recipe_probe_runtime.add_argument(
+        "--out",
+        required=True,
+        help=(
+            "new evidence path in an existing real directory; existing files, "
+            "symlinks, FIFOs, and other entries are never replaced"
+        ),
+    )
+    recipe_probe_runtime.set_defaults(func=_cmd_recipe_probe_runtime)
+
+    recipe_run_apple_single = recipe_sub.add_parser(
+        "run-apple-single",
+        help=(
+            "run a catalog-bound, evidence-recorded single-SoC Apple MAX "
+            "generation smoke"
+        ),
+    )
+    recipe_run_apple_single.add_argument("--model", required=True)
+    recipe_run_apple_single.add_argument("--platform", required=True)
+    recipe_run_apple_single.add_argument("--model-dir", required=True)
+    recipe_run_apple_single.add_argument(
+        "--model-artifact-report",
+        required=True,
+        help=(
+            "successful strict inspect-model report for this exact local "
+            "checkpoint; the checkpoint is freshly re-inspected before launch"
+        ),
+    )
+    recipe_run_apple_single.add_argument(
+        "--host-report",
+        required=True,
+        help=(
+            "successful live probe-host report for the exact Apple chip and "
+            "unified-memory profile"
+        ),
+    )
+    recipe_run_apple_single.add_argument(
+        "--runtime-report",
+        required=True,
+        help=(
+            "successful live probe-runtime report for the same catalog profiles "
+            "and MAX executable"
+        ),
+    )
+    recipe_run_apple_single.add_argument(
+        "--max-command",
+        required=True,
+        help=(
+            "one direct future/custom Fornax-capable MAX executable; upstream "
+            "stock MAX currently does not provide large GenAI inference on "
+            "Apple silicon"
+        ),
+    )
+    recipe_run_apple_single.add_argument(
+        "--out",
+        required=True,
+        help=(
+            "new envelope path in an existing real directory; existing files, "
+            "symlinks, FIFOs, and other entries are never replaced"
+        ),
+    )
+    recipe_run_apple_single.add_argument(
+        "--prompt",
+        default=SMOKE_SENTINEL_PROMPT,
+        help=(
+            "bounded smoke prompt; this wrapper currently requires the exact "
+            "FORNAX_MOE_SMOKE_OK sentinel prompt"
+        ),
+    )
+    recipe_run_apple_single.add_argument("--max-new-tokens", type=int, default=16)
+    recipe_run_apple_single.add_argument("--top-k", type=int, default=1)
+    recipe_run_apple_single.add_argument("--timeout-s", type=float, default=1800.0)
+    recipe_run_apple_single.set_defaults(func=_cmd_recipe_run_apple_single)
+
+    recipe_run_nvidia_single = recipe_sub.add_parser(
+        "run-nvidia-single",
+        help="run a bounded, evidence-recorded single-GPU MAX generation smoke",
+    )
+    recipe_run_nvidia_single.add_argument("--model", required=True)
+    recipe_run_nvidia_single.add_argument("--platform", required=True)
+    recipe_run_nvidia_single.add_argument("--model-dir", required=True)
+    recipe_run_nvidia_single.add_argument(
+        "--model-artifact-report",
+        required=True,
+        help=(
+            "successful strict inspect-model report for this exact local "
+            "checkpoint; the checkpoint is freshly re-inspected before launch"
+        ),
+    )
+    recipe_run_nvidia_single.add_argument(
+        "--host-report",
+        required=True,
+        help=(
+            "successful live probe-host report whose matching physical "
+            "nvidia-smi index and GPU UUID are rebound immediately before launch"
+        ),
+    )
+    recipe_run_nvidia_single.add_argument(
+        "--runtime-report",
+        required=True,
+        help=(
+            "successful live probe-runtime report for the same catalog profiles "
+            "and MAX executable"
+        ),
+    )
+    recipe_run_nvidia_single.add_argument(
+        "--out",
+        required=True,
+        help=(
+            "new envelope path in an existing real directory; existing files, "
+            "symlinks, FIFOs, and other entries are never replaced"
+        ),
+    )
+    recipe_run_nvidia_single.add_argument(
+        "--device",
+        default="gpu:0",
+        help=(
+            "physical nvidia-smi selector gpu:N; the wrapper resolves its GPU "
+            "UUID, sets CUDA_VISIBLE_DEVICES=<UUID>, and launches MAX on gpu:0"
+        ),
+    )
+    recipe_run_nvidia_single.add_argument(
+        "--max-command",
+        default="max",
+        help=(
+            "one direct MAX executable name or path; wrapper prefixes are "
+            "rejected because their executable bytes cannot be bound exactly"
+        ),
+    )
+    recipe_run_nvidia_single.add_argument(
+        "--prompt",
+        default=SMOKE_SENTINEL_PROMPT,
+        help=(
+            "bounded smoke prompt; this wrapper requires the exact "
+            "FORNAX_MOE_SMOKE_OK sentinel prompt"
+        ),
+    )
+    recipe_run_nvidia_single.add_argument("--max-new-tokens", type=int, default=16)
+    recipe_run_nvidia_single.add_argument("--top-k", type=int, default=1)
+    recipe_run_nvidia_single.add_argument("--timeout-s", type=float, default=1800.0)
+    recipe_run_nvidia_single.set_defaults(func=_cmd_recipe_run_nvidia_single)
+
+    recipe_probe_host = recipe_sub.add_parser(
+        "probe-host",
+        help="collect and match exact local Apple or NVIDIA identity facts",
+    )
+    recipe_probe_host.add_argument("--platform", required=True)
+    recipe_probe_host.add_argument(
+        "--units",
+        type=int,
+        help=(
+            "same-host NVIDIA GPU count to require; Apple host identity always "
+            "represents one SoC"
+        ),
+    )
+    recipe_probe_host.add_argument(
+        "--out",
+        required=True,
+        help=(
+            "new evidence path in an existing real directory; existing files, "
+            "symlinks, FIFOs, and other entries are never replaced"
+        ),
+    )
+    recipe_probe_host.set_defaults(func=_cmd_recipe_probe_host)
+
+    recipe_inspect_model = recipe_sub.add_parser(
+        "inspect-model",
+        help="verify an already-local pinned checkpoint without downloading it",
+    )
+    recipe_inspect_model.add_argument("--model", required=True)
+    recipe_inspect_model.add_argument("--model-dir", required=True)
+    recipe_inspect_model.add_argument(
+        "--remote-code-review",
+        help=(
+            "model/revision-bound SHA-256 allowlist acknowledgement; required "
+            "when the profile needs trust_remote_code"
+        ),
+    )
+    recipe_inspect_model.add_argument(
+        "--expected-remote-code-review-sha256",
+        help=(
+            "required out-of-band sha256:<hex> digest for --remote-code-review; "
+            "matching preserves integrity but is not reviewer authentication"
+        ),
+    )
+    recipe_inspect_model.add_argument(
+        "--out",
+        required=True,
+        help=(
+            "new evidence path in an existing real directory; existing files, "
+            "symlinks, FIFOs, and other entries are never replaced"
+        ),
+    )
+    recipe_inspect_model.set_defaults(func=_cmd_recipe_inspect_model)
 
     accelerator = sub.add_parser("accelerator", help="run physical or CPU accelerator probes")
     accelerator_sub = accelerator.add_subparsers(
@@ -4284,6 +6740,7 @@ def build_parser() -> argparse.ArgumentParser:
             "remote-expert-probe",
             "moe-parity-probe",
             "model-support",
+            "qualification-recipes",
             "continuous-batching",
             "scheduler-contract",
             "stage-replication",

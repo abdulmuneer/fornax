@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "kind": "fornax_platform_qualification_profile",
+  "platform_id": "nvidia-h100-sxm-80gb",
+  "display_name": "NVIDIA H100 SXM 80 GB",
+  "vendor": "nvidia",
+  "device_class": "cuda_gpu",
+  "identity": {
+    "gpu_name": "NVIDIA H100 80GB HBM3",
+    "vram_gb": 80,
+    "marketed_memory_gb": 80,
+    "configuration_note": "H100 SXM 80 GB is distinct from H100 PCIe and H100 NVL; recipes must not treat those variants as equivalent."
+  },
+  "static_facts": {
+    "accelerator": {
+      "model": "H100 SXM",
+      "accelerator_count": 1,
+      "gpu_cores": null,
+      "compute_capability": "9.0"
+    },
+    "memory": {
+      "kind": "hbm3",
+      "marketed_gb": 80,
+      "unified_with_system": false
+    },
+    "memory_bandwidth_bytes_per_second": 3350000000000,
+    "interfaces": [
+      {
+        "kind": "nvlink_4",
+        "count": 1,
+        "advertised_bandwidth_bytes_per_second": 900000000000,
+        "bandwidth_scope": "aggregate_bidirectional_per_gpu",
+        "memory_pooling": false,
+        "note": "Availability depends on the exact HGX or DGX baseboard topology."
+      },
+      {
+        "kind": "pcie_gen5",
+        "count": 1,
+        "advertised_bandwidth_bytes_per_second": 128000000000,
+        "bandwidth_scope": "aggregate_bidirectional_theoretical",
+        "memory_pooling": false,
+        "note": "This is a vendor interface ceiling, not measured transport payload throughput."
+      }
+    ],
+    "power": {
+      "value_watts": 700,
+      "rating_kind": "maximum_configurable_tdp",
+      "not_chip_tdp": false
+    }
+  },
+  "capacity_policy": {
+    "sizing_memory_bytes": 85899345920,
+    "usable_memory_basis_points": 8500,
+    "policy_scope": "capacity_estimate_only",
+    "excludes": [
+      "KV cache and workload-dependent allocations",
+      "Measured compiler and runtime workspace",
+      "Measured transport buffers",
+      "Performance, topology, and power feasibility"
+    ]
+  },
+  "runtime": {
+    "candidate_backend": "max",
+    "os_family": "linux",
+    "architecture": "x86_64",
+    "minimum_os": "Ubuntu 22.04",
+    "minimum_driver": "580",
+    "hardware_precision": [
+      "bf16",
+      "fp16",
+      "fp8",
+      "int8",
+      "tf32"
+    ],
+    "runtime_precision_candidates": [
+      "bf16",
+      "fp16",
+      "fp8"
+    ],
+    "verification_status": "unverified"
+  },
+  "topology": {
+    "unit_semantics": "one_sxm_gpu_one_hbm_pool",
+    "multi_unit_memory_pooling": false,
+    "internal_fabric": "nvlink_capable_exact_baseboard_required",
+    "default_cross_unit_transport": "unmeasured",
+    "notes": [
+      "NVLink does not turn distinct HBM pools into one planner memory allocation.",
+      "HGX, DGX, PCIe, and network routes require separate measured topology evidence."
+    ]
+  },
+  "qualification": {
+    "maturity": "C1_contracted",
+    "support_state": "contract_validated",
+    "hardware_validation_status": "not_run",
+    "runtime_validation_status": "not_run",
+    "unresolved_evidence": [
+      "Match H100 SXM rather than a different H100 variant.",
+      "Pin driver, MAX build, baseboard, NVLink/NVSwitch, and NIC topology.",
+      "Measure MAX MoE operations, transport, parity, thermals, and power."
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "nvidia-h100-spec",
+      "url": "https://www.nvidia.com/en-us/data-center/h100/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "identity",
+        "static_facts"
+      ]
+    },
+    {
+      "source_id": "nvidia-compute-capability",
+      "url": "https://developer.nvidia.com/cuda/gpus",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "static_facts.accelerator.compute_capability"
+      ]
+    },
+    {
+      "source_id": "max-package-requirements",
+      "url": "https://docs.modular.com/max/packages/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "runtime"
+      ]
+    }
+  ],
+  "provenance": [
+    {
+      "field": "static_facts",
+      "status": "vendor_specification",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "nvidia-h100-spec",
+        "nvidia-compute-capability"
+      ]
+    },
+    {
+      "field": "capacity_policy",
+      "status": "conservative_sizing_assumption",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "nvidia-h100-spec"
+      ]
+    },
+    {
+      "field": "runtime",
+      "status": "publisher_documented_candidate_runtime",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "max-package-requirements"
+      ]
+    }
+  ]
+}

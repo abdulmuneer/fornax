@@ -34,6 +34,7 @@ validation remain required before a production-memory claim.
 | [Planning and simulation](planning-and-simulation.md) | Work through the full planning flow: target contract, inventory, plan, simulation, validation, and preflight bundle. |
 | [Input file reference](input-formats.md) | Look up the JSON fields for target contracts, inventories, and links files. |
 | [CLI reference](cli-reference.md) | Find the `python3 -m fornax` command surface grouped by task. |
+| [Consumer MoE qualification recipes](fornax/consumer-hardware-recipes.md) | Materialize the 18 C1 model/platform bring-up packets and understand exactly what remains unproven before hardware arrives. |
 | [Stage Backend adapters](fornax/stage-backend-adapters.md) | Implement an explicit physical worker factory, use the public Python SDK, and run the bounded functional conformance smoke. |
 | [Stage ABI v2 ragged contract](fornax/stage-abi-v2-ragged-design.md) | Review the implemented T0/T1 candidate for unequal prefill, independent decode, per-sequence KV/errors, leases, expiry, tombstones, and two-worker loopback execution; physical MAX conformance remains open. |
 | [Project plan v4](fornax/project-plan-v4.md) | Current architecture, assumption-driven execution scope, and gates. |

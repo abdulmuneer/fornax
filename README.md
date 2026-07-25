@@ -77,6 +77,11 @@ New users should start with [docs/getting-started.md](docs/getting-started.md).
 It verifies the repo and runs the first plan and simulation without a GPU or
 model download. The full guide index is [docs/README.md](docs/README.md).
 
+Hardware bring-up work can start before devices arrive with the
+[consumer MoE qualification recipes](docs/fornax/consumer-hardware-recipes.md).
+The packaged three-model by six-platform matrix produces deterministic C1
+operator packets; it makes no physical compatibility or product-support claim.
+
 Backend authors should use the versioned public imports in `fornax.backends` and
 run `fornax runtime backend-conformance`; passing that functional smoke is not
 physical G2 evidence.
@@ -136,8 +141,8 @@ python3 -m fornax program local-real-moe-serving-smoke \
     --devices cuda:0,cuda:1,cuda:2,cuda:3
 ```
 
-Apple Silicon Macs with a current MAX runtime can run the MAX-only single-Mac
-real-MoE smoke against a Qwen/DeepSeek/Kimi/GLM MoE:
+The MAX-only single-Mac command can attempt a bounded real-MoE smoke against a
+Qwen/DeepSeek/Kimi/GLM/GPT-OSS model on Apple Silicon:
 
 ```bash
 python3 -m fornax program apple-silicon-moe-serving-smoke \

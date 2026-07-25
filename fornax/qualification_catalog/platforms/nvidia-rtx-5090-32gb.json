@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "kind": "fornax_platform_qualification_profile",
+  "platform_id": "nvidia-rtx-5090-32gb",
+  "display_name": "NVIDIA GeForce RTX 5090 32 GB",
+  "vendor": "nvidia",
+  "device_class": "cuda_gpu",
+  "identity": {
+    "gpu_name": "NVIDIA GeForce RTX 5090",
+    "vram_gb": 32,
+    "marketed_memory_gb": 32,
+    "configuration_note": "Blackwell GeForce flagship with 32 GB GDDR7, compute capability 12.0 (sm_120), and no NVLink."
+  },
+  "static_facts": {
+    "accelerator": {
+      "model": "GeForce RTX 5090",
+      "accelerator_count": 1,
+      "gpu_cores": null,
+      "compute_capability": "12.0"
+    },
+    "memory": {
+      "kind": "gddr7",
+      "marketed_gb": 32,
+      "unified_with_system": false
+    },
+    "memory_bandwidth_bytes_per_second": 1792000000000,
+    "interfaces": [
+      {
+        "kind": "pcie_gen5",
+        "count": 1,
+        "advertised_bandwidth_bytes_per_second": null,
+        "bandwidth_scope": "exact_host_topology_required",
+        "memory_pooling": false,
+        "note": "NVIDIA lists NVLink support as no; PCIe and any host staging must be measured."
+      }
+    ],
+    "power": {
+      "value_watts": 575,
+      "rating_kind": "total_graphics_power",
+      "not_chip_tdp": true
+    }
+  },
+  "capacity_policy": {
+    "sizing_memory_bytes": 34359738368,
+    "usable_memory_basis_points": 8500,
+    "policy_scope": "capacity_estimate_only",
+    "excludes": [
+      "KV cache and workload-dependent allocations",
+      "Measured compiler and runtime workspace",
+      "Measured PCIe and host-staging buffers",
+      "Performance, topology, and power feasibility"
+    ]
+  },
+  "runtime": {
+    "candidate_backend": "max",
+    "os_family": "linux",
+    "architecture": "x86_64",
+    "minimum_os": "Ubuntu 22.04",
+    "minimum_driver": "580",
+    "hardware_precision": [
+      "bf16",
+      "fp16",
+      "fp4",
+      "fp6",
+      "fp8",
+      "int8",
+      "tf32"
+    ],
+    "runtime_precision_candidates": [
+      "bf16",
+      "fp16",
+      "fp8"
+    ],
+    "verification_status": "unverified"
+  },
+  "topology": {
+    "unit_semantics": "one_pcie_gpu_one_gddr_pool",
+    "multi_unit_memory_pooling": false,
+    "internal_fabric": "pcie_only_no_nvlink",
+    "default_cross_unit_transport": "unmeasured",
+    "notes": [
+      "sm_120 is not datacenter Blackwell sm_100; kernel compatibility must be checked explicitly.",
+      "Multiple cards remain separate memory pools and exact host topology must be recorded."
+    ]
+  },
+  "qualification": {
+    "maturity": "C1_contracted",
+    "support_state": "contract_validated",
+    "hardware_validation_status": "not_run",
+    "runtime_validation_status": "not_run",
+    "unresolved_evidence": [
+      "Match RTX 5090 sm_120 and the exact 32 GB memory configuration.",
+      "Pin driver, MAX build, auxiliary CUDA toolchain, PCIe/NUMA, and NIC topology.",
+      "Measure MAX MoE operations, transport, parity, thermals, and power."
+    ]
+  },
+  "sources": [
+    {
+      "source_id": "nvidia-rtx-5090-spec",
+      "url": "https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "identity",
+        "static_facts"
+      ]
+    },
+    {
+      "source_id": "nvidia-compute-capability",
+      "url": "https://developer.nvidia.com/cuda/gpus",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "static_facts.accelerator.compute_capability"
+      ]
+    },
+    {
+      "source_id": "max-package-requirements",
+      "url": "https://docs.modular.com/max/packages/",
+      "retrieved_date": "2026-07-25",
+      "supports": [
+        "runtime"
+      ]
+    }
+  ],
+  "provenance": [
+    {
+      "field": "static_facts",
+      "status": "vendor_specification",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "nvidia-rtx-5090-spec",
+        "nvidia-compute-capability"
+      ]
+    },
+    {
+      "field": "capacity_policy",
+      "status": "conservative_sizing_assumption",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "nvidia-rtx-5090-spec"
+      ]
+    },
+    {
+      "field": "runtime",
+      "status": "publisher_documented_candidate_runtime",
+      "calibration_status": "uncalibrated",
+      "source_ids": [
+        "max-package-requirements"
+      ]
+    }
+  ]
+}
